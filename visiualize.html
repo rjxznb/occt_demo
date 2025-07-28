@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>几何图形可视化</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">加载中...</div>
+    
+    <script type='importmap'>
+    {
+        "imports": {
+            "three": "./node_modules/three/build/three.module.js",
+            "three/addons/": "./node_modules/three/examples/jsm/",
+            "three-mesh-bvh": "./node_modules/three-mesh-bvh/build/index.module.js",
+            "three-bvh-csg": "./node_modules/three-bvh-csg/build/index.module.js"
+        }
+    }
+    </script>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        
+        // 导入CSG库用于真正的布尔运算
+        import { SUBTRACTION, ADDITION, Brush, Evaluator } from 'three-bvh-csg';
+        
+        // CSG布尔运算实现类
+        class CSGOperations {
+            static subtract(meshA, meshB) {
+                try {
+                    if (!meshA || !meshB || !meshA.geometry || !meshB.geometry) {
+                        throw new Error("输入几何体无效");
+                    }
+                    
+                    const evaluator = new Evaluator();
+                    const brushA = new Brush(meshA.geometry);
+                    const brushB = new Brush(meshB.geometry);
+                    
+                    const targetBrush = new Brush();
+                    evaluator.evaluate(brushA, brushB, SUBTRACTION, targetBrush);
+                    
+                    if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
+                        const resultMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0x00aa00,
+                            side: THREE.DoubleSide
+                        });
+                        
+                        return new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                    } else {
+                        throw new Error("CSG运算返回空几何体");
+                    }
+                    
+                } catch (error) {
+                    console.error("CSG减法失败:", error);
+                    
+                    // 降级方案：显示半透明组合
+                    const group = new THREE.Group();
+                    
+                    meshA.material = new THREE.MeshLambertMaterial({ 
+                        color: 0x00ff00, 
+                        transparent: true, 
+                        opacity: 0.7 
+                    });
+                    group.add(meshA);
+                    
+                    meshB.material = new THREE.MeshLambertMaterial({ 
+                        color: 0xff0000, 
+                        transparent: true, 
+                        opacity: 0.3,
+                        wireframe: true
+                    });
+                    group.add(meshB);
+                    
+                    return group;
+                }
+            }
+            
+            static union(meshA, meshB) {
+                try {
+                    if (!meshA || !meshB || !meshA.geometry || !meshB.geometry) {
+                        throw new Error("输入几何体无效");
+                    }
+                    
+                    const evaluator = new Evaluator();
+                    const brushA = new Brush(meshA.geometry);
+                    const brushB = new Brush(meshB.geometry);
+                    
+                    const targetBrush = new Brush();
+                    evaluator.evaluate(brushA, brushB, ADDITION, targetBrush);
+                    
+                    if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
+                        const resultMaterial = meshA.material.clone();
+                        return new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                    } else {
+                        throw new Error("CSG并集运算返回空几何体");
+                    }
+                    
+                } catch (error) {
+                    console.error("CSG并集失败:", error);
+                    
+                    // 降级方案：简单组合
+                    const group = new THREE.Group();
+                    group.add(meshA);
+                    group.add(meshB);
+                    return group;
+                }
+            }
+        }
+
+        // 初始化Three.js场景
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(0, 0, 200);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x333333);
+        document.body.appendChild(renderer.domElement);
+
+        // 添加光源
+        const ambientLight = new THREE.AmbientLight(0x404040, 2);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(1, 1, 1);
+        scene.add(directionalLight);
+
+        // 添加坐标轴辅助器
+        const axesHelper = new THREE.AxesHelper(50);
+        scene.add(axesHelper);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // 从服务器获取数据
+        async function fetchData(query) {
+            try {
+                document.getElementById('info').textContent = '正在获取数据...';
+                
+                // 注意端口号要与main.js中设置的一致
+                let resp = await fetch(`http://localhost:4001/${query}`);
+                
+                if (!resp.ok) {
+                    throw new Error(`HTTP error! status: ${resp.status}`);
+                }
+                
+                let data = await resp.json();
+                document.getElementById('info').textContent = '数据加载完成';
+                return data;
+            } catch (error) {
+                console.error('获取数据失败:', error);
+                document.getElementById('info').textContent = '数据加载失败: ' + error.message;
+                return null;
+            }
+        }
+
+        // 全局缩放参数，确保所有几何体使用相同的缩放
+        let globalScale = 1;
+        let globalCenterX = 0;
+        let globalCenterY = 0;
+        let isGlobalScaleSet = false;
+        
+        // 创建几何体
+        function createMeshFromPoints(points, color = 0xff0000, isWireframe = false) {
+            if (!points || points.length < 3) {
+                return null;
+            }
+
+            // 数据格式转换：[[x,y,z], ...] -> [{x,y}, ...]
+            let convertedPoints = [];
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            
+            // 转换数据格式并计算边界
+            for (let point of points) {
+                let x, y;
+                if (Array.isArray(point) && point.length >= 2) {
+                    x = point[0];
+                    y = point[1];
+                } else if (typeof point === 'object' && point.x !== undefined) {
+                    x = point.x;
+                    y = point.y;
+                } else {
+                    console.error("无效的点格式:", point);
+                    continue;
+                }
+                
+                convertedPoints.push({x, y});
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+            }
+            
+            // 设置全局缩放参数（只在第一次调用时设置）
+            if (!isGlobalScaleSet) {
+                const sizeX = maxX - minX;
+                const sizeY = maxY - minY;
+                const maxSize = Math.max(sizeX, sizeY);
+                globalScale = maxSize > 0 ? 100 / maxSize : 1;
+                globalCenterX = (minX + maxX) / 2;
+                globalCenterY = (minY + maxY) / 2;
+                isGlobalScaleSet = true;
+            }
+            
+            // 创建 Shape
+            const shape = new THREE.Shape();
+            
+            // 使用全局缩放参数
+            const firstPoint = convertedPoints[0];
+            const scaledX = (firstPoint.x - globalCenterX) * globalScale;
+            const scaledY = (firstPoint.y - globalCenterY) * globalScale;
+            shape.moveTo(scaledX, scaledY);
+            
+            // 添加其他点
+            for (let i = 1; i < convertedPoints.length; i++) {
+                const point = convertedPoints[i];
+                const x = (point.x - globalCenterX) * globalScale;
+                const y = (point.y - globalCenterY) * globalScale;
+                shape.lineTo(x, y);
+            }
+            
+            // 确保形状闭合
+            shape.lineTo(scaledX, scaledY);
+            
+            const extrudeSettings = {
+                steps: 1, // 减少步数，提高CSG性能
+                depth: 10, // 统一深度
+                bevelEnabled: false,
+                UVGenerator: THREE.ExtrudeGeometry.WorldUVGenerator // 添加UV生成器
+            };
+
+            try {
+                const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                
+                // 确保几何体是合法的，便于CSG运算
+                geometry.computeVertexNormals();
+                geometry.computeBoundingBox();
+                geometry.computeBoundingSphere();
+                
+                const material = new THREE.MeshLambertMaterial({ 
+                    color: color,
+                    side: THREE.DoubleSide,
+                    wireframe: isWireframe,
+                    transparent: isWireframe,
+                    opacity: isWireframe ? 0.3 : 1.0
+                });
+                
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.updateMatrixWorld();
+                
+                return mesh;
+                
+            } catch (error) {
+                return null;
+            }
+        }
+        
+        // 备选方案：创建线框
+        function createWireframeFromPoints(points, centerX, centerY, scale) {
+            const linePoints = [];
+            
+            for (let point of points) {
+                const x = (point.x - centerX) * scale;
+                const y = (point.y - centerY) * scale;
+                linePoints.push(new THREE.Vector3(x, y, 0));
+            }
+            
+            // 闭合线条
+            if (linePoints.length > 0) {
+                linePoints.push(linePoints[0].clone());
+            }
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+            const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            
+            return new THREE.Line(geometry, material);
+        }
+
+
+        // 主函数
+        async function main() {
+            let outlineMesh = null;
+            let roomMeshes = [];
+            
+            try {
+                // 1. 获取外轮廓数据
+                document.getElementById('info').textContent = '正在获取外轮廓数据...';
+                const outline = await fetchData("outline");
+                
+                if (outline && outline.success) {
+                    if (!outline.outlinePoints || outline.outlinePoints.length < 3) {
+                        throw new Error('外轮廓点数据无效或不足');
+                    }
+                    
+                    document.getElementById('info').textContent = '正在创建外轮廓几何体...';
+                    
+                    // 创建外轮廓几何体（绿色）
+                    outlineMesh = createMeshFromPoints(outline.outlinePoints, 0x00ff00, false);
+                    
+                    if (!outlineMesh) {
+                        throw new Error('外轮廓几何体创建失败');
+                    }
+                } else {
+                    throw new Error('外轮廓数据获取失败或格式错误');
+                }
+                
+                // 2. 获取房间数据
+                document.getElementById('info').textContent = '正在获取房间数据...';
+                const rooms = await fetchData("rooms");
+                
+                if (rooms && rooms.success && rooms.roomPoints) {
+                    document.getElementById('info').textContent = '正在创建房间几何体...';
+                    
+                    // 创建每个房间的几何体（红色）
+                    for (let i = 0; i < rooms.roomPoints.length; i++) {
+                        const roomMesh = createMeshFromPoints(rooms.roomPoints[i], 0xff0000, true);
+                        if (roomMesh) {
+                            roomMeshes.push(roomMesh);
+                        }
+                    }
+                }
+                
+                // 3. 执行布尔运算（挖洞）
+                if (outlineMesh && roomMeshes.length > 0) {
+                    document.getElementById('info').textContent = `正在执行布尔运算，挖去${roomMeshes.length}个房间...`;
+                    
+                    // 将所有房间合并成一个几何体
+                    let combinedRooms = roomMeshes[0];
+                    
+                    for (let i = 1; i < roomMeshes.length; i++) {
+                        combinedRooms = CSGOperations.union(combinedRooms, roomMeshes[i]);
+                        
+                        if (!combinedRooms) {
+                            break;
+                        }
+                    }
+                    
+                    if (combinedRooms) {
+                        // 从外轮廓中挖去所有房间
+                        const finalMesh = CSGOperations.subtract(outlineMesh, combinedRooms);
+                        
+                        if (finalMesh) {
+                            scene.add(finalMesh);
+                            document.getElementById('info').textContent = `挖洞完成 - 户型已挖去${roomMeshes.length}个房间`;
+                        } else {
+                            // 降级显示原始几何体
+                            scene.add(outlineMesh);
+                            roomMeshes.forEach(mesh => scene.add(mesh));
+                            document.getElementById('info').textContent = `挖洞失败 - 显示原始几何体`;
+                        }
+                    } else {
+                        // 降级显示
+                        scene.add(outlineMesh);
+                        roomMeshes.forEach(mesh => scene.add(mesh));
+                        document.getElementById('info').textContent = `房间合并失败 - 显示原始几何体`;
+                    }
+                    
+                } else if (outlineMesh) {
+                    // 如果没有房间数据，只显示外轮廓
+                    scene.add(outlineMesh);
+                    document.getElementById('info').textContent = '渲染完成 - 仅显示外轮廓（无房间数据）';
+                } else {
+                    throw new Error('无有效几何体可显示');
+                }
+                
+                // 4. 调整相机位置
+                camera.position.set(0, 0, 150);
+                controls.target.set(0, 0, 0);
+                controls.update();
+                
+            } catch (error) {
+                console.error('主函数执行失败:', error);
+                document.getElementById('info').textContent = '渲染失败: ' + error.message;
+            }
+        }
+
+        // 窗口大小调整
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.addEventListener('resize', onWindowResize);
+
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+
+        // 启动应用
+        main();
+        animate();
+    </script>
+</body>
+</html>
