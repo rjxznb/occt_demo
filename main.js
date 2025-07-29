@@ -19,7 +19,6 @@ parse_data.Room_Points.forEach((item, index) => {
     }
 });
 
-// console.log(parse_data.Room_Points);
 
 // 构建多边形的wire（不仅限于矩形）
 function createRectWire(points) {
@@ -381,44 +380,11 @@ app.get('/outline', async (req, res) => {
 // 添加房间数据端点
 app.get('/rooms', async (req, res) => {
     try {
-        console.log("开始处理房间数据...");
-        
-        let roomPoints = [];
-        
-        // 为每个房间创建偏移后的点数据
-        for(let i = 0; i < parse_data.Room_Points.length; i++) {
-            console.log(`处理第${i}个房间...`);
-            
-            try {
-                let wire = createRectWire(parse_data.Room_Points[i]);
-                if (!wire) {
-                    console.log(`第${i}个房间wire创建失败，跳过`);
-                    continue;
-                }
-                
-                // 不进行偏移，直接使用原始房间边界
-                let points = wireToPoints(wire);
-                if (points.length > 0) {
-                    roomPoints.push(points);
-                    console.log(`第${i}个房间处理完成，点数: ${points.length}`);
-                } else {
-                    console.log(`第${i}个房间点提取失败`);
-                }
-                
-            } catch (error) {
-                console.log(`处理第${i}个房间时出错:`, error.message);
-            }
-        }
-        
-        console.log(`房间数据处理完成，总共${roomPoints.length}个房间`);
-        
-        // 返回结果
         res.json({
             success: true,
-            roomPoints: roomPoints,
-            message: `处理完成，共${roomPoints.length}个房间`
+            roomPoints: parse_data.Room_Points,
+            message: `处理完成，共${parse_data.Room_Points.length}个房间`
         });
-        
     } catch (error) {
         console.error('房间数据处理失败:', error);
         res.status(500).json({ error: error.message });
