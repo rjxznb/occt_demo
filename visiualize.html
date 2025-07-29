@@ -18,10 +18,36 @@
             border-radius: 5px;
             font-family: Arial, sans-serif;
         }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #777;
+        }
+        button.active {
+            background: #0066cc;
+        }
     </style>
 </head>
 <body>
     <div id="info">加载中...</div>
+
     
     <script type='importmap'>
     {
@@ -41,6 +67,106 @@
         // 导入CSG库用于真正的布尔运算
         import { SUBTRACTION, ADDITION, Brush, Evaluator } from 'three-bvh-csg';
         
+        // 导入墙体选择器
+        import {createSingleWallFace, createWallsFromPoints} from './Face.js'
+        import { WallClickSelector } from './wall-click-selector.js'
+
+        
+        // 全局变量
+        let wallSelector = null;
+        let wallGroupSelector = null;
+        let currentMesh = null;
+        let currentSelectorType = 'basic';
+        let roomsDataCache = null;
+        
+        // 墙面点击选择器
+        let wallClickSelector = null;
+        
+        // 分析房间墙面段（区分弧形和直线）
+        function analyzeRoomWallSegments(roomPoints) {
+            const segments = [];
+            let i = 0;
+            
+            while (i < roomPoints.length) {
+                const currentPoint = roomPoints[i];
+                
+                // 验证点数据格式
+                if (!Array.isArray(currentPoint) || currentPoint.length < 4) {
+                    console.error(`点 ${i} 数据格式错误:`, currentPoint);
+                    i++;
+                    continue;
+                }
+                
+                // 检查坐标值有效性
+                if (isNaN(currentPoint[0]) || isNaN(currentPoint[1]) || isNaN(currentPoint[3])) {
+                    console.error(`点 ${i} 包含无效数值:`, currentPoint);
+                    i++;
+                    continue;
+                }
+                
+                const bulge = currentPoint[3]; // 第4个元素是bulge值
+                
+                if (Math.abs(bulge) > 0.001) {
+                    // 这是弧形点的开始，收集整个弧形段
+                    const arcPoints = [currentPoint];
+                    let j = i + 1;
+                    
+                    // 继续收集弧形点，直到遇到bulge为0的点
+                    while (j < roomPoints.length) {
+                        const nextPoint = roomPoints[j];
+                        
+                        if (!Array.isArray(nextPoint) || nextPoint.length < 4) {
+                            console.error(`弧形段中点 ${j} 数据格式错误:`, nextPoint);
+                            break;
+                        }
+                        
+                        arcPoints.push(nextPoint);
+                        
+                        // 如果下一个点的bulge为0，说明弧形段结束
+                        if (Math.abs(nextPoint[3]) <= 0.001) {
+                            break;
+                        }
+                        
+                        j++;
+                    }
+                    
+                    // 创建弧形段
+                    segments.push({
+                        type: 'arc',
+                        points: arcPoints.map(point => [point[0], point[1], point[2] || 0]), // 只保留xyz坐标
+                        startIndex: i,
+                        endIndex: j,
+                        pointCount: arcPoints.length
+                    });
+                    
+                    console.log(`识别弧形段: 点 ${i} 到 ${j}, 共 ${arcPoints.length} 个点`);
+                    i = j + 1; // 跳过已处理的弧形点
+                    
+                } else {
+                    // 这是直线点，创建到下一个点的直线段
+                    const nextIndex = (i + 1) % roomPoints.length;
+                    const nextPoint = roomPoints[nextIndex];
+                    
+                    if (Array.isArray(nextPoint) && nextPoint.length >= 2) {
+                        segments.push({
+                            type: 'line',
+                            startPoint: [currentPoint[0], currentPoint[1], currentPoint[2] || 0],
+                            endPoint: [nextPoint[0], nextPoint[1], nextPoint[2] || 0],
+                            startIndex: i,
+                            endIndex: nextIndex
+                        });
+                        
+                        console.log(`识别直线段: 点 ${i} (${currentPoint[0].toFixed(2)}, ${currentPoint[1].toFixed(2)}) 到点 ${nextIndex} (${nextPoint[0].toFixed(2)}, ${nextPoint[1].toFixed(2)})`);
+                    }
+                    
+                    i++;
+                }
+            }
+            
+            console.log(`房间分析完成，共识别 ${segments.length} 个墙面段`);
+            return segments;
+        }
+        
         // CSG布尔运算实现类
         class CSGOperations {
             static subtract(meshA, meshB) {
@@ -58,7 +184,7 @@
                     
                     if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
                         const resultMaterial = new THREE.MeshLambertMaterial({ 
-                            color: 0x00aa00,
+                            color: 0xffffff,
                             side: THREE.DoubleSide
                         });
                         
@@ -74,14 +200,14 @@
                     const group = new THREE.Group();
                     
                     meshA.material = new THREE.MeshLambertMaterial({ 
-                        color: 0x00ff00, 
+                        color: 0xffffff, 
                         transparent: true, 
                         opacity: 0.7 
                     });
                     group.add(meshA);
                     
                     meshB.material = new THREE.MeshLambertMaterial({ 
-                        color: 0xff0000, 
+                        color: 0xffffff, 
                         transparent: true, 
                         opacity: 0.3,
                         wireframe: true
@@ -126,6 +252,7 @@
 
         // 初始化Three.js场景
         const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xffffff);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         camera.position.set(0, 0, 200);
 
@@ -172,6 +299,7 @@
             }
         }
 
+
         // 全局缩放参数，确保所有几何体使用相同的缩放
         let globalScale = 1;
         let globalCenterX = 0;
@@ -179,7 +307,7 @@
         let isGlobalScaleSet = false;
         
         // 创建几何体
-        function createMeshFromPoints(points, color = 0xff0000, isWireframe = false) {
+        function createMeshFromPoints(points, color = 0xffffff, isWireframe = false) {
             if (!points || points.length < 3) {
                 return null;
             }
@@ -290,16 +418,23 @@
             }
             
             const geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
-            const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
             
             return new THREE.Line(geometry, material);
         }
+
+
+
+
 
 
         // 主函数
         async function main() {
             let outlineMesh = null;
             let roomMeshes = [];
+            
+            // 初始化墙面点击选择器
+            wallClickSelector = new WallClickSelector(scene, camera, renderer);
             
             try {
                 // 1. 获取外轮廓数据
@@ -329,6 +464,9 @@
                 
                 if (rooms && rooms.success && rooms.roomPoints) {
                     document.getElementById('info').textContent = '正在创建房间几何体...';
+                    
+                    // 缓存房间数据供分组选择器使用
+                    roomsDataCache = rooms;
                     
                     // 创建每个房间的几何体（红色）
                     for (let i = 0; i < rooms.roomPoints.length; i++) {
@@ -360,7 +498,11 @@
                         
                         if (finalMesh) {
                             scene.add(finalMesh);
-                            document.getElementById('info').textContent = `挖洞完成 - 户型已挖去${roomMeshes.length}个房间`;
+                            currentMesh = finalMesh;
+                            
+                            
+                            
+                            document.getElementById('info').textContent = `挖洞完成 - 户型已挖去${roomMeshes.length}个房间。`;
                         } else {
                             // 降级显示原始几何体
                             scene.add(outlineMesh);
@@ -381,6 +523,81 @@
                 } else {
                     throw new Error('无有效几何体可显示');
                 }
+
+
+                // 根据房间wire创建墙面（支持弧形墙面）
+                if (rooms && rooms.roomPoints && rooms.roomPoints.length > 0) {
+                    console.log('开始创建房间墙面，房间数量:', rooms.roomPoints.length);
+                    console.log('全局变换参数:', { globalScale, globalCenterX, globalCenterY, isGlobalScaleSet });
+                    
+                    for (let i = 0; i < rooms.roomPoints.length; i++) {
+                        const roomPoints = rooms.roomPoints[i];
+                        console.log(`房间 ${i} 的点数据:`, roomPoints);
+                        
+                        // 分析并创建墙面段
+                        const wallSegments = analyzeRoomWallSegments(roomPoints);
+                        console.log(`房间 ${i} 识别到 ${wallSegments.length} 个墙面段:`, wallSegments);
+                        
+                        // 为每个墙面段创建墙面
+                        wallSegments.forEach((segment, segmentIndex) => {
+                            const wallHeight = 10; // 与户型图厚度保持一致
+                            
+                            if (segment.type === 'arc') {
+                                // 弧形墙面：使用createWallsFromPoints
+                                console.log(`创建弧形墙面 ${segmentIndex}:`, segment.points.length, '个点');
+                                
+                                // 转换弧形点坐标
+                                const scaledArcPoints = segment.points.map(point => {
+                                    const scaledX = (point[0] - globalCenterX) * globalScale;
+                                    const scaledY = (point[1] - globalCenterY) * globalScale;
+                                    return [scaledX, scaledY, 0];
+                                });
+                                
+                                const arcWallGroup = createWallsFromPoints(scaledArcPoints, 0x00ff88, wallHeight, false);
+                                if (arcWallGroup) {
+                                    // 为弧形墙group添加标识信息
+                                    arcWallGroup.userData.isArcWall = true;
+                                    arcWallGroup.userData.roomIndex = i;
+                                    arcWallGroup.userData.segmentIndex = segmentIndex;
+                                    arcWallGroup.userData.wallType = 'arc';
+                                    
+                                    scene.add(arcWallGroup);
+                                    
+                                    // 将弧形墙面组中的所有子墙面添加到选择器，并为每个子墙面添加parent引用
+                                    arcWallGroup.children.forEach(childWall => {
+                                        childWall.userData.parentArcWall = arcWallGroup;
+                                        childWall.userData.isArcWallPart = true;
+                                        wallClickSelector.addWallMesh(childWall);
+                                    });
+                                }
+                                
+                            } else {
+                                // 直线墙面：使用createSingleWallFace
+                                console.log(`创建直线墙面 ${segmentIndex}:`, segment.startPoint, '->', segment.endPoint);
+                                
+                                // 转换直线点坐标
+                                const scaledX1 = (segment.startPoint[0] - globalCenterX) * globalScale;
+                                const scaledY1 = (segment.startPoint[1] - globalCenterY) * globalScale;
+                                const scaledX2 = (segment.endPoint[0] - globalCenterX) * globalScale;
+                                const scaledY2 = (segment.endPoint[1] - globalCenterY) * globalScale;
+                                
+                                const point1 = [scaledX1, scaledY1, 0];
+                                const point2 = [scaledX2, scaledY2, 0];
+                                
+                                const wallFace = createSingleWallFace([point1, point2], 0xffffff, wallHeight);
+                                
+                                if (wallFace) {
+                                    scene.add(wallFace);
+                                    wallClickSelector.addWallMesh(wallFace);
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    console.log('没有房间数据，跳过墙面创建');
+                }
+                
+
                 
                 // 4. 调整相机位置
                 camera.position.set(0, 0, 150);
