@@ -124,79 +124,115 @@ export class WallClickSelector {
     }
     
     /**
-     * 创建弧形墙group的整体高亮
-     * @param {THREE.Group} arcWallGroup - 弧形墙group对象
-     * @returns {THREE.Group} 整体高亮线条组对象
+     * 创建弧形墙外轮廓高亮（只显示四周边框）
+     * @param {THREE.Mesh} arcWallMesh - 弧形墙mesh对象
+     * @returns {THREE.Group} 轮廓线条组对象
      */
-    createArcWallGroupHighlight(arcWallGroup) {
-        console.log('开始创建弧形墙group整体高亮:', arcWallGroup);
+    createArcWallOutlineHighlight(arcWallMesh) {
+        console.log('开始创建弧形墙外轮廓高亮:', arcWallMesh);
         
-        const highlightGroup = new THREE.Group();
+        const geometry = arcWallMesh.geometry;
+        const positions = geometry.attributes.position.array;
+        const vertexCount = positions.length / 3;
         
-        // 为弧形墙group中的每个子墙面创建高亮
-        arcWallGroup.children.forEach((childWall, index) => {
-            if (childWall.geometry) {
-                console.log(`为弧形墙子墙面 ${index} 创建高亮`);
-                
-                // 使用EdgesGeometry为每个子墙面创建边缘
-                const edgesGeometry = new THREE.EdgesGeometry(childWall.geometry);
-                
-                // 创建多条线段来加粗效果（比单个墙面稍微少一些，避免太密集）
-                const offsets = [
-                    { x: 0, y: 0, z: 0.3 },      // 主线条
-                    { x: 0.08, y: 0, z: 0.35 },  // 右偏移
-                    { x: -0.08, y: 0, z: 0.35 }, // 左偏移
-                    { x: 0, y: 0.08, z: 0.35 },  // 上偏移
-                    { x: 0, y: -0.08, z: 0.35 }  // 下偏移
-                ];
-                
-                offsets.forEach((offset, offsetIndex) => {
-                    // 克隆EdgesGeometry并应用偏移
-                    const offsetGeometry = edgesGeometry.clone();
-                    const positions = offsetGeometry.attributes.position.array;
-                    
-                    // 对所有顶点应用偏移
-                    for (let i = 0; i < positions.length; i += 3) {
-                        positions[i] += offset.x;     // X偏移
-                        positions[i + 1] += offset.y; // Y偏移
-                        positions[i + 2] += offset.z; // Z偏移
-                    }
-                    
-                    // 更新几何体
-                    offsetGeometry.attributes.position.needsUpdate = true;
-                    
-                    // 创建线条材质（弧形墙使用不同的颜色 - 蓝绿色）
-                    const edgeMaterial = new THREE.LineBasicMaterial({ 
-                        color: 0x00aaff, // 蓝绿色，区别于直线墙的纯蓝色
-                        transparent: true,
-                        opacity: offsetIndex === 0 ? 1.0 : 0.4,
-                        depthTest: false,
-                        depthWrite: false,
-                        linewidth: offsetIndex === 0 ? 4 : 2
-                    });
-                    
-                    // 创建线段对象
-                    const edgeLine = new THREE.LineSegments(offsetGeometry, edgeMaterial);
-                    edgeLine.renderOrder = 1000 + offsetIndex;
-                    
-                    // 应用子墙面的变换
-                    edgeLine.position.copy(childWall.position);
-                    edgeLine.rotation.copy(childWall.rotation);
-                    edgeLine.scale.copy(childWall.scale);
-                    
-                    highlightGroup.add(edgeLine);
-                });
-            }
+        console.log('弧形墙顶点总数:', vertexCount);
+        
+        // 根据Face.js中的顶点组织方式：先所有底部顶点，再所有顶部顶点
+        const bottomVertexCount = vertexCount / 2;
+        
+        // 提取底部和顶部顶点
+        const bottomVertices = [];
+        const topVertices = [];
+        
+        for (let i = 0; i < bottomVertexCount; i++) {
+            const bottomIndex = i * 3;
+            const topIndex = (bottomVertexCount + i) * 3;
+            
+            bottomVertices.push(new THREE.Vector3(
+                positions[bottomIndex],
+                positions[bottomIndex + 1],
+                positions[bottomIndex + 2]
+            ));
+            
+            topVertices.push(new THREE.Vector3(
+                positions[topIndex],
+                positions[topIndex + 1],
+                positions[topIndex + 2]
+            ));
+        }
+        
+        console.log(`底部顶点数: ${bottomVertices.length}, 顶部顶点数: ${topVertices.length}`);
+        
+        // 创建外轮廓线条
+        const outlinePoints = [];
+        
+        // 底边：连接所有底部顶点
+        for (let i = 0; i < bottomVertices.length - 1; i++) {
+            outlinePoints.push(bottomVertices[i], bottomVertices[i + 1]);
+        }
+        
+        // 右边：从最后一个底部顶点到最后一个顶部顶点
+        outlinePoints.push(bottomVertices[bottomVertices.length - 1], topVertices[topVertices.length - 1]);
+        
+        // 顶边：连接所有顶部顶点（逆向）
+        for (let i = topVertices.length - 1; i > 0; i--) {
+            outlinePoints.push(topVertices[i], topVertices[i - 1]);
+        }
+        
+        // 左边：从第一个顶部顶点到第一个底部顶点
+        outlinePoints.push(topVertices[0], bottomVertices[0]);
+        
+        console.log(`外轮廓线段数: ${outlinePoints.length / 2}`);
+        
+        // 创建多条线段来加粗效果
+        const lineGroup = new THREE.Group();
+        
+        const offsets = [
+            { x: 0, y: 0, z: 0.3 },      // 主线条
+            { x: 0.1, y: 0, z: 0.35 },   // 右偏移
+            { x: -0.1, y: 0, z: 0.35 },  // 左偏移
+            { x: 0, y: 0.1, z: 0.35 },   // 上偏移
+            { x: 0, y: -0.1, z: 0.35 },  // 下偏移
+            { x: 0.05, y: 0.05, z: 0.32 }, // 右上偏移
+            { x: -0.05, y: 0.05, z: 0.32 }, // 左上偏移
+            { x: 0.05, y: -0.05, z: 0.32 }, // 右下偏移
+            { x: -0.05, y: -0.05, z: 0.32 }  // 左下偏移
+        ];
+        
+        offsets.forEach((offset, index) => {
+            // 应用偏移到轮廓点
+            const offsetOutlinePoints = outlinePoints.map(point => 
+                new THREE.Vector3(
+                    point.x + offset.x,
+                    point.y + offset.y,
+                    point.z + offset.z
+                )
+            );
+            
+            const edgeGeometry = new THREE.BufferGeometry().setFromPoints(offsetOutlinePoints);
+            const edgeMaterial = new THREE.LineBasicMaterial({ 
+                color: 0x00aaff, // 弧形墙使用蓝绿色
+                transparent: true,
+                opacity: index === 0 ? 1.0 : 0.4,
+                depthTest: false,
+                depthWrite: false,
+                linewidth: index === 0 ? 4 : 2
+            });
+            
+            const edgeLine = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+            edgeLine.renderOrder = 1000 + index;
+            
+            lineGroup.add(edgeLine);
         });
         
-        // 应用弧形墙group的变换
-        highlightGroup.position.copy(arcWallGroup.position);
-        highlightGroup.rotation.copy(arcWallGroup.rotation);
-        highlightGroup.scale.copy(arcWallGroup.scale);
+        // 复制墙面的变换
+        lineGroup.position.copy(arcWallMesh.position);
+        lineGroup.rotation.copy(arcWallMesh.rotation);
+        lineGroup.scale.copy(arcWallMesh.scale);
         
-        console.log(`弧形墙group整体高亮创建完成，包含 ${highlightGroup.children.length} 个高亮线条`);
+        console.log('弧形墙外轮廓高亮创建完成');
         
-        return highlightGroup;
+        return lineGroup;
     }
     
     /**
@@ -288,38 +324,31 @@ export class WallClickSelector {
                 return;
             }
             
-            // 检查是否点击的是弧形墙的一部分
-            let targetWall = intersectedWall;
-            if (intersectedWall.userData.isArcWallPart && intersectedWall.userData.parentArcWall) {
-                console.log('检测到弧形墙部分，选择整个弧形墙group');
-                targetWall = intersectedWall.userData.parentArcWall;
-            }
-            
             // 清除之前的高亮
             this.clearWallHighlight();
             
             // 高亮当前选中的墙面
-            this.selectedWallMesh = targetWall;
+            this.selectedWallMesh = intersectedWall;
             
-            if (targetWall.userData.isArcWall) {
-                // 弧形墙：高亮整个group
-                console.log('创建弧形墙整体高亮');
-                this.highlightEdges = this.createArcWallGroupHighlight(targetWall);
+            if (intersectedWall.userData.isArcWall) {
+                // 弧形墙：使用专门的高亮函数
+                console.log('创建弧形墙专用高亮');
+                this.highlightEdges = this.createArcWallOutlineHighlight(intersectedWall);
             } else {
-                // 单个墙面：使用原有逻辑
-                console.log('创建单个墙面高亮');
-                this.highlightEdges = this.createWallEdgeHighlight(targetWall);
+                // 直线墙：使用EdgesGeometry
+                console.log('创建直线墙高亮');
+                this.highlightEdges = this.createWallEdgeHighlight(intersectedWall);
             }
             
             this.scene.add(this.highlightEdges);
             
-            console.log('选中墙面:', targetWall);
-            console.log('墙面类型:', targetWall.userData.wallType || 'line');
-            console.log('墙面位置:', targetWall.position);
+            console.log('选中墙面:', intersectedWall);
+            console.log('墙面类型:', intersectedWall.userData.wallType || 'line');
+            console.log('墙面位置:', intersectedWall.position);
             console.log('交叉点位置:', intersection.point);
             
             // 触发自定义事件
-            this.onWallSelected(targetWall);
+            this.onWallSelected(intersectedWall);
         } else {
             // 点击空白处，清除高亮
             this.clearWallHighlight();

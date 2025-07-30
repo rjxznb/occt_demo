@@ -66,32 +66,92 @@ export function createSingleWallFace(points, color=0xff6600, height=240) {
 }
 
 
-// 根据点数组创建围墙（相邻点连线并向上拉伸）
+// 根据点数组创建整体弧形墙面（作为一个单一mesh）
 export function createWallsFromPoints(points, color=0x00ff00, height=240, closed=false) {
     if (points.length < 2) {
         console.error("至少需要2个点来创建墙体");
         return null;
     }
     
-    const wallGroup = new THREE.Group();
+    console.log(`创建整体弧形墙面，点数: ${points.length}, 高度: ${height}`);
+    
+    // 确保所有点都有正确的格式
+    const normalizedPoints = points.map(p => {
+        if (p.length === 2) {
+            return [p[0], p[1], 0];
+        } else if (p.length >= 3) {
+            return [p[0], p[1], p[2]];
+        } else {
+            console.error("点格式错误:", p);
+            return [0, 0, 0];
+        }
+    });
+    
+    // 创建顶点数组和索引数组
+    const vertices = [];
+    const indices = [];
+    
     const segmentCount = closed ? points.length : points.length - 1;
     
-    // 为每个线段创建一个墙面
-    for (let i = 0; i < segmentCount; i++) {
-        const p1 = points[i];
-        const p2 = points[(i + 1) % points.length]; // 闭合时最后一个点连接第一个点
+    // 先创建所有底部和顶部顶点（共享相邻线段的端点）
+    const bottomVertices = [];
+    const topVertices = [];
+    
+    for (let i = 0; i <= segmentCount; i++) {
+        const pointIndex = i % normalizedPoints.length;
+        const point = normalizedPoints[pointIndex];
         
-        // 确保点格式正确（添加z坐标如果缺失）
-        const point1 = p1.length === 2 ? [p1[0], p1[1], 0] : p1;
-        const point2 = p2.length === 2 ? [p2[0], p2[1], 0] : p2;
-        
-        // 创建单个墙面
-        const wallFace = createSingleWallFace([point1, point2], color, height);
-        
-        if (wallFace) {
-            wallGroup.add(wallFace);
-        }
+        // 底部顶点
+        bottomVertices.push([point[0], point[1], point[2]]);
+        // 顶部顶点
+        topVertices.push([point[0], point[1], point[2] + height]);
     }
     
-    return wallGroup;
+    // 将所有顶点添加到vertices数组：先所有底部顶点，再所有顶部顶点
+    bottomVertices.forEach(vertex => vertices.push(...vertex));
+    topVertices.forEach(vertex => vertices.push(...vertex));
+    
+    const bottomVertexCount = bottomVertices.length;
+    
+    // 为每个线段创建面索引
+    for (let i = 0; i < segmentCount; i++) {
+        const bottomLeft = i;                    // 底部左点索引
+        const bottomRight = i + 1;               // 底部右点索引
+        const topLeft = bottomVertexCount + i;   // 顶部左点索引
+        const topRight = bottomVertexCount + i + 1; // 顶部右点索引
+        
+        // 创建两个三角形组成矩形面（注意顶点顺序，确保正确的法向量）
+        indices.push(
+            bottomLeft, bottomRight, topRight,  // 第一个三角形
+            bottomLeft, topRight, topLeft       // 第二个三角形
+        );
+    }
+    
+    console.log(`生成顶点数量: ${vertices.length / 3}, 三角形数量: ${indices.length / 3}`);
+    
+    // 创建BufferGeometry
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    
+    // 创建材质
+    const material = new THREE.MeshLambertMaterial({
+        color: color,
+        side: THREE.DoubleSide,
+        transparent: false,
+        opacity: 1.0,
+        depthTest: true,
+        depthWrite: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1
+    });
+    
+    // 创建单一的mesh对象
+    const mesh = new THREE.Mesh(geometry, material);
+    
+    console.log('整体弧形墙面创建完成');
+    
+    return mesh;
 }

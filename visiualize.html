@@ -140,7 +140,8 @@
                     });
                     
                     console.log(`识别弧形段: 点 ${i} 到 ${j}, 共 ${arcPoints.length} 个点`);
-                    i = j + 1; // 跳过已处理的弧形点
+                    // 修复：设置i为j，下一轮循环会处理j位置的点（弧形段的最后一个点）
+                    i = j;
                     
                 } else {
                     // 这是直线点，创建到下一个点的直线段
@@ -553,22 +554,18 @@
                                     return [scaledX, scaledY, 0];
                                 });
                                 
-                                const arcWallGroup = createWallsFromPoints(scaledArcPoints, 0x00ff88, wallHeight, false);
-                                if (arcWallGroup) {
-                                    // 为弧形墙group添加标识信息
-                                    arcWallGroup.userData.isArcWall = true;
-                                    arcWallGroup.userData.roomIndex = i;
-                                    arcWallGroup.userData.segmentIndex = segmentIndex;
-                                    arcWallGroup.userData.wallType = 'arc';
+                                const arcWallMesh = createWallsFromPoints(scaledArcPoints, 0x00ff88, wallHeight, false);
+                                if (arcWallMesh) {
+                                    // 为弧形墙mesh添加标识信息
+                                    arcWallMesh.userData.isArcWall = true;
+                                    arcWallMesh.userData.roomIndex = i;
+                                    arcWallMesh.userData.segmentIndex = segmentIndex;
+                                    arcWallMesh.userData.wallType = 'arc';
                                     
-                                    scene.add(arcWallGroup);
+                                    scene.add(arcWallMesh);
                                     
-                                    // 将弧形墙面组中的所有子墙面添加到选择器，并为每个子墙面添加parent引用
-                                    arcWallGroup.children.forEach(childWall => {
-                                        childWall.userData.parentArcWall = arcWallGroup;
-                                        childWall.userData.isArcWallPart = true;
-                                        wallClickSelector.addWallMesh(childWall);
-                                    });
+                                    // 直接将弧形墙mesh添加到选择器
+                                    wallClickSelector.addWallMesh(arcWallMesh);
                                 }
                                 
                             } else {

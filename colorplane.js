@@ -112,7 +112,7 @@ export function SampleArc(startPoint, endPoint, bulge) {
     const arcPoints = arcCurve.getPoints(50);
     for (let i = 0; i < arcPoints.length; i++) {
         const point = arcPoints[i];
-        points.push({'x': point.x, 'y': point.y, 'z': 0});
+        points.push({'x': point.x, 'y': point.y, 'z': 0, 'bulge':1});
     }
     return points;
 }
