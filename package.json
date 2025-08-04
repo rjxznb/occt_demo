@@ -1,8 +1,14 @@
 {
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js"
+  },
   "dependencies": {
     "express": "^5.1.0",
     "opencascade.js": "^2.0.0-beta.b5ff984",
     "three": "^0.178.0",
-    "three-bvh-csg": "^0.0.17"
+    "three-bvh-csg": "^0.0.17",
+    "three-mesh-bvh": "^0.8.0",
+    "three-csgmesh": "https://github.com/manthrax/THREE-CSGMesh.git"
   }
 }
