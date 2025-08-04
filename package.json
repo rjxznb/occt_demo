@@ -1,14 +1,22 @@
 {
   "type": "module",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "dev-react": "vite --config vite.config.js --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server.js"
   },
   "dependencies": {
     "express": "^5.1.0",
     "opencascade.js": "^2.0.0-beta.b5ff984",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "three": "^0.178.0",
     "three-bvh-csg": "^0.0.17",
     "three-mesh-bvh": "^0.8.0",
-    "three-csgmesh": "https://github.com/manthrax/THREE-CSGMesh.git"
+    "three-csgmesh": "https://github.com/manthrax/THREE-CSGMesh.git",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.5"
   }
 }

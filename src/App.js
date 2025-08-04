@@ -1,6 +1,8 @@
 import { SceneManager } from './core/SceneManager.js';
 import { RoomRenderer } from './components/RoomRenderer.js';
 import { WallSelector } from './components/WallSelector.js';
+import { MaterialSidebar } from './components/MaterialSidebar.js';
+import { DragDropManager } from './components/DragDropManager.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -10,6 +12,8 @@ class OCCTApp {
         this.sceneManager = null;
         this.roomRenderer = null;
         this.wallSelector = null;
+        this.materialSidebar = null;
+        this.dragDropManager = null;
         this.uiElements = {};
         this.currentMode = 'view'; // 'view' 或 'edit'
         this.fpsCounter = null;
@@ -37,6 +41,8 @@ class OCCTApp {
                 csgEpsilon: this.currentEpsilon
             });
             this.wallSelector = new WallSelector(this.sceneManager);
+            this.materialSidebar = new MaterialSidebar(this.sceneManager);
+            this.dragDropManager = new DragDropManager(this.sceneManager);
             
             // 设置渐进式渲染进度回调
             this.roomRenderer.setProgressCallback((current, total) => {
@@ -51,6 +57,15 @@ class OCCTApp {
             // 设置墙面选择回调
             this.wallSelector.onWallSelected = (wallMesh) => {
                 this.onWallSelected(wallMesh);
+            };
+            
+            // 设置拖拽事件回调
+            this.dragDropManager.onMaterialApplied = (mesh, materialData) => {
+                this.onMaterialApplied(mesh, materialData);
+            };
+            
+            this.dragDropManager.onModelCreated = (mesh, modelData) => {
+                this.onModelCreated(mesh, modelData);
             };
             
             // 开始渲染循环并添加FPS更新
@@ -76,33 +91,25 @@ class OCCTApp {
         this.uiElements = {
             info: document.getElementById('info'),
             fpsCounter: document.getElementById('fps-counter'),
-            // modeToggle: document.getElementById('mode-toggle'),
-            // csgEngineToggle: document.getElementById('csg-engine-toggle'),
-            // csgPrecision: document.getElementById('csg-precision'),
-            // precisionSelect: document.getElementById('precision-select')
+            modeToggle: document.getElementById('mode-toggle'),
+            resourceToggle: document.getElementById('resource-toggle')
         };
 
         // 初始化FPS计数器
         this.initFPSCounter();
 
         // 绑定模式切换按钮事件
-        // this.uiElements.modeToggle?.addEventListener('click', () => {
-        //     this.toggleMode();
-        // });
+        this.uiElements.modeToggle?.addEventListener('click', () => {
+            this.toggleMode();
+        });
 
-        // 绑定CSG引擎切换按钮事件
-        // this.uiElements.csgEngineToggle?.addEventListener('click', () => {
-        //     this.toggleCSGEngine();
-        // });
-
-        // 绑定精度选择事件
-        // this.uiElements.precisionSelect?.addEventListener('change', (e) => {
-        //     this.updateCSGPrecision(parseFloat(e.target.value));
-        // });
+        // 绑定资源库按钮事件
+        this.uiElements.resourceToggle?.addEventListener('click', () => {
+            this.toggleResourceSidebar();
+        });
 
         // 设置初始模式
         this.setMode('view');
-        // this.updateCSGEngineUI();
     }
 
     /**
@@ -171,6 +178,15 @@ class OCCTApp {
     }
 
     /**
+     * 切换资源侧边栏
+     */
+    toggleResourceSidebar() {
+        if (this.materialSidebar) {
+            this.materialSidebar.toggle();
+        }
+    }
+
+    /**
      * 加载数据
      */
     async loadData() {
@@ -224,6 +240,41 @@ class OCCTApp {
         const roomIndex = wallMesh.userData.roomIndex;
         
         this.updateStatus(`已选中: ${wallType === 'arc' ? '弧形' : '直线'}墙面 (房间 ${roomIndex})`);
+    }
+
+    /**
+     * 材质应用回调
+     * @param {THREE.Mesh} mesh - 应用材质的网格
+     * @param {Object} materialData - 材质数据
+     */
+    onMaterialApplied(mesh, materialData) {
+        const objectName = mesh.userData.type || mesh.name || '未知对象';
+        this.updateStatus(`已将 ${materialData.name} 材质应用到 ${objectName}`);
+        
+        // 可以在这里添加更多的材质应用后处理逻辑
+        console.log('材质应用详情:', {
+            object: mesh,
+            material: materialData,
+            position: mesh.position,
+            userData: mesh.userData
+        });
+    }
+
+    /**
+     * 模型创建回调
+     * @param {THREE.Mesh} mesh - 创建的模型网格
+     * @param {Object} modelData - 模型数据
+     */
+    onModelCreated(mesh, modelData) {
+        this.updateStatus(`已创建 ${modelData.name} 模型`);
+        
+        // 可以在这里添加更多的模型创建后处理逻辑
+        console.log('模型创建详情:', {
+            model: mesh,
+            data: modelData,
+            position: mesh.position,
+            userData: mesh.userData
+        });
     }
 
     /**
@@ -299,6 +350,14 @@ class OCCTApp {
     dispose() {
         if (this.wallSelector) {
             this.wallSelector.dispose();
+        }
+        
+        if (this.materialSidebar) {
+            this.materialSidebar.destroy();
+        }
+        
+        if (this.dragDropManager) {
+            this.dragDropManager.destroy();
         }
         
         console.log('应用已清理');
