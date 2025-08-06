@@ -65,7 +65,15 @@ class CSGOperations {
 
             if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
                 const resultMaterial = meshA.material.clone();
-                return new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                const resultMesh = new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                
+                // 保留原始mesh的userData（关键修复：解决挖洞后wallType丢失问题）
+                if (meshA.userData) {
+                    resultMesh.userData = { ...meshA.userData };
+                    console.log('CSG减法（three-bvh-csg）：已保留原始mesh的userData:', resultMesh.userData);
+                }
+                
+                return resultMesh;
             } else {
                 throw new Error("CSG减法运算返回空几何体");
             }
@@ -102,7 +110,15 @@ class CSGOperations {
             
             if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
                 const resultMaterial = meshA.material.clone();
-                return new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                const resultMesh = new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                
+                // 保留原始mesh的userData
+                if (meshA.userData) {
+                    resultMesh.userData = { ...meshA.userData };
+                    console.log('CSG并集（three-bvh-csg）：已保留原始mesh的userData:', resultMesh.userData);
+                }
+                
+                return resultMesh;
             } else {
                 throw new Error("CSG并集运算返回空几何体");
             }
@@ -264,9 +280,15 @@ export class RoomRenderer {
                 floorMeshes: []
             };
 
-            // 创建场景组用于整体缩放
-            this.sceneGroup = new THREE.Group();
-            this.scene.add(this.sceneGroup);
+            // 如果场景组不存在，创建新的场景组用于整体缩放
+            if (!this.sceneGroup) {
+                this.sceneGroup = new THREE.Group();
+                this.scene.add(this.sceneGroup);
+            } else if (this.sceneGroup.children.length > 0) {
+                // 如果场景组已存在且有内容，说明已经渲染过，直接返回
+                console.log('3D场景已存在缓存，使用现有渲染结果');
+                return result;
+            }
 
             // 1. 创建外轮廓 mesh（但先不添加到场景）
             const outlinePoints = data.outline?.outlinePoints || data.outline;
@@ -373,6 +395,7 @@ export class RoomRenderer {
                             this.sceneGroup.add(wallMesh);
                             wallSelector.addWall(wallMesh);
                         }
+                        // wallMesh.userData.type='wall';
                     }
                 });
                 
@@ -395,27 +418,9 @@ export class RoomRenderer {
                     });
                 }
             }
-
-
-            // test
-            // for(let i =0;i<result.wallMeshes.length;i++){
-            //     result.wallMeshes[i] = this.csgMeshOps.subtract(result.wallMeshes[i], doorWindowMeshes.windows[3]);
-            //     this.sceneGroup.add(result.wallMeshes[i]);
-            // }
-            // this.sceneGroup.add(doorWindowMeshes.windows[3]);
-            
-            // for(let i =0;i<result.wallMeshes.length;i++){
-            //     result.wallMeshes[i] = this.csgMeshOps.subtract(result.wallMeshes[i], doorWindowMeshes.windows[2]);
-            //     console.log(i);
-            //     this.sceneGroup.add(result.wallMeshes[i]);
-            //     break;
-            // }
-
-            
-            // this.sceneGroup.add(result.wallMeshes[110]);
-
-
-
+            // 因为对外墙挖洞，返回的实例对象其实已经不是原来的mesh啦，
+            // 所以之前的一些userData全都不存在啦，我们需要自己再设置；
+            result.outlineMesh.userData.type="outWall";
 
             // 7. 调整相机视角
             this.adjustCamera();
@@ -462,7 +467,12 @@ export class RoomRenderer {
                 side: THREE.DoubleSide
             });
 
-            return new THREE.Mesh(geometry, material);
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            // 将outlineMesh稍微下移，确保wallMesh在其上方，避免Z-fighting
+            mesh.position.z = -2;
+            
+            return mesh;
 
         } catch (error) {
             console.error('外轮廓创建失败:', error);
@@ -1294,13 +1304,13 @@ export class RoomRenderer {
                             ]);
 
                             wallMesh = WallFactory.createArcWall(points, {
-                                color: 0x00ff88,
+                                color: 0xF8F8F8,  // 专业的浅灰白色
                                 height: 2800
                             });
                             
                             // 设置弧形墙面位置稍微向上偏移，避免Z-fighting
                             if (wallMesh) {
-                                wallMesh.position.z += 0.01;
+                                wallMesh.position.z += 5; // 增大Z偏移，避免与outlineMesh的Z-fighting
                             }
 
                         } else {
@@ -1317,13 +1327,13 @@ export class RoomRenderer {
                             ];
 
                             wallMesh = WallFactory.createStraightWall(startPoint, endPoint, {
-                                color: 0xffffff,
+                                color: 0xF8F8F8,  // 专业的浅灰白色
                                 height: 2800
                             });
                             
                             // 设置墙面位置稍微向上偏移，避免Z-fighting
                             if (wallMesh) {
-                                wallMesh.position.z += 0.01;
+                                wallMesh.position.z += 5; // 增大Z偏移，避免与outlineMesh的Z-fighting
                             }
                         }
 
@@ -1443,7 +1453,7 @@ export class RoomRenderer {
                         ]);
 
                         wallMesh = WallFactory.createArcWall(points, {
-                            color: 0xffffff,
+                            color: 0xF8F8F8,  // 专业的浅灰白色
                             height: 2800
                         });
                         
@@ -1466,7 +1476,7 @@ export class RoomRenderer {
                         ];
 
                         wallMesh = WallFactory.createStraightWall(startPoint, endPoint, {
-                            color: 0xffffff,
+                            color: 0xF8F8F8,  // 专业的浅灰白色
                             height: 2800
                         });
                         
@@ -1559,12 +1569,43 @@ export class RoomRenderer {
      */
     adjustCamera() {
         const camera = this.sceneManager.getCamera();
-        camera.position.set(0, 0, 15000);
+        camera.position.set(0, -5000, 15000);
         
         const controls = this.sceneManager.controls;
         if (controls) {
             controls.target.set(0, 0, 0);
             controls.update();
+        }
+    }
+
+    /**
+     * 清理所有3D渲染对象
+     * @param {THREE.Scene} scene - Three.js场景对象
+     */
+    dispose(scene) {
+        if (this.sceneGroup) {
+            // 递归清理所有子对象的几何体和材质
+            this.sceneGroup.traverse((child) => {
+                if (child.geometry) {
+                    child.geometry.dispose();
+                }
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(material => material.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+            
+            // 从场景中移除场景组
+            scene.remove(this.sceneGroup);
+            
+            // 清空场景组
+            this.sceneGroup.clear();
+            this.sceneGroup = null;
+            
+            console.log('3D渲染对象已清理');
         }
     }
 }

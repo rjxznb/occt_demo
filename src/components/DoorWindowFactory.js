@@ -14,10 +14,14 @@ export class DoorWindowFactory {
      */
     static createDoorWindow(points, height, groundHeight = 0, options = {}) {
         const {
-            color = 0x8B4513,     // 默认棕色
-            opacity = 1.0,
-            transparent = true,
             materialType = 'door'   // 'door' 或 'window'
+        } = options;
+        
+        // 根据材质类型设置默认值
+        const {
+            color = materialType === 'window' ? 0x87CEEB : 0x654321,  // 窗户用天空蓝，门用深木色
+            opacity = materialType === 'window' ? 0.3 : 1.0,          // 窗户透明，门不透明
+            transparent = materialType === 'window'                    // 窗户透明，门不透明
         } = options;
 
         // 验证输入参数
@@ -63,12 +67,11 @@ export class DoorWindowFactory {
             // 创建材质
             const material = this.createMaterial(materialType, color, opacity, transparent);
 
-            // 创建mesh
+            // 创建主体mesh
             const mesh = new THREE.Mesh(geometry, material);
             
             // 设置离地高度
             mesh.position.z = groundHeight;
-        
         
             // 检查是否包含弧形段
             const hasArc = points.some(point => point.bulge && Math.abs(point.bulge) > 0.001);
@@ -100,7 +103,7 @@ export class DoorWindowFactory {
      */
     static createDoor(points, height, options = {}) {
         const doorOptions = {
-            color: 0x8B4513,        // 棕色木门
+            color: 0x654321,        // 深木色，更现代的门
             opacity: 1.0,
             transparent: false,
             materialType: 'door',
@@ -120,8 +123,8 @@ export class DoorWindowFactory {
      */
     static createWindow(points, height, groundHeight, options = {}) {
         const windowOptions = {
-            color: 0x87CEEB,        // 天蓝色玻璃
-            opacity: 0.6,
+            color: 0x87CEEB,        // 天蓝色玻璃，现代玻璃风格
+            opacity: 0.3,          // 更高透明度
             transparent: true,
             materialType: 'window',
             ...options
@@ -140,25 +143,15 @@ export class DoorWindowFactory {
      * @returns {THREE.Material} 材质对象
      */
     static createMaterial(type, color, opacity, transparent) {
-        const materialOptions = {
+        // 创建基础材质
+        const material = new THREE.MeshLambertMaterial({
             color: color,
-            side: THREE.DoubleSide,
             transparent: transparent,
-            opacity: opacity
-        };
+            opacity: opacity,
+            side: THREE.DoubleSide
+        });
 
-        if (type === 'window') {
-            // 窗户使用更透明的材质
-            return new THREE.MeshPhongMaterial({
-                ...materialOptions,
-                transparent: true,
-                opacity: Math.min(opacity, 0.7),
-                shininess: 100
-            });
-        } else {
-            // 门使用Lambert材质
-            return new THREE.MeshLambertMaterial(materialOptions);
-        }
+        return material;
     }
 
     /**

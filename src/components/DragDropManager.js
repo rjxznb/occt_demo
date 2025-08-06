@@ -7,7 +7,10 @@ export class DragDropManager {
         this.dragPreview = null;
         this.dragData = null;
         this.raycaster = new THREE.Raycaster();
+        this.raycaster.near = 0.1;  // 设置射线检测的最近距离
+        this.raycaster.far = 100000; // 设置射线检测的最远距离
         this.mouse = new THREE.Vector2();
+        this.enabled = true; // 默认启用
         
         this.init();
     }
@@ -42,6 +45,7 @@ export class DragDropManager {
         
         // 阻止默认拖拽行为
         canvas.addEventListener('dragover', (e) => {
+            if (!this.enabled) return;
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡
             e.dataTransfer.dropEffect = 'copy';
@@ -63,6 +67,7 @@ export class DragDropManager {
         });
 
         canvas.addEventListener('drop', (e) => {
+            if (!this.enabled) return;
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡
             this.handleDrop(e);
@@ -86,6 +91,8 @@ export class DragDropManager {
             this.isDragging = false;
             this.dragData = null;
             this.hideDragPreview();
+            // 重置光标样式
+            this.sceneManager.renderer.domElement.style.cursor = '';
         });
     }
 
@@ -105,7 +112,20 @@ export class DragDropManager {
         if (this.dragData.type === 'material') {
             this.dragPreview.textContent = `🎨 ${this.dragData.data.name}`;
         } else if (this.dragData.type === 'model') {
-            this.dragPreview.textContent = `${this.dragData.data.icon} ${this.dragData.data.name}`;
+            // 检查是否可以在当前位置放置模型
+            const canPlace = this.checkCanPlaceModel(event);
+            const cursor = canPlace ? 'copy' : 'not-allowed';
+            
+            // 更新光标样式
+            this.sceneManager.renderer.domElement.style.cursor = cursor;
+            
+            // 更新预览文本
+            const statusIcon = canPlace ? '✅' : '❌';
+            this.dragPreview.textContent = `${statusIcon} ${this.dragData.data.icon} ${this.dragData.data.name}`;
+            
+            // 更新预览样式
+            this.dragPreview.style.backgroundColor = canPlace ? 'rgba(0, 0, 0, 0.9)' : 'rgba(139, 0, 0, 0.9)';
+            this.dragPreview.style.borderColor = canPlace ? '#0088ff' : '#ff4444';
         }
     }
 
@@ -117,6 +137,8 @@ export class DragDropManager {
 
     hideDragPreview() {
         this.dragPreview.style.display = 'none';
+        // 重置光标样式
+        this.sceneManager.renderer.domElement.style.cursor = '';
     }
 
     handleDrop(event) {
@@ -127,12 +149,12 @@ export class DragDropManager {
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-        this.raycaster.setFromCamera(this.mouse, this.sceneManager.camera);
+        this.raycaster.setFromCamera(this.mouse, this.sceneManager.getCamera());
 
         if (this.dragData.type === 'material') {
             this.handleMaterialDrop();
         } else if (this.dragData.type === 'model') {
-            this.handleModelDrop();
+            this.handleModelDrop(event);
         }
     }
 
@@ -142,9 +164,21 @@ export class DragDropManager {
         
         this.sceneManager.scene.traverse((child) => {
             if (child.isMesh && child.material && child.visible) {
+                // 检查是否为TransformControls相关对象
+                const isTransformControl = this.isTransformControlsElement(child) || this.isTransformControlsObject(child);
+                
+                if (isTransformControl) {
+                    console.log('过滤掉TransformControls对象:', child.constructor.name, child.type);
+                    return;
+                }
+                
                 // 排除一些不应该被材质化的对象
-                if (!child.userData.isHelper && !child.userData.isGizmo) {
+                if (!child.userData.isHelper && 
+                    !child.userData.isGizmo && 
+                    !child.userData.isTransformControl) {
                     intersectableObjects.push(child);
+                } else {
+                    console.log('过滤掉辅助对象:', child.userData);
                 }
             }
         });
@@ -152,7 +186,18 @@ export class DragDropManager {
         const intersects = this.raycaster.intersectObjects(intersectableObjects);
         
         if (intersects.length > 0) {
-            const targetMesh = intersects[0].object;
+            // 智能选择目标：优先选择Z值更高的对象（wallMesh通常比outlineMesh高）
+            const targetMesh = this.selectBestTargetForMaterial(intersects);
+            console.log('材质应用目标选择:', {
+                totalCandidates: intersects.length,
+                selectedObject: {
+                    name: targetMesh.name || 'unnamed',
+                    type: targetMesh.userData?.type || 'unknown', 
+                    wallType: targetMesh.userData?.wallType || 'none',
+                    zPosition: targetMesh.position.z.toFixed(2),
+                    distance: intersects.find(i => i.object === targetMesh)?.distance?.toFixed(2) || 'unknown'
+                }
+            });
             this.applyMaterialToMesh(targetMesh, this.dragData.data);
         } else {
             console.log('没有找到可应用材质的对象');
@@ -175,15 +220,26 @@ export class DragDropManager {
             preserveProperties.polygonOffsetFactor = originalMaterial.polygonOffsetFactor;
         }
 
-        // 创建新材质，保留原有的重要属性
-        const newMaterial = new THREE.MeshStandardMaterial({
-            color: materialData.color,
-            roughness: materialData.roughness,
-            metalness: materialData.metalness,
-            transparent: materialData.transparent || false,
-            opacity: materialData.opacity || 1.0,
-            ...preserveProperties // 合并保存的属性
-        });
+        let newMaterial;
+        
+        // 检查是否为自定义材质
+        if (materialData.isCustom && materialData.threeMaterial) {
+            // 克隆自定义材质
+            newMaterial = materialData.threeMaterial.clone();
+            
+            // 应用保存的属性
+            Object.assign(newMaterial, preserveProperties);
+        } else {
+            // 创建标准材质，保留原有的重要属性
+            newMaterial = new THREE.MeshStandardMaterial({
+                color: materialData.color,
+                roughness: materialData.roughness,
+                metalness: materialData.metalness,
+                transparent: materialData.transparent || false,
+                opacity: materialData.opacity || 1.0,
+                ...preserveProperties // 合并保存的属性
+            });
+        }
 
         // 如果是数组材质（多材质），更新所有材质
         if (Array.isArray(mesh.material)) {
@@ -212,14 +268,15 @@ export class DragDropManager {
             ...materialData
         };
 
-        console.log(`已将 ${materialData.name} 材质应用到对象`, mesh);
-        console.log('应用材质后的对象信息:', {
-            type: mesh.userData.type,
-            hasGeometry: !!mesh.geometry,
-            hasMaterial: !!mesh.material,
-            visible: mesh.visible,
-            matrixAutoUpdate: mesh.matrixAutoUpdate,
-            userData: mesh.userData
+        console.log(`✅ 已将 ${materialData.name} 材质应用到对象:`, {
+            objectName: mesh.name || 'unnamed',
+            objectType: mesh.userData?.type || 'unknown',
+            wallType: mesh.userData?.wallType || 'none',
+            position: {
+                x: mesh.position.x.toFixed(1),
+                y: mesh.position.y.toFixed(1),
+                z: mesh.position.z.toFixed(1)
+            }
         });
         
         // 触发材质应用事件
@@ -228,8 +285,14 @@ export class DragDropManager {
         }
     }
 
-    handleModelDrop() {
+    handleModelDrop(event) {
         console.log('处理模型拖拽放置，数据:', this.dragData.data);
+        
+        // 最终检查是否可以在此位置放置模型
+        if (!this.checkCanPlaceModel(event)) {
+            console.log('无法在此位置放置模型，取消创建');
+            return;
+        }
         
         // 先尝试与现有场景对象相交
         const allObjects = [];
@@ -239,9 +302,6 @@ export class DragDropManager {
             }
         });
         
-        // 包含地面平面
-        const groundPlane = this.getGroundPlane();
-        allObjects.push(groundPlane);
         
         const intersects = this.raycaster.intersectObjects(allObjects);
         let position = new THREE.Vector3(0, 0, 0);
@@ -252,8 +312,9 @@ export class DragDropManager {
         } else {
             // 如果没有交点，在摄像机前方放置
             const direction = new THREE.Vector3();
-            this.sceneManager.camera.getWorldDirection(direction);
-            position.copy(this.sceneManager.camera.position).add(direction.multiplyScalar(8));
+            const camera = this.sceneManager.getCamera();
+            camera.getWorldDirection(direction);
+            position.copy(camera.position).add(direction.multiplyScalar(8));
             position.z = Math.max(0, position.z); // 确保不在地面以下（Z轴是高度）
             console.log('使用摄像机前方位置:', position);
         }
@@ -270,28 +331,6 @@ export class DragDropManager {
         }
     }
 
-    getGroundPlane() {
-        // 创建一个虚拟的地面平面用于计算放置位置
-        if (!this.groundPlane) {
-            const geometry = new THREE.PlaneGeometry(1000, 1000);
-            const material = new THREE.MeshBasicMaterial({ 
-                visible: false,
-                transparent: true,
-                opacity: 0,
-                side: THREE.DoubleSide
-            });
-            this.groundPlane = new THREE.Mesh(geometry, material);
-            // 地面是XOY平面，Z=0为地面高度，不需要旋转
-            this.groundPlane.position.z = 0; // 地面Z=0
-            this.groundPlane.userData = {
-                isHelper: true,
-                isGroundPlane: true
-            };
-            this.sceneManager.scene.add(this.groundPlane);
-            console.log('已创建地面平面用于模型放置');
-        }
-        return this.groundPlane;
-    }
 
     createModel(modelData, position) {
         let geometry, material, mesh;
@@ -594,13 +633,202 @@ export class DragDropManager {
         return group;
     }
 
+    // 检查是否可以在当前位置放置模型
+    checkCanPlaceModel(event) {
+        if (!this.dragData || this.dragData.type !== 'model') {
+            return false;
+        }
+
+        // 计算鼠标在3D场景中的位置
+        const rect = this.sceneManager.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.sceneManager.getCamera());
+
+        // 获取所有可能发生碰撞的对象
+        const collisionObjects = [];
+        this.sceneManager.scene.traverse((child) => {
+            if (child.isMesh && child.visible && 
+                !child.userData.isHelper && 
+                !this.isTransformControlsElement(child) &&
+                !this.isTransformControlsObject(child)) {
+                // 包含墙体、户型mesh和已创建的模型
+                if (child.userData.type === 'wall' || 
+                    child.userData.type === 'placedModel' ||
+                    child.userData.type === 'room' ||
+                    child.userData.wallType ||
+                    child.material || child.userData.type === 'outWall' ) {
+                    collisionObjects.push(child);
+                }
+            }
+        });
+
+        const intersects = this.raycaster.intersectObjects(collisionObjects, true);
+        
+        if (intersects.length > 0) {
+            const hitObject = intersects[0].object;
+            
+            // 如果射线击中了墙体、已有模型等，不允许放置
+            if (hitObject.userData.type === 'wall' ||
+                hitObject.userData.type === 'placedModel' ||
+                hitObject.userData.wallType ||
+                hitObject.userData.type === 'room' ||
+                hitObject.userData.type === 'outWall' 
+            ) {
+                return false;
+            }
+        }
+
+        return true; // 可以放置
+    }
+
+    // 检查是否为TransformControls的元素
+    isTransformControlsElement(object) {
+        // 检查对象的构造函数名称
+        if (object.constructor && object.constructor.name && (
+            object.constructor.name.includes('TransformControls') ||
+            object.constructor.name.includes('Gizmo') ||
+            object.constructor.name.includes('Plane') ||
+            object.constructor.name.includes('Helper')
+        )) {
+            return true;
+        }
+        
+        // 检查对象及其父对象是否属于TransformControls
+        let current = object;
+        while (current) {
+            // 检查对象名称是否包含TransformControls相关的标识
+            if (current.name && (
+                current.name.includes('TransformControls') ||
+                current.name.includes('Gizmo') ||
+                current.name.includes('Plane') ||
+                current.name.includes('Helper')
+            )) {
+                return true;
+            }
+            
+            // 检查是否为TransformControls的子对象
+            if (current.userData && (
+                current.userData.isTransformControl ||
+                current.userData.isGizmo ||
+                current.userData.isHelper
+            )) {
+                return true;
+            }
+            
+            // 检查材质名称（TransformControls通常使用特定的材质）
+            if (current.material && current.material.name && (
+                current.material.name.includes('gizmo') ||
+                current.material.name.includes('helper')
+            )) {
+                return true;
+            }
+            
+            current = current.parent;
+            
+            // 避免无限循环，检查到Scene就停止
+            if (current && current.type === 'Scene') {
+                break;
+            }
+        }
+        
+        return false;
+    }
+
+    // 更直接的TransformControls对象检测
+    isTransformControlsObject(object) {
+        // 检查构造函数名称
+        const constructorName = object.constructor.name;
+        if (constructorName === 'TransformControlsPlane' ||
+            constructorName === 'TransformControlsGizmo' ||
+            constructorName === 'TransformControlsRoot' ||
+            constructorName.startsWith('TransformControls')) {
+            return true;
+        }
+
+        // 检查对象类型属性
+        if (object.type && (
+            object.type.includes('TransformControls') ||
+            object.type.includes('Gizmo') ||
+            object.type.includes('Helper')
+        )) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // 为材质应用智能选择最佳目标对象
+    selectBestTargetForMaterial(intersects) {
+        if (intersects.length === 1) {
+            return intersects[0].object;
+        }
+
+        // 按优先级排序候选对象
+        const candidates = intersects.map(intersect => {
+            const obj = intersect.object;
+            const userData = obj.userData || {};
+            let score = 0;
+
+            // 1. 根据对象类型评分
+            if (userData.type === 'wall' || userData.wallType) {
+                score += 100; // wallMesh最高优先级
+            } else if (userData.type === 'placedModel') {
+                score += 80;  // 用户放置的模型
+            } else if (userData.type === 'outWall') {
+                score += 10;  // outlineMesh最低优先级
+            } else {
+                score += 50;  // 其他对象中等优先级
+            }
+
+            // 2. Z位置加分（Z值越高越优先，避免Z-fighting）
+            score += obj.position.z * 2;
+
+            // 3. 距离加分（距离越近越优先）
+            const maxDistance = Math.max(...intersects.map(i => i.distance));
+            if (maxDistance > 0) {
+                score += (1 - intersect.distance / maxDistance) * 30;
+            }
+
+            return {
+                intersect,
+                object: obj,
+                score,
+                debug: {
+                    type: userData.type || 'unknown',
+                    wallType: userData.wallType || 'none',
+                    zPos: obj.position.z.toFixed(2),
+                    distance: intersect.distance.toFixed(2),
+                    finalScore: score.toFixed(1)
+                }
+            };
+        });
+
+        // 按分数排序（降序）
+        candidates.sort((a, b) => b.score - a.score);
+
+        // 输出调试信息
+        console.log('材质目标候选对象评分:', candidates.map(c => c.debug));
+
+        return candidates[0].object;
+    }
+    
+    /**
+     * 启用/禁用拖拽功能
+     * @param {boolean} enabled - 是否启用
+     */
+    setEnabled(enabled) {
+        this.enabled = enabled;
+        if (this.dragPreview) {
+            this.dragPreview.style.display = enabled ? 'block' : 'none';
+        }
+        console.log(`拖拽管理器已${enabled ? '启用' : '禁用'}`);
+    }
+
     destroy() {
         if (this.dragPreview) {
             this.dragPreview.remove();
-        }
-        
-        if (this.groundPlane) {
-            this.sceneManager.scene.remove(this.groundPlane);
         }
     }
 }

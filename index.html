@@ -17,9 +17,28 @@
             overflow: hidden;
         }
 
-        #canvas-container {
+        .canvas-container {
             width: 100vw;
             height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #canvas-3d {
+            z-index: 1;
+        }
+        
+        #canvas-2d {
+            z-index: 0;
+        }
+        
+        .canvas-container.active {
+            z-index: 10;
+        }
+        
+        .canvas-container.hidden {
+            display: none;
         }
 
         #info {
@@ -49,6 +68,46 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(0, 255, 0, 0.3);
             z-index: 1000;
+        }
+
+        #auto-rotation-status {
+            position: fixed;
+            top: 60px;
+            right: 200px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+            color: #ccc;
+            min-width: 120px;
+        }
+
+        .rotation-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            background: #666;
+            transition: background-color 0.3s ease;
+        }
+
+        .rotation-indicator.enabled {
+            background: #00ff00;
+        }
+
+        .rotation-indicator.rotating {
+            background: #ff6600;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
 
         #controls {
@@ -398,6 +457,17 @@
             border-color: #9C27B0 !important;
         }
 
+        .view-toggle-btn {
+            background: #FF5722 !important;
+            border-color: #FF7043 !important;
+            color: white !important;
+        }
+
+        .view-toggle-btn:hover {
+            background: #E64A19 !important;
+            border-color: #FF5722 !important;
+        }
+
         /* 拖拽时的视觉反馈 */
         .drag-preview {
             position: fixed;
@@ -411,10 +481,505 @@
             color: #fff;
             backdrop-filter: blur(10px);
         }
+
+        /* 快捷键提示样式 */
+        .shortcuts-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 11px;
+            color: #ccc;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .shortcut-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .shortcut-item:last-child {
+            border-bottom: none;
+        }
+
+        .shortcut-item:hover {
+            color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+            border-radius: 4px;
+            padding: 2px 4px;
+        }
+
+        /* 右键上下文菜单样式 */
+        .context-menu {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 8px 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            z-index: 9999;
+            min-width: 220px;
+            display: none;
+            animation: contextMenuShow 0.15s ease-out;
+        }
+
+        @keyframes contextMenuShow {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .context-menu-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .context-menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .context-menu-item:hover {
+            background: rgba(0, 136, 255, 0.15);
+            color: #0088ff;
+        }
+
+        .context-menu-item.disabled {
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .context-menu-item.disabled:hover {
+            background: none;
+            color: #666;
+        }
+
+        .context-menu-item .icon {
+            margin-right: 10px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .context-menu-separator {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 4px 0;
+        }
+
+        /* 颜色选择器容器 */
+        .color-picker-container {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .color-picker-label {
+            color: #ccc;
+            font-size: 12px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .color-picker {
+            width: 100%;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .color-picker:hover {
+            border-color: #0088ff;
+        }
+
+        /* 预设颜色面板 */
+        .preset-colors {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            margin-top: 8px;
+        }
+
+        .preset-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .preset-color:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: scale(1.1);
+        }
+
+        .preset-color.selected {
+            border-color: #0088ff;
+            box-shadow: 0 0 0 2px rgba(0, 136, 255, 0.3);
+        }
+
+        /* 材质属性调节器 */
+        .material-controls {
+            padding: 12px 16px;
+        }
+
+        .material-control-group {
+            margin-bottom: 12px;
+        }
+
+        .material-control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .material-control-label {
+            color: #ccc;
+            font-size: 11px;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .material-control-value {
+            color: #0088ff;
+            font-weight: bold;
+        }
+
+        .material-slider {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            -webkit-appearance: none;
+        }
+
+        .material-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #0088ff;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .material-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #0088ff;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 材质上传按钮样式 */
+        .material-upload-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.02);
+            min-height: 120px;
+        }
+
+        .material-upload-btn:hover {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 136, 255, 0.2);
+        }
+
+        .upload-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            color: #0088ff;
+        }
+
+        .upload-text {
+            font-size: 12px;
+            color: #ccc;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        /* 材质上传模态框样式 */
+        .material-upload-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: modalFadeIn 0.3s ease-out;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-title {
+            color: #fff;
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 8px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .modal-form {
+            display: grid;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            color: #ccc;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 12px;
+            color: #fff;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+        }
+
+        .file-upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .file-upload-area:hover {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+        }
+
+        .file-upload-area.drag-over {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.2);
+        }
+
+        .upload-instruction {
+            color: #ccc;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .file-info {
+            color: #0088ff;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .texture-preview {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .texture-preview-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .texture-preview-img {
+            width: 60px;
+            height: 60px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            object-fit: cover;
+        }
+
+        .texture-label {
+            font-size: 10px;
+            color: #ccc;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ccc;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .btn-primary {
+            background: #0088ff;
+            color: #fff;
+            border: 1px solid #0088ff;
+        }
+
+        .btn-primary:hover {
+            background: #0066cc;
+        }
+
+        .btn-primary:disabled {
+            background: rgba(0, 136, 255, 0.3);
+            cursor: not-allowed;
+        }
+
+        /* 自定义材质特殊样式 */
+        .material-item.custom-material {
+            border: 2px solid rgba(255, 215, 0, 0.3);
+        }
+
+        .material-item.custom-material:hover {
+            border-color: rgba(255, 215, 0, 0.8);
+            box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+        }
+
+        .material-item.custom-material::after {
+            content: '⭐';
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            font-size: 12px;
+            color: #FFD700;
+        }
+
+        .material-item {
+            position: relative;
+        }
     </style>
 </head>
 <body>
-    <div id="canvas-container"></div>
+    <!-- 3D视图容器 -->
+    <div id="canvas-3d" class="canvas-container active"></div>
+    
+    <!-- 2D视图容器 -->
+    <div id="canvas-2d" class="canvas-container hidden"></div>
     
     <div id="info">
         <div>加载中...</div>
@@ -422,6 +987,11 @@
 
     <div id="fps-counter">
         <div>FPS: 0</div>
+    </div>
+
+    <div id="auto-rotation-status">
+        <span class="rotation-indicator" id="rotation-indicator"></span>
+        <span id="rotation-status-text">自动旋转: 禁用</span>
     </div>
 
     <div id="controls">
@@ -435,19 +1005,176 @@
             <button id="resource-toggle" class="resource-btn">📚 资源库</button>
         </div>
         
-        <!-- <div class="control-group">
-            <div class="control-label">CSG引擎</div>
-            <button id="csg-engine-toggle" class="csg-bvh">⚡ BVH-CSG</button>
-            <div id="csg-precision" style="margin-top: 8px; display: none;">
-                <select id="precision-select" style="width: 100%; padding: 6px; border-radius: 4px; background: #333; color: white; border: 1px solid rgba(255,255,255,0.2);">
-                    <option value="1e-3">快速模式 (1e-3)</option>
-                    <option value="1e-4">低精度 (1e-4)</option>
-                    <option value="1e-5" selected>中精度 (1e-5)</option>
-                    <option value="1e-6">高精度 (1e-6)</option>
-                    <option value="1e-8">超高精度 (1e-8)</option>
-                </select>
+        <div class="control-group">
+            <div class="control-label">视图切换</div>
+            <button id="view-toggle" class="view-toggle-btn">📋 2D彩平图</button>
+        </div>
+        
+        <div class="control-group">
+            <div class="control-label">编辑快捷键</div>
+            <div class="shortcuts-info">
+                <div class="shortcut-item">🖱️ 点击模型选中</div>
+                <div class="shortcut-item">🖱️ 右键弹出工具栏</div>
+                <div class="shortcut-item">G - 移动模式</div>
+                <div class="shortcut-item">R - 旋转模式</div>
+                <div class="shortcut-item">S - 缩放模式</div>
+                <div class="shortcut-item">Del - 删除模型</div>
+                <div class="shortcut-item">Esc - 取消选择</div>
             </div>
-        </div> -->
+        </div>
+    </div>
+
+    <!-- 右键上下文菜单 -->
+    <div id="context-menu" class="context-menu">
+        <!-- 颜色选择器 -->
+        <div class="color-picker-container">
+            <label class="color-picker-label">🎨 物体颜色</label>
+            <input type="color" class="color-picker" id="object-color-picker" value="#8B4513">
+            <div class="preset-colors" id="preset-colors">
+                <!-- 预设颜色将通过JavaScript动态生成 -->
+            </div>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <!-- 材质属性控制 -->
+        <div class="material-controls">
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>粗糙度</span>
+                    <span class="material-control-value" id="roughness-value">0.3</span>
+                </div>
+                <input type="range" class="material-slider" id="roughness-slider" 
+                       min="0" max="1" step="0.01" value="0.3">
+            </div>
+            
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>金属度</span>
+                    <span class="material-control-value" id="metalness-value">0.2</span>
+                </div>
+                <input type="range" class="material-slider" id="metalness-slider" 
+                       min="0" max="1" step="0.01" value="0.2">
+            </div>
+
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>透明度</span>
+                    <span class="material-control-value" id="opacity-value">1.0</span>
+                </div>
+                <input type="range" class="material-slider" id="opacity-slider" 
+                       min="0" max="1" step="0.01" value="1.0">
+            </div>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <!-- 操作选项 -->
+        <div class="context-menu-item" id="context-duplicate">
+            <span class="icon">📋</span>
+            <span>复制对象</span>
+        </div>
+        
+        <div class="context-menu-item" id="context-reset-transform">
+            <span class="icon">🔄</span>
+            <span>重置变换</span>
+        </div>
+
+        <div class="context-menu-item" id="context-reset-material">
+            <span class="icon">🎨</span>
+            <span>重置材质</span>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <div class="context-menu-item" id="context-delete" style="color: #ff6b6b;">
+            <span class="icon">🗑️</span>
+            <span>删除对象</span>
+        </div>
+    </div>
+
+    <!-- 材质上传模态框 -->
+    <div id="material-upload-modal" class="material-upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">🎨 创建自定义材质</h3>
+                <button class="modal-close" id="close-material-modal">×</button>
+            </div>
+            
+            <form class="modal-form" id="material-upload-form">
+                <!-- 材质基本信息 -->
+                <div class="form-group">
+                    <label class="form-label">材质名称</label>
+                    <input type="text" class="form-input" id="material-name" placeholder="输入材质名称" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">材质图标 (Emoji)</label>
+                    <input type="text" class="form-input" id="material-icon" placeholder="🎨" maxlength="2">
+                </div>
+
+                <!-- 漫反射贴图 (Color Map) -->
+                <div class="form-group">
+                    <label class="form-label">漫反射贴图 (Color Map)</label>
+                    <div class="file-upload-area" data-texture-type="colorMap">
+                        <div class="upload-instruction">点击或拖拽图片到这里</div>
+                        <div class="file-info" id="colorMap-info"></div>
+                        <input type="file" id="colorMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 法线贴图 (Normal Map) -->
+                <div class="form-group">
+                    <label class="form-label">法线贴图 (Normal Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="normalMap">
+                        <div class="upload-instruction">点击或拖拽法线贴图到这里</div>
+                        <div class="file-info" id="normalMap-info"></div>
+                        <input type="file" id="normalMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 粗糙度贴图 (Roughness Map) -->
+                <div class="form-group">
+                    <label class="form-label">粗糙度贴图 (Roughness Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="roughnessMap">
+                        <div class="upload-instruction">点击或拖拽粗糙度贴图到这里</div>
+                        <div class="file-info" id="roughnessMap-info"></div>
+                        <input type="file" id="roughnessMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 金属度贴图 (Metalness Map) -->
+                <div class="form-group">
+                    <label class="form-label">金属度贴图 (Metalness Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="metalnessMap">
+                        <div class="upload-instruction">点击或拖拽金属度贴图到这里</div>
+                        <div class="file-info" id="metalnessMap-info"></div>
+                        <input type="file" id="metalnessMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 环境遮蔽贴图 (AO Map) -->
+                <div class="form-group">
+                    <label class="form-label">环境遮蔽贴图 (AO Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="aoMap">
+                        <div class="upload-instruction">点击或拖拽AO贴图到这里</div>
+                        <div class="file-info" id="aoMap-info"></div>
+                        <input type="file" id="aoMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 贴图预览 -->
+                <div class="form-group">
+                    <label class="form-label">贴图预览</label>
+                    <div class="texture-preview" id="texture-preview"></div>
+                </div>
+                
+                <div class="modal-buttons">
+                    <button type="button" class="btn btn-secondary" id="cancel-material-upload">取消</button>
+                    <button type="submit" class="btn btn-primary" id="create-material-btn">创建材质</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script type="importmap">

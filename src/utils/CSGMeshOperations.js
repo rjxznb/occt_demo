@@ -328,6 +328,12 @@ export class CSGMeshOperations {
             // 转换回THREE.Mesh
             const resultMesh = CSG.toMesh(resultCSG, preparedMeshA.matrix, preparedMeshA.material);
             
+            // 保留原始mesh的userData（关键修复：解决挖洞后wallType丢失问题）
+            if (meshA.userData) {
+                resultMesh.userData = { ...meshA.userData };
+                console.log('CSG减法：已保留原始mesh的userData:', resultMesh.userData);
+            }
+            
             // 确保结果mesh有正确的shadow设置
             resultMesh.castShadow = resultMesh.receiveShadow = true;
 
@@ -380,6 +386,12 @@ export class CSGMeshOperations {
             // 转换回THREE.Mesh
             const resultMesh = CSG.toMesh(resultCSG, preparedMeshA.matrix, preparedMeshA.material);
             
+            // 保留原始mesh的userData
+            if (meshA.userData) {
+                resultMesh.userData = { ...meshA.userData };
+                console.log('CSG并集：已保留原始mesh的userData:', resultMesh.userData);
+            }
+            
             // 确保结果mesh有正确的shadow设置
             resultMesh.castShadow = resultMesh.receiveShadow = true;
 
@@ -431,6 +443,12 @@ export class CSGMeshOperations {
 
             // 转换回THREE.Mesh
             const resultMesh = CSG.toMesh(resultCSG, preparedMeshA.matrix, preparedMeshA.material);
+            
+            // 保留原始mesh的userData
+            if (meshA.userData) {
+                resultMesh.userData = { ...meshA.userData };
+                console.log('CSG交集：已保留原始mesh的userData:', resultMesh.userData);
+            }
             
             // 确保结果mesh有正确的shadow设置
             resultMesh.castShadow = resultMesh.receiveShadow = true;
