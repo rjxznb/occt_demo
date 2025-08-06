@@ -18,205 +18,198 @@ export default function ParseJson(json){
     let window_list = json.window_list;
     
     if(final_room_list && Array.isArray(final_room_list))
-    final_room_list.forEach((item, index) => {
-        if (item.Points && Array.isArray(item.Points)) {
-            const Room_pointsArray = [];
-            
-            item.Points.forEach(pointStr => {
-                // 提取X，Y，Z 坐标和 bulge凸度值
-                const xMatch = pointStr.match(/X=([\d.-]+)/);
-                const yMatch = pointStr.match(/Y=([\d.-]+)/);
-                const zMatch = pointStr.match(/Z=([\d.-]+)/);
-                const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+        final_room_list.forEach((item, index) => {
+            if (item.Points && Array.isArray(item.Points)) {
+                const Room_pointsArray = [];
                 
-                if (xMatch && yMatch && zMatch) {
-                    const x = parseFloat(xMatch[1]);
-                    const y = parseFloat(yMatch[1]);
-                    const z = parseFloat(zMatch[1]);
-                    const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
-                    Room_pointsArray.push({x, y, z, bulge});
-                }
-            });
-            Room_Points.push(Room_pointsArray);
-        }
-    });
+                item.Points.forEach(pointStr => {
+                    // 提取X，Y，Z 坐标和 bulge凸度值
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    const zMatch = pointStr.match(/Z=([\d.-]+)/);
+                    const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+                    
+                    if (xMatch && yMatch && zMatch) {
+                        const x = parseFloat(xMatch[1]);
+                        const y = parseFloat(yMatch[1]);
+                        const z = parseFloat(zMatch[1]);
+                        const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
+                        Room_pointsArray.push({x, y, z, bulge});
+                    }
+                });
+                Room_Points.push(Room_pointsArray);
+            }
+        });
 
 
     // 提取出每一个软装图例的二维坐标数组 以及 中心点坐标 和 变换系数
     if(soft_list && Array.isArray(soft_list))
-    soft_list.forEach((item, index) => {
-        if (item.Points && Array.isArray(item.Points)) {
-            const pointsArray = [];
-            
-            item.Points.forEach(pointStr => {
-                // 提取X和Y坐标
-                const xMatch = pointStr.match(/X=([\d.-]+)/);
-                const yMatch = pointStr.match(/Y=([\d.-]+)/);
-                const zMatch = pointStr.match(/Z=([\d.-]+)/);
+        soft_list.forEach((item, index) => {
+            if (item.Points && Array.isArray(item.Points)) {
+                const pointsArray = [];
                 
-                if (xMatch && yMatch && zMatch) {
-                    const x = parseFloat(xMatch[1]);
-                    const y = parseFloat(yMatch[1]);
-                    const z = parseFloat(zMatch[1]);
-                    pointsArray.push({x, y, z});
-                }
-            });
-            SoftList_Points.push(pointsArray);
-        }
+                item.Points.forEach(pointStr => {
+                    // 提取X和Y坐标
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    const zMatch = pointStr.match(/Z=([\d.-]+)/);
+                    
+                    if (xMatch && yMatch && zMatch) {
+                        const x = parseFloat(xMatch[1]);
+                        const y = parseFloat(yMatch[1]);
+                        const z = parseFloat(zMatch[1]);
+                        pointsArray.push({x, y, z});
+                    }
+                });
+                SoftList_Points.push(pointsArray);
+            }
 
+            // 对应一个图例对象；
+            const ShapeDXF = {};
 
-        // 对应一个图例对象；
-        const ShapeDXF = {};
+            // 解析出id：
+            ShapeDXF.id = item.TypeId;
 
+            // 解析出中心点：
+            const basepoint = {};
+            const basepoint_x = parseFloat(item.BasePoint.match(/X=([\d.-]+)/)[1]);
+            const basepoint_y = parseFloat(item.BasePoint.match(/Y=([\d.-]+)/)[1]);
+            const basepoint_z = parseFloat(item.BasePoint.match(/Z=([\d.-]+)/)[1]);
+            basepoint.x = basepoint_x, basepoint.y = basepoint_y, basepoint.z = basepoint_z; // 中心点坐标对象；       
+            ShapeDXF.basepoint = basepoint;
+            
+            // 解析出放缩矩阵：
+            ShapeDXF.scale = {};
+            ShapeDXF.scale.x = item.OutXScale;
+            ShapeDXF.scale.y = item.OutYScale;
+            ShapeDXF.scale.z = item.OutZScale;
 
-        // 解析出id：
-        ShapeDXF.id = item.TypeId;
+            // 解析出旋转系数；
+            ShapeDXF.rotate = item.OutRotateRadian;
 
-        // 解析出中心点：
-        const basepoint = {};
-        const basepoint_x = parseFloat(item.BasePoint.match(/X=([\d.-]+)/)[1]);
-        const basepoint_y = parseFloat(item.BasePoint.match(/Y=([\d.-]+)/)[1]);
-        const basepoint_z = parseFloat(item.BasePoint.match(/Z=([\d.-]+)/)[1]);
-        basepoint.x = basepoint_x, basepoint.y = basepoint_y, basepoint.z = basepoint_z; // 中心点坐标对象；       
-        ShapeDXF.basepoint = basepoint;
-        
-        // 解析出放缩矩阵：
-        ShapeDXF.scale = {};
-        ShapeDXF.scale.x = item.OutXScale;
-        ShapeDXF.scale.y = item.OutYScale;
-        ShapeDXF.scale.z = item.OutZScale;
-
-        // 解析出旋转系数；
-        ShapeDXF.rotate = item.OutRotateRadian;
-
-        // 添加此图例对象到户型图例数组；
-        SoftList_Trainsitions.push(ShapeDXF);
-        // console.log(ShapeDXF);
-    });
+            // 添加此图例对象到户型图例数组；
+            SoftList_Trainsitions.push(ShapeDXF);
+            // console.log(ShapeDXF);
+        });
 
 
     // 解析出长度标注线段：每一个行可能包含多个线段；
     if(final_space_dim_list)
-    for (let key in final_space_dim_list){
-        let dim = final_space_dim_list[key];
-        const Dim_pointsArray = [];
-        dim.forEach(pointStr => {
-                // 提取X和Y坐标
-                const xMatch = pointStr.match(/X=([\d.-]+)/);
-                const yMatch = pointStr.match(/Y=([\d.-]+)/);
-                const zMatch = pointStr.match(/Z=([\d.-]+)/);
-                if (xMatch && yMatch) {
-                    const x = parseFloat(xMatch[1]);
-                    const y = parseFloat(yMatch[1]);
-                    const z = parseFloat(zMatch[1]);
-                    Dim_pointsArray.push({x, y, z});
+        for (let key in final_space_dim_list){
+            let dim = final_space_dim_list[key];
+            const Dim_pointsArray = [];
+            dim.forEach(pointStr => {
+                    // 提取X和Y坐标
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    const zMatch = pointStr.match(/Z=([\d.-]+)/);
+                    if (xMatch && yMatch) {
+                        const x = parseFloat(xMatch[1]);
+                        const y = parseFloat(yMatch[1]);
+                        const z = parseFloat(zMatch[1]);
+                        Dim_pointsArray.push({x, y, z});
+                    }
                 }
-            }
-        );
-        Dim_Points.push(Dim_pointsArray);
-    }
+            );
+            Dim_Points.push(Dim_pointsArray);
+        }
 
 
 
     // 解析门数据
     if(door_list && Array.isArray(door_list))
-    door_list.forEach((item, index) => {
-        if (item.Points && Array.isArray(item.Points) && item.Size && item.TypeId) {
-            const doorPointsArray = [];
-            
-            // 解析Points字段
-            item.Points.forEach(pointStr => {
-                const xMatch = pointStr.match(/X=([\d.-]+)/);
-                const yMatch = pointStr.match(/Y=([\d.-]+)/);
-                const zMatch = pointStr.match(/Z=([\d.-]+)/);
-                const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+        door_list.forEach((item, index) => {
+            if (item.Points && Array.isArray(item.Points) && item.Size && item.TypeId) {
+                const doorPointsArray = [];
                 
-                if (xMatch && yMatch && zMatch) {
-                    const x = parseFloat(xMatch[1]);
-                    const y = parseFloat(yMatch[1]);
-                    const z = parseFloat(zMatch[1]);
-                    const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
-                    doorPointsArray.push({x, y, z, bulge});
+                // 解析Points字段
+                item.Points.forEach(pointStr => {
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    const zMatch = pointStr.match(/Z=([\d.-]+)/);
+                    const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+                    
+                    if (xMatch && yMatch && zMatch) {
+                        const x = parseFloat(xMatch[1]);
+                        const y = parseFloat(yMatch[1]);
+                        const z = parseFloat(zMatch[1]);
+                        const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
+                        doorPointsArray.push({x, y, z, bulge});
+                    }
+                });
+                
+                // 解析Size字段 (格式: "X=800.000000 Y=140.000000")
+                const sizeXMatch = item.Size.match(/X=([\d.-]+)/);
+                const sizeYMatch = item.Size.match(/Y=([\d.-]+)/);
+                const sizeX = sizeXMatch ? parseFloat(sizeXMatch[1]) : 0;
+                const sizeY = sizeYMatch ? parseFloat(sizeYMatch[1]) : 0;
+                
+                // 解析BlockInnerInfo中的高度字段
+                let height = 0;
+                if (item.BlockInnerInfo && item.BlockInnerInfo.高度) {
+                    height = parseFloat(item.BlockInnerInfo.高度);
                 }
-            });
-            
-            // 解析Size字段 (格式: "X=800.000000 Y=140.000000")
-            const sizeXMatch = item.Size.match(/X=([\d.-]+)/);
-            const sizeYMatch = item.Size.match(/Y=([\d.-]+)/);
-            const sizeX = sizeXMatch ? parseFloat(sizeXMatch[1]) : 0;
-            const sizeY = sizeYMatch ? parseFloat(sizeYMatch[1]) : 0;
-            
-            // 解析BlockInnerInfo中的高度字段
-            let height = 0;
-            if (item.BlockInnerInfo && item.BlockInnerInfo.高度) {
-                height = parseFloat(item.BlockInnerInfo.高度);
+                
+                // 存储门数据
+                Doors_Points.push({
+                    points: doorPointsArray,
+                    size: { x: sizeX, y: sizeY },
+                    typeId: item.TypeId,
+                    height: height
+                });
             }
-            
-            // 存储门数据
-            Doors_Points.push({
-                points: doorPointsArray,
-                size: { x: sizeX, y: sizeY },
-                typeId: item.TypeId,
-                height: height
-            });
-        }
-    });
+        });
     
     // 解析窗数据
     if (window_list && Array.isArray(window_list))
-    window_list.forEach((item, index) => {
-        if (item.Points && Array.isArray(item.Points) && item.Size && item.TypeId) {
-            const windowPointsArray = [];
-            
-            // 解析Points字段
-            item.Points.forEach(pointStr => {
-                const xMatch = pointStr.match(/X=([\d.-]+)/);
-                const yMatch = pointStr.match(/Y=([\d.-]+)/);
-                const zMatch = pointStr.match(/Z=([\d.-]+)/);
-                const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+        window_list.forEach((item, index) => {
+            if (item.Points && Array.isArray(item.Points) && item.Size && item.TypeId) {
+                const windowPointsArray = [];
                 
-                if (xMatch && yMatch && zMatch) {
-                    const x = parseFloat(xMatch[1]);
-                    const y = parseFloat(yMatch[1]);
-                    const z = parseFloat(zMatch[1]);
-                    const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
-                    windowPointsArray.push({x, y, z, bulge});
+                // 解析Points字段
+                item.Points.forEach(pointStr => {
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    const zMatch = pointStr.match(/Z=([\d.-]+)/);
+                    const bulgeMatch = pointStr.match(/B=([\d.-]+)/);
+                    
+                    if (xMatch && yMatch && zMatch) {
+                        const x = parseFloat(xMatch[1]);
+                        const y = parseFloat(yMatch[1]);
+                        const z = parseFloat(zMatch[1]);
+                        const bulge = bulgeMatch ? parseFloat(bulgeMatch[1]) : 0;
+                        windowPointsArray.push({x, y, z, bulge});
+                    }
+                });
+                
+                // 解析Size字段
+                const sizeXMatch = item.Size.match(/X=([\d.-]+)/);
+                const sizeYMatch = item.Size.match(/Y=([\d.-]+)/);
+                const sizeX = sizeXMatch ? parseFloat(sizeXMatch[1]) : 0;
+                const sizeY = sizeYMatch ? parseFloat(sizeYMatch[1]) : 0;
+                
+                // 解析BlockInnerInfo中的离地高度和高度字段
+                let groundHeight = 0;  // 离地高度
+                let height = 0;        // 高度
+                if (item.BlockInnerInfo) {
+                    if (item.BlockInnerInfo.离地高度) {
+                        groundHeight = parseFloat(item.BlockInnerInfo.离地高度);
+                    }
+                    if (item.BlockInnerInfo.高度) {
+                        height = parseFloat(item.BlockInnerInfo.高度);
+                    }
                 }
-            });
-            
-            // 解析Size字段
-            const sizeXMatch = item.Size.match(/X=([\d.-]+)/);
-            const sizeYMatch = item.Size.match(/Y=([\d.-]+)/);
-            const sizeX = sizeXMatch ? parseFloat(sizeXMatch[1]) : 0;
-            const sizeY = sizeYMatch ? parseFloat(sizeYMatch[1]) : 0;
-            
-            // 解析BlockInnerInfo中的离地高度和高度字段
-            let groundHeight = 0;  // 离地高度
-            let height = 0;        // 高度
-            if (item.BlockInnerInfo) {
-                if (item.BlockInnerInfo.离地高度) {
-                    groundHeight = parseFloat(item.BlockInnerInfo.离地高度);
-                }
-                if (item.BlockInnerInfo.高度) {
-                    height = parseFloat(item.BlockInnerInfo.高度);
-                }
+                
+                // 存储窗数据
+                Windows_Points.push({
+                    points: windowPointsArray,
+                    size: { x: sizeX, y: sizeY },
+                    typeId: item.TypeId,
+                    groundHeight: groundHeight,
+                    height: height
+                });
             }
-            
-            // 存储窗数据
-            Windows_Points.push({
-                points: windowPointsArray,
-                size: { x: sizeX, y: sizeY },
-                typeId: item.TypeId,
-                groundHeight: groundHeight,
-                height: height
-            });
-        }
-    });
-
-
-
-
-
+        });
 
     parse_data.Room_Points = Room_Points;
     parse_data.SoftList_Points = SoftList_Points;

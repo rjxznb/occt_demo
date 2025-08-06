@@ -120,18 +120,18 @@ export function SampleArc(startPoint, endPoint, bulge) {
 
 // 渲染软装：思路就是先通过n条线画出线图，并且将他们都加入到一个group作为一个物体，
 // 之后将这个group按照json文件的旋转角度和缩放进行旋转和缩放，最后将这个group加入场景中；
-function DrawSoft(dxf_points){
+export function DrawSoft(dxf_points){
     let group = new THREE.Group();
     for (let i =0; i < dxf_points.length; i+=2){
         const line_object = Draw_Line(dxf_points[i], dxf_points[i+1]);
         group.add(line_object);
     }
+    
     // 旋转和缩放group
     // group.rotation.set(0, json_data.rotation, 0);
     // group.scale.set(json_data.scale, json_data.scale, json)
-    scene.add(group);
+    return group;
 }
-
 
 
 

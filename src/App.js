@@ -1,24 +1,46 @@
+import * as THREE from 'three';
 import { SceneManager } from './core/SceneManager.js';
+import { Scene2DManager } from './core/Scene2DManager.js';
 import { RoomRenderer } from './components/RoomRenderer.js';
+import { PlanRenderer } from './components/PlanRenderer.js';
 import { WallSelector } from './components/WallSelector.js';
 import { MaterialSidebar } from './components/MaterialSidebar.js';
 import { DragDropManager } from './components/DragDropManager.js';
+import { SelectionManager } from './components/SelectionManager.js';
 
 /**
  * OCCT 户型图可视化应用
  */
 class OCCTApp {
     constructor() {
-        this.sceneManager = null;
+        // 场景管理器
+        this.sceneManager3D = null; // 3D场景管理器
+        this.sceneManager2D = null; // 2D场景管理器
+        
+        // 渲染器
         this.roomRenderer = null;
+        this.planRenderer = null;
+        
+        // 交互组件（只在3D模式下使用）
         this.wallSelector = null;
         this.materialSidebar = null;
         this.dragDropManager = null;
+        this.selectionManager = null;
+        
+        // UI和状态
         this.uiElements = {};
         this.currentMode = 'view'; // 'view' 或 'edit'
+        this.currentView = '3d'; // '3d' 或 '2d'
+        this.sharedData = null; // 共享的数据
         this.fpsCounter = null;
         this.currentCSGEngine = 'three-csgmesh'; // 当前CSG引擎
-        this.currentEpsilon = 30; // 当前精度
+        this.currentEpsilon = 30.1; // 当前精度
+        
+        // 渲染状态
+        this.renderState = {
+            '3d': false,
+            '2d': false
+        };
         
         this.init();
     }
@@ -31,18 +53,22 @@ class OCCTApp {
             // 初始化UI元素
             this.initUI();
             
-            // 初始化场景管理器
-            const container = document.getElementById('canvas-container');
-            this.sceneManager = new SceneManager(container);
+            // 初始化双场景管理器
+            const container3D = document.getElementById('canvas-3d');
+            const container2D = document.getElementById('canvas-2d');
+            this.sceneManager3D = new SceneManager(container3D);
+            this.sceneManager2D = new Scene2DManager(container2D);
             
-            // 初始化组件
-            this.roomRenderer = new RoomRenderer(this.sceneManager, {
+            // 初始化组件（只使用3D场景管理器）
+            this.roomRenderer = new RoomRenderer(this.sceneManager3D, {
                 csgEngine: this.currentCSGEngine,
                 csgEpsilon: this.currentEpsilon
             });
-            this.wallSelector = new WallSelector(this.sceneManager);
-            this.materialSidebar = new MaterialSidebar(this.sceneManager);
-            this.dragDropManager = new DragDropManager(this.sceneManager);
+            this.planRenderer = new PlanRenderer();
+            this.wallSelector = new WallSelector(this.sceneManager3D);
+            this.materialSidebar = new MaterialSidebar(this.sceneManager3D);
+            this.dragDropManager = new DragDropManager(this.sceneManager3D);
+            this.selectionManager = new SelectionManager(this.sceneManager3D);
             
             // 设置渐进式渲染进度回调
             this.roomRenderer.setProgressCallback((current, total) => {
@@ -68,13 +94,27 @@ class OCCTApp {
                 this.onModelCreated(mesh, modelData);
             };
             
-            // 开始渲染循环并添加FPS更新
-            this.sceneManager.animate(() => {
-                this.updateFPS();
-            });
+            // 设置选择管理器事件回调
+            this.selectionManager.onObjectSelected = (object) => {
+                this.onObjectSelected(object);
+            };
             
-            // 加载数据
+            this.selectionManager.onObjectDeselected = (object) => {
+                this.onObjectDeselected(object);
+            };
+            
+            this.selectionManager.onObjectDeleted = (object) => {
+                this.onObjectDeleted(object);
+            };
+            
+            // 所有组件创建完成后，设置初始模式为查看模式
+            this.setMode('view');
+            
+            // 先加载数据，再开始渲染
             await this.loadData();
+            
+            // 启动双场景渲染循环
+            this.startRenderLoop();
             
             this.updateStatus('就绪');
             
@@ -85,6 +125,22 @@ class OCCTApp {
     }
 
     /**
+     * 启动双场景渲染循环
+     */
+    startRenderLoop() {
+        // 启动3D场景渲染
+        this.sceneManager3D.animate(() => {
+            this.updateFPS();
+            this.updateAutoRotationStatus();
+        });
+        
+        // 启动2D场景渲染
+        this.sceneManager2D.animate();
+        
+        console.log('双场景渲染循环已启动');
+    }
+
+    /**
      * 初始化UI元素
      */
     initUI() {
@@ -92,7 +148,9 @@ class OCCTApp {
             info: document.getElementById('info'),
             fpsCounter: document.getElementById('fps-counter'),
             modeToggle: document.getElementById('mode-toggle'),
-            resourceToggle: document.getElementById('resource-toggle')
+            resourceToggle: document.getElementById('resource-toggle'),
+            rotationIndicator: document.getElementById('rotation-indicator'),
+            rotationStatusText: document.getElementById('rotation-status-text')
         };
 
         // 初始化FPS计数器
@@ -108,8 +166,13 @@ class OCCTApp {
             this.toggleResourceSidebar();
         });
 
-        // 设置初始模式
-        this.setMode('view');
+        // 绑定视图切换按钮事件
+        this.uiElements.viewToggle = document.getElementById('view-toggle');
+        if (this.uiElements.viewToggle) {
+            this.updateViewButton(); // 初始化按钮状态和事件
+        }
+
+        // 先不设置模式，等组件创建完成后再设置
     }
 
     /**
@@ -142,6 +205,52 @@ class OCCTApp {
     }
 
     /**
+     * 更新自动旋转状态显示
+     */
+    updateAutoRotationStatus() {
+        // 只在3D视图下显示自动旋转状态
+        if (this.currentView !== '3d' || 
+            !this.sceneManager3D?.autoRotationManager || 
+            !this.uiElements.rotationIndicator || 
+            !this.uiElements.rotationStatusText) {
+            return;
+        }
+
+        const status = this.sceneManager3D.getAutoRotationStatus();
+        if (!status) return;
+
+        // 更新指示器颜色
+        const indicator = this.uiElements.rotationIndicator;
+        indicator.className = 'rotation-indicator';
+        
+        if (status.isRotating) {
+            indicator.classList.add('rotating');
+        } else if (status.enabled) {
+            indicator.classList.add('enabled');
+        }
+
+        // 更新状态文本
+        let statusText = '自动旋转: ';
+        if (!status.enabled) {
+            statusText += '禁用';
+        } else if (status.isRotating) {
+            statusText += '旋转中';
+        } else if (status.isIdle) {
+            statusText += '空闲';
+        } else {
+            const minutes = Math.floor(status.timeUntilIdle / 60);
+            const seconds = status.timeUntilIdle % 60;
+            if (minutes > 0) {
+                statusText += `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            } else {
+                statusText += `${seconds}s`;
+            }
+        }
+
+        this.uiElements.rotationStatusText.textContent = statusText;
+    }
+
+    /**
      * 切换操作模式
      */
     toggleMode() {
@@ -160,21 +269,38 @@ class OCCTApp {
             if (mode === 'view') {
                 this.uiElements.modeToggle.textContent = '🔍 查看模式';
                 this.uiElements.modeToggle.className = 'mode-view';
-                // 禁用墙面选择
-                if (this.wallSelector) {
-                    this.wallSelector.setEnabled(false);
-                }
             } else {
                 this.uiElements.modeToggle.textContent = '✏️ 编辑模式';
                 this.uiElements.modeToggle.className = 'mode-edit';
-                // 启用墙面选择
-                if (this.wallSelector) {
-                    this.wallSelector.setEnabled(true);
-                }
             }
         }
         
+        // 更新3D交互组件的启用状态（考虑当前视图和模式）
+        this.updateInteractionStates();
+        
         console.log(`切换到${mode === 'view' ? '查看' : '编辑'}模式`);
+    }
+
+    /**
+     * 更新交互状态（基于当前视图和模式）
+     */
+    updateInteractionStates() {
+        const is3DView = this.currentView === '3d';
+        const isEditMode = this.currentMode === 'edit';
+        
+        // 墙面选择器：需要3D视图且编辑模式
+        if (this.wallSelector) {
+            this.wallSelector.setEnabled(is3DView && isEditMode);
+        }
+        
+        // 拖拽和选择管理器：需要3D视图
+        if (this.dragDropManager) {
+            this.dragDropManager.setEnabled(is3DView);
+        }
+        
+        if (this.selectionManager) {
+            this.selectionManager.setEnabled(is3DView);
+        }
     }
 
     /**
@@ -185,6 +311,147 @@ class OCCTApp {
             this.materialSidebar.toggle();
         }
     }
+
+    /**
+     * 切换到2D彩平图视图
+     */
+    async switchTo2DView() {
+        if (this.currentView === '2d') return;
+        
+        try {
+            this.updateStatus('正在切换到2D彩平图视图...');
+            
+            // 切换视图模式
+            this.currentView = '2d';
+            
+            // 更新按钮状态
+            this.updateViewButton();
+            
+            // 切换canvas显示
+            document.getElementById('canvas-3d').classList.remove('active');
+            document.getElementById('canvas-3d').classList.add('hidden');
+            document.getElementById('canvas-2d').classList.remove('hidden');
+            document.getElementById('canvas-2d').classList.add('active');
+            
+            // 如果还没有数据，先加载
+            if (!this.sharedData) {
+                await this.loadData();
+            }
+            
+            // 检查是否已经渲染过2D场景
+            if (!this.renderState['2d']) {
+                // 首次渲染2D场景
+                const data2D = JSON.parse(JSON.stringify(this.sharedData));
+                
+                const result = await this.planRenderer.render(data2D, this.sceneManager2D.getScene());
+                this.renderState['2d'] = true;
+                console.log('2D场景首次渲染完成');
+                
+                // 适应视图
+                this.sceneManager2D.fitToView();
+            }
+            
+            // 隐藏3D相关UI和交互
+            this.set3DUIVisible(false);
+            
+            this.updateStatus('2D彩平图视图已切换');
+            
+        } catch (error) {
+            console.error('切换到2D视图失败:', error);
+            this.updateStatus('切换到2D视图失败: ' + error.message);
+        }
+    }
+
+    /**
+     * 切换到3D视图
+     */
+    async switchTo3DView() {
+        if (this.currentView === '3d') return;
+        
+        try {
+            this.updateStatus('正在切换到3D视图...');
+            
+            // 切换视图模式
+            this.currentView = '3d';
+            
+            // 更新按钮状态
+            this.updateViewButton();
+            
+            // 切换canvas显示
+            document.getElementById('canvas-2d').classList.remove('active');
+            document.getElementById('canvas-2d').classList.add('hidden');
+            document.getElementById('canvas-3d').classList.remove('hidden');
+            document.getElementById('canvas-3d').classList.add('active');
+            
+            // 如果还没有数据，先加载
+            if (!this.sharedData) {
+                await this.loadData();
+            }
+            
+            // 检查是否已经渲染过3D场景
+            if (!this.renderState['3d']) {
+                // 首次渲染3D场景
+                const data3D = JSON.parse(JSON.stringify(this.sharedData));
+                
+                const result = await this.roomRenderer.render(data3D, this.wallSelector);
+                this.renderState['3d'] = true;
+                console.log('3D场景首次渲染完成');
+            }
+            
+            // 显示3D相关UI和交互
+            this.set3DUIVisible(true);
+            
+            this.updateStatus('3D视图已切换');
+            
+        } catch (error) {
+            console.error('切换到3D视图失败:', error);
+            this.updateStatus('切换到3D视图失败: ' + error.message);
+        }
+    }
+
+
+    /**
+     * 更新视图按钮状态
+     */
+    updateViewButton() {
+        const button = this.uiElements.viewToggle;
+        if (button) {
+            if (this.currentView === '3d') {
+                button.textContent = '📋 2D彩平图';
+                button.onclick = () => this.switchTo2DView();
+            } else {
+                button.textContent = '🏠 3D视图';
+                button.onclick = () => this.switchTo3DView();
+            }
+        }
+    }
+
+
+    /**
+     * 设置3D相关UI和交互的显示状态
+     * @param {boolean} visible - 是否显示
+     */
+    set3DUIVisible(visible) {
+        // 隐藏/显示模式切换按钮
+        if (this.uiElements.modeToggle) {
+            this.uiElements.modeToggle.style.display = visible ? 'block' : 'none';
+        }
+        
+        // 隐藏/显示资源库按钮
+        if (this.uiElements.resourceToggle) {
+            this.uiElements.resourceToggle.style.display = visible ? 'block' : 'none';
+        }
+        
+        // 隐藏/显示编辑相关UI
+        const shortcutsInfo = document.querySelector('.shortcuts-info');
+        if (shortcutsInfo) {
+            shortcutsInfo.style.display = visible ? 'block' : 'none';
+        }
+        
+        // 更新交互状态
+        this.updateInteractionStates();
+    }
+
 
     /**
      * 加载数据
@@ -211,11 +478,24 @@ class OCCTApp {
             
             const data = { outline, rooms, doorWindows };
             
+            // 缓存共享数据
+            this.sharedData = data;
+            
             console.log('从后端加载的数据:', data);
 
-            // 渲染数据
+            // 根据当前视图模式渲染数据
             this.updateStatus('正在渲染几何体...');
-            await this.roomRenderer.render(data, this.wallSelector);
+            if (this.currentView === '3d') {
+                // 为3D创建数据深拷贝并渲染
+                const data3D = JSON.parse(JSON.stringify(data));
+                const result = await this.roomRenderer.render(data3D, this.wallSelector);
+                this.renderState['3d'] = true;
+            } else {
+                // 为2D创建数据深拷贝并渲染
+                const data2D = JSON.parse(JSON.stringify(data));
+                const result = await this.planRenderer.render(data2D, this.sceneManager2D.getScene());
+                this.renderState['2d'] = true;
+            }
             
             console.log('数据加载和基础渲染完成');
             
@@ -278,51 +558,47 @@ class OCCTApp {
     }
 
     /**
-     * 切换CSG引擎
+     * 对象选中回调
+     * @param {THREE.Object3D} object - 选中的对象
      */
-    // toggleCSGEngine() {
-    //     if (this.currentCSGEngine === 'three-bvh-csg') {
-    //         this.currentCSGEngine = 'three-csgmesh';
-    //         this.updateStatus('切换到 THREE-CSGMesh 引擎（高精度）');
-    //     } else {
-    //         this.currentCSGEngine = 'three-bvh-csg';
-    //         this.updateStatus('切换到 Three-BVH-CSG 引擎（高性能）');
-    //     }
+    onObjectSelected(object) {
+        const objectName = object.userData.name || object.userData.modelType || '未知对象';
+        this.updateStatus(`已选中: ${objectName} (G:移动 R:旋转 S:缩放 Del:删除)`);
         
-    //     // this.updateCSGEngineUI();
-    //     this.applyCSGConfig();
-    // }
-
-    // /**
-    //  * 更新CSG精度
-    //  * @param {number} epsilon - 新的精度值
-    //  */
-    // updateCSGPrecision(epsilon) {
-    //     this.currentEpsilon = epsilon;
-    //     this.updateStatus(`CSG精度更新为: ${epsilon.toExponential(0)}`);
-    //     this.applyCSGConfig();
-    // }
+        console.log('对象选中详情:', {
+            object: object,
+            name: objectName,
+            position: object.position,
+            userData: object.userData
+        });
+    }
 
     /**
-     * 更新CSG引擎UI显示
+     * 对象取消选中回调
+     * @param {THREE.Object3D} object - 取消选中的对象
      */
-    // updateCSGEngineUI() {
-    //     const toggle = this.uiElements.csgEngineToggle;
-    //     const precision = this.uiElements.csgPrecision;
+    onObjectDeselected(object) {
+        this.updateStatus('已取消选择');
         
-    //     if (toggle) {
-    //         if (this.currentCSGEngine === 'three-bvh-csg') {
-    //             toggle.textContent = '⚡ BVH-CSG';
-    //             toggle.className = 'csg-bvh';
-    //             if (precision) precision.style.display = 'none';
-    //         } else {
-    //             toggle.textContent = '🔮 CSGMesh';
-    //             toggle.className = 'csg-mesh';
-    //             if (precision) precision.style.display = 'block';
-    //         }
-    //     }
-    // }
+        console.log('对象取消选中:', object.userData.name || object.userData.modelType);
+    }
 
+    /**
+     * 对象删除回调
+     * @param {THREE.Object3D} object - 删除的对象
+     */
+    onObjectDeleted(object) {
+        const objectName = object.userData.name || object.userData.modelType || '未知对象';
+        this.updateStatus(`已删除: ${objectName}`);
+        
+        console.log('对象删除详情:', {
+            object: object,
+            name: objectName,
+            userData: object.userData
+        });
+    }
+
+   
     /**
      * 应用CSG配置到RoomRenderer
      */
@@ -348,6 +624,7 @@ class OCCTApp {
      * 销毁应用
      */
     dispose() {
+        // 清理交互组件
         if (this.wallSelector) {
             this.wallSelector.dispose();
         }
@@ -360,7 +637,20 @@ class OCCTApp {
             this.dragDropManager.destroy();
         }
         
-        console.log('应用已清理');
+        if (this.selectionManager) {
+            this.selectionManager.destroy();
+        }
+        
+        // 清理双场景管理器
+        if (this.sceneManager3D) {
+            this.sceneManager3D.destroy();
+        }
+        
+        if (this.sceneManager2D) {
+            this.sceneManager2D.destroy();
+        }
+        
+        console.log('双场景应用已清理');
     }
 }
 

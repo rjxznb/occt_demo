@@ -7,8 +7,8 @@ export class WallSelector {
     constructor(sceneManager) {
         this.sceneManager = sceneManager;
         this.scene = sceneManager.getScene();
-        this.camera = sceneManager.getCamera();
         this.renderer = sceneManager.getRenderer();
+        // 不再缓存camera引用，而是动态获取
         
         // 射线投射器
         this.raycaster = new THREE.Raycaster();
@@ -79,7 +79,7 @@ export class WallSelector {
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
         // 更新射线
-        this.raycaster.setFromCamera(this.mouse, this.camera);
+        this.raycaster.setFromCamera(this.mouse, this.sceneManager.getCamera());
 
         // 检测碰撞
         const intersects = this.raycaster.intersectObjects(this.wallMeshes);
@@ -103,12 +103,24 @@ export class WallSelector {
      */
     isFrontFaceClick(intersection) {
         const meshType = intersection.object.userData.type;
+        const wallType = intersection.object.userData.wallType;
         
         // 对门窗对象更宽松的选择条件
         if (meshType === 'door' || meshType === 'window') {
             return true; // 门窗对象可以从任意角度选择
         }
         
+        // 对弧形墙面使用更宽松的选择条件，因为弧形表面法向量变化很大
+        if (wallType === 'arc') {
+            const faceNormal = intersection.face.normal.clone();
+            const worldNormal = faceNormal.transformDirection(intersection.object.matrixWorld).normalize();
+            const rayDirection = this.raycaster.ray.direction.clone().normalize();
+            
+            // 对弧形墙面使用更宽松的角度检测（从0.1降低到-0.3）
+            return rayDirection.dot(worldNormal) > -0.3;
+        }
+        
+        // 直线墙面使用标准检测
         const faceNormal = intersection.face.normal.clone();
         const worldNormal = faceNormal.transformDirection(intersection.object.matrixWorld).normalize();
         const rayDirection = this.raycaster.ray.direction.clone().normalize();
@@ -149,32 +161,126 @@ export class WallSelector {
         let highlightGroup;
         
         if (wallType === 'arc') {
-            highlightGroup = this.createArcWallHighlight(wallMesh);
+            // 对弧形墙面使用面高亮而不是线框高亮
+            highlightGroup = this.createArcWallSurfaceHighlight(wallMesh);
         } else {
             highlightGroup = this.createStraightWallHighlight(wallMesh);
         }
         
-        // 如果是门窗对象，需要应用离地高度
-        const meshType = wallMesh.userData.type;
-        if ((meshType === 'door' || meshType === 'window') && wallMesh.userData.groundHeight) {
-            highlightGroup.position.z = wallMesh.userData.groundHeight;
-        }
+        // 门窗对象已经包含了离地高度，不需要额外设置
+        // 高亮效果直接复制了原mesh的位置，已经包含了正确的高度
         
         return highlightGroup;
     }
 
     /**
-     * 创建直线墙面高亮
+     * 创建直线墙面高亮（面高亮+边缘线条）
      * @param {THREE.Mesh} wallMesh - 直线墙面
      * @returns {THREE.Group} 高亮对象
      */
     createStraightWallHighlight(wallMesh) {
+        const highlightGroup = new THREE.Group();
+        
+        // 创建高亮材质，保持表面纹理
+        const highlightMaterial = new THREE.MeshLambertMaterial({
+            color: 0x0088ff,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false
+        });
+        
+        // 复制原始几何体并稍微放大
+        const highlightGeometry = wallMesh.geometry.clone();
+        const highlightMesh = new THREE.Mesh(highlightGeometry, highlightMaterial);
+        
+        // 复制变换
+        highlightMesh.position.copy(wallMesh.position);
+        highlightMesh.rotation.copy(wallMesh.rotation);
+        highlightMesh.scale.copy(wallMesh.scale);
+        
+        // 稍微放大以避免Z-fighting
+        highlightMesh.scale.multiplyScalar(1.002);
+        highlightMesh.renderOrder = 1000;
+        
+        highlightGroup.add(highlightMesh);
+        
+        // 添加边缘线条
         const edgesGeometry = new THREE.EdgesGeometry(wallMesh.geometry);
-        return this.createHighlightLines(edgesGeometry, 0x0000ff);
+        const edgesMaterial = new THREE.LineBasicMaterial({ 
+            color: 0x0088ff, 
+            linewidth: 3,
+            transparent: true,
+            opacity: 0.8
+        });
+        const edgesLine = new THREE.LineSegments(edgesGeometry, edgesMaterial);
+        edgesLine.position.copy(wallMesh.position);
+        edgesLine.rotation.copy(wallMesh.rotation);
+        edgesLine.scale.copy(wallMesh.scale);
+        edgesLine.scale.multiplyScalar(1.003);
+        edgesLine.renderOrder = 1001;
+        
+        highlightGroup.add(edgesLine);
+        
+        return highlightGroup;
     }
 
     /**
-     * 创建弧形墙面高亮（外轮廓）
+     * 创建弧形墙面表面高亮（面高亮+边缘线条）
+     * @param {THREE.Mesh} wallMesh - 弧形墙面
+     * @returns {THREE.Group} 高亮对象
+     */
+    createArcWallSurfaceHighlight(wallMesh) {
+        const highlightGroup = new THREE.Group();
+        
+        // 创建高亮材质，保持表面纹理
+        const highlightMaterial = new THREE.MeshLambertMaterial({
+            color: 0x0088ff,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false
+        });
+        
+        // 复制原始几何体并稍微放大
+        const highlightGeometry = wallMesh.geometry.clone();
+        const highlightMesh = new THREE.Mesh(highlightGeometry, highlightMaterial);
+        
+        // 复制变换
+        highlightMesh.position.copy(wallMesh.position);
+        highlightMesh.rotation.copy(wallMesh.rotation);
+        highlightMesh.scale.copy(wallMesh.scale);
+        
+        // 稍微放大以避免Z-fighting
+        highlightMesh.scale.multiplyScalar(1.002);
+        highlightMesh.renderOrder = 1000;
+        
+        highlightGroup.add(highlightMesh);
+        
+        // 添加边缘线条
+        const edgesGeometry = new THREE.EdgesGeometry(wallMesh.geometry);
+        const edgesMaterial = new THREE.LineBasicMaterial({ 
+            color: 0x0088ff, 
+            linewidth: 3,
+            transparent: true,
+            opacity: 0.8
+        });
+        const edgesLine = new THREE.LineSegments(edgesGeometry, edgesMaterial);
+        edgesLine.position.copy(wallMesh.position);
+        edgesLine.rotation.copy(wallMesh.rotation);
+        edgesLine.scale.copy(wallMesh.scale);
+        edgesLine.scale.multiplyScalar(1.003);
+        edgesLine.renderOrder = 1001;
+        
+        highlightGroup.add(edgesLine);
+        
+        return highlightGroup;
+    }
+
+    /**
+     * 创建弧形墙面高亮（外轮廓）- 保留原方法作为备用
      * @param {THREE.Mesh} wallMesh - 弧形墙面
      * @returns {THREE.Group} 高亮对象
      */
@@ -319,4 +425,5 @@ export class WallSelector {
         // 移除事件监听
         this.renderer.domElement.removeEventListener('click', this.handleWallClick);
     }
+
 }
