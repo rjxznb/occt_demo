@@ -370,4 +370,11 @@ export class AutoRotationManager {
         this.activityHandler = null;
         this.interactionHandler = null;
     }
+    
+    /**
+     * 兼容性方法，与其他管理器保持一致的命名
+     */
+    dispose() {
+        this.destroy();
+    }
 }
