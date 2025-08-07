@@ -414,4 +414,9 @@ export class SceneManager {
             this.scene.remove(this.scene.children[0]);
         }
     }
+    
+    // 兼容性方法，与其他管理器保持一致的命名
+    dispose() {
+        this.destroy();
+    }
 }
