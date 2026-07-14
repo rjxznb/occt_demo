@@ -25,6 +25,7 @@ export class PlanRenderer {
         
         // 数据缓存
         this.outlineData = null;
+        this.outlineHoles = [];
         this.roomsData = null;
         this.doorsData = [];
         this.windowsData = [];
@@ -59,6 +60,8 @@ export class PlanRenderer {
             const outlineShape = this.createShape(this.outlineData);
             if (outlineShape) {
                 const holes = [
+                    // 外轮廓自身的内环（房间之间没被墙体覆盖到的空隙）
+                    ...this.outlineHoles,
                     ...this.roomsData,
                     ...this.doorsData.map(door => door.points),
                     ...this.windowsData.map(win => win.points)
@@ -130,13 +133,15 @@ export class PlanRenderer {
      * @param {Object} data - 原始数据
      */
     processData(data) {
-        if (data.outline && Array.isArray(data.outline.outlinePoints)) {
-            this.outlineData = this.convertPointFormat(data.outline.outlinePoints);
-        } else if (Array.isArray(data.outline)) {
-            this.outlineData = this.convertPointFormat(data.outline);
+        const rings = data.outline?.outlineRings;
+        if (rings?.outer) {
+            this.outlineData = this.convertPointFormat(rings.outer);
+            // 外轮廓自身的内环，和房间/门窗一样要作为 holes 挖掉
+            this.outlineHoles = (rings.holes || []).map(ring => this.convertPointFormat(ring));
         } else {
             console.warn('无法处理外轮廓数据');
             this.outlineData = null;
+            this.outlineHoles = [];
         }
 
         if (data.rooms && Array.isArray(data.rooms.roomPoints)) {

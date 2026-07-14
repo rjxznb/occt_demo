@@ -1,8 +1,8 @@
 # OCCT 户型图可视化系统
 
-基于 OpenCascade.js 和 Three.js 的户型图可视化系统，支持 3D 立体显示和 2D 彩平图，提供材质编辑、模型拖拽和 CSG 几何运算。
+基于 Three.js 的户型图可视化系统，支持 3D 立体显示和 2D 彩平图，提供材质编辑、模型拖拽和 CSG 几何运算。
 
-**纯前端应用**：没有后端服务。OpenCascade 以 WebAssembly 形式跑在浏览器里，几何运算全部在客户端完成。
+**纯前端应用**：没有后端服务，也不依赖 WebAssembly，几何运算全部在客户端用 JS 完成。
 
 ## 目录
 
@@ -18,7 +18,7 @@
 ## 功能特性
 
 ### 3D 可视化
-- **立体户型显示**：基于 OpenCascade.js 的精确几何建模
+- **立体户型显示**：由户型轮廓生成墙体、地板与门窗
 - **CSG 几何运算**：三维布尔运算，自动完成门窗开洞
 - **材质系统**：材质库与实时材质编辑
 
@@ -39,7 +39,7 @@
 | 用途 | 依赖 |
 |---|---|
 | 3D 渲染 | Three.js 0.178 |
-| CAD 几何内核 | OpenCascade.js 2.0.0-beta（WebAssembly） |
+| 二维多边形运算 | clipper-lib 6.4（偏移 + 并集） |
 | CSG 布尔运算 | three-bvh-csg 0.0.17 + three-mesh-bvh 0.8 |
 | UI | 原生 DOM（无框架） |
 | 构建 | Vite 6 |
@@ -60,7 +60,8 @@ occt/
 ├── src/
 │   ├── App.js                    # 主应用
 │   ├── core/
-│   │   ├── GeometryService.js    # 几何服务：OpenCascade wasm + 户型解析
+│   │   ├── GeometryService.js    # 几何服务：户型解析 + 外轮廓/门窗轮廓计算
+│   │   ├── Polygon2D.js          # 二维多边形运算（Clipper 封装）
 │   │   ├── DataSource.js         # 数据来源抽象（内置示例 / 本地文件）
 │   │   ├── SceneManager.js       # 3D 场景管理
 │   │   └── Scene2DManager.js     # 2D 场景管理
@@ -170,9 +171,9 @@ JSON，而不是原始 `.dxf`。
 
 | 方法 | 说明 |
 |---|---|
-| `init()` | 初始化 OpenCascade wasm，加载并解析户型数据 |
+| `init()` | 加载并解析户型数据 |
 | `setDataSource(ds)` | 指定数据来源，须在 `init()` 之前调用 |
-| `getOutline()` | 户型外轮廓：房间轮廓各自外扩墙厚 → 构面 → 融合 → 提取边界 |
+| `getOutline()` | 户型外轮廓：房间轮廓各自外扩墙厚 → 求并集 → 取边界环（外环 + 内环） |
 | `getRooms()` | 房间数据 |
 | `getDoorsAndWindows()` | 门窗数据。`processed_*` 是外扩 15mm 后用于挖洞的轮廓 |
 | `getSoftlists()` | 图例清单（含软装、门、窗） |
@@ -190,6 +191,9 @@ JSON，而不是原始 `.dxf`。
   因此先用包围盒把减数贪心分组成互不重叠的批次（`groupDisjoint`），每批合并后减一次。
 - **挖洞必须用 `processed_*`（外扩版）**：用原始尺寸的门窗会让洞壁与门窗自身的面共面，
   导致 z-fighting。
+- **每次布尔前清理退化三角形**：three-bvh-csg 的输出里会夹带零面积三角形，把这样的
+  结果再喂回去做下一次布尔，它会抛异常——而异常被 catch 吞掉，表现为「洞静默地没挖出来」。
+  `bakeGeometry` 末尾的 `removeDegenerateTriangles` 就是为此。
 
 ### 2D 渲染
 
@@ -207,16 +211,21 @@ JSON，而不是原始 `.dxf`。
 
 ## 故障排除
 
-### 首屏加载慢
-OpenCascade 的 wasm 有 50MB（gzip 后约 14MB），初始化约 5 秒，是首屏的主要开销。
-浏览器会缓存，二次加载快得多。彻底的解法是用 opencascade.js 的自定义构建只编译用到的
-类，可以把 wasm 压到几 MB——尚未实施。
+### 首屏加载
+约 2 秒。曾经是 9 秒——当时几何运算用的是 OpenCascade.js，光 wasm 初始化就要 5 秒。
+但本项目实际只需要两种二维操作（多边形外扩、并集），且所有输入都在 z=0 平面上，
+为此背一个 50MB 的 CAD 内核并不划算，现已改用 clipper-lib（见 `src/core/Polygon2D.js`），
+几何运算从 6064ms 降到 13ms。
 
 ### 软装大面积缺失
 `parsed_dxf` 与户型 JSON 不配套。数据选择界面会在渲染前列出缺失的文件名，
 确认它们来自同一次解析。
 
 ### CSG 结果异常（洞没挖出来 / 出现条纹）
+CSG 失败会被 catch 吞掉并原样返回被减数，所以**先看控制台有没有 `CSG减法失败`**，
+再按下面排查：
+- `Cannot read properties of null (reading 'dot')`：被减数里有退化三角形
+  （多半是上一次 CSG 的产物），见 `removeDegenerateTriangles`
 - 洞没挖出来：检查减数是否互相重叠却被合并进了同一批（见 `groupDisjoint`）
 - 出现条纹（z-fighting）：检查挖洞是否误用了原始尺寸的门窗，应使用 `processed_*`
 

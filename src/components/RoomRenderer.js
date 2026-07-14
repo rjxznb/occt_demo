@@ -11,6 +11,67 @@ evaluator.useGroups = false;
 
 const CSG_ATTRIBUTES = ['position', 'normal', 'uv'];
 
+// 面积低于此值的三角形视为退化并剔除。场景单位是毫米，1e-4 mm² 已远小于任何
+// 有意义的面。
+const MIN_TRIANGLE_AREA = 1e-4;
+
+/**
+ * 剔除退化（零面积/极小面积）与含 NaN 的三角形。
+ *
+ * three-bvh-csg 的输出里会夹带零面积三角形——把这样的结果再喂回去做下一次布尔，
+ * 它在计算面法线时会拿到 null 并抛出
+ * "Cannot read properties of null (reading 'dot')"。而这个异常会被 CSG 的 catch
+ * 吞掉，表现为「洞静默地没挖出来」。所以每次布尔前都必须先清理。
+ *
+ * @param {THREE.BufferGeometry} geometry - 非索引几何体
+ * @returns {THREE.BufferGeometry} 清理后的几何体（原对象在有剔除时被释放）
+ */
+function removeDegenerateTriangles(geometry) {
+    const pos = geometry.attributes.position;
+    const triCount = pos.count / 3;
+
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    const ab = new THREE.Vector3(), ac = new THREE.Vector3(), cross = new THREE.Vector3();
+
+    const keep = [];
+    for (let t = 0; t < triCount; t++) {
+        const i = t * 3;
+        a.fromBufferAttribute(pos, i);
+        b.fromBufferAttribute(pos, i + 1);
+        c.fromBufferAttribute(pos, i + 2);
+
+        if (!isFinite(a.x + a.y + a.z + b.x + b.y + b.z + c.x + c.y + c.z)) continue;
+
+        ab.subVectors(b, a);
+        ac.subVectors(c, a);
+        if (cross.crossVectors(ab, ac).length() / 2 < MIN_TRIANGLE_AREA) continue;
+
+        keep.push(t);
+    }
+
+    if (keep.length === triCount) return geometry;
+
+    const cleaned = new THREE.BufferGeometry();
+    for (const name of CSG_ATTRIBUTES) {
+        const attr = geometry.attributes[name];
+        if (!attr) continue;
+
+        const size = attr.itemSize;
+        const array = new Float32Array(keep.length * 3 * size);
+        keep.forEach((t, k) => {
+            for (let v = 0; v < 3; v++) {
+                const src = (t * 3 + v) * size;
+                const dst = (k * 3 + v) * size;
+                for (let s = 0; s < size; s++) array[dst + s] = attr.array[src + s];
+            }
+        });
+        cleaned.setAttribute(name, new THREE.BufferAttribute(array, size));
+    }
+
+    geometry.dispose();
+    return cleaned;
+}
+
 /**
  * 把 mesh 的变换烘焙进几何体，并统一属性集。
  * WallFactory 直接用世界坐标建几何，DoorWindowFactory 则把 z 偏移挂在 mesh.position 上，
@@ -43,7 +104,8 @@ function bakeGeometry(mesh) {
         geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(count * 2), 2));
     }
 
-    return geometry;
+    // CSG 的输出里会夹带退化三角形，喂回去做下一次布尔会让引擎抛异常
+    return removeDegenerateTriangles(geometry);
 }
 
 /** 计算 mesh 在世界坐标下的包围盒 */
@@ -223,9 +285,9 @@ export class RoomRenderer {
             }
 
             // 1. 创建外轮廓 mesh（但先不添加到场景）
-            const outlinePoints = data.outline?.outlinePoints || data.outline;
-            if (outlinePoints && outlinePoints.length > 0) {
-                result.outlineMesh = this.createOutlineMesh(outlinePoints);
+            const outlineRings = data.outline?.outlineRings;
+            if (outlineRings?.outer?.length > 0) {
+                result.outlineMesh = this.createOutlineMesh(outlineRings.outer, outlineRings.holes);
             }
 
 
@@ -347,24 +409,49 @@ export class RoomRenderer {
     }
 
     /**
-     * 创建外轮廓mesh
-     * @param {Array} outlinePoints - 外轮廓点数组
-     * @returns {THREE.Mesh} 外轮廓mesh
+     * 由点数组构建闭合轮廓
+     * @param {Array} points - 点数组
+     * @param {Function} Ctor - THREE.Shape 或 THREE.Path
+     * @returns {THREE.Shape|THREE.Path|null}
      */
-    createOutlineMesh(outlinePoints) {
+    buildContour(points, Ctor) {
+        const converted = this.convertPointFormat(points);
+        if (converted.length < 3) return null;
+
+        const contour = new Ctor();
+        contour.moveTo(converted[0].x, converted[0].y);
+        for (let i = 1; i < converted.length; i++) {
+            contour.lineTo(converted[i].x, converted[i].y);
+        }
+        contour.closePath();
+
+        return contour;
+    }
+
+    /**
+     * 创建外轮廓mesh
+     *
+     * 外轮廓是「房间外扩墙厚后的并集」，其边界通常不止一个环：面积最大的是外环，
+     * 其余是内环（房间之间没被墙体覆盖到的空隙）。内环必须作为 Shape 的 holes
+     * 表达，不能和外环拼进同一条路径——那会得到自交的畸形，挤出后带着退化三角形，
+     * 后续 three-bvh-csg 会直接抛异常（而异常被 catch 吞掉，洞就静默地挖不出来）。
+     *
+     * @param {Array} outerRing - 外环点数组
+     * @param {Array<Array>} holeRings - 内环点数组
+     * @returns {THREE.Mesh|null} 外轮廓mesh
+     */
+    createOutlineMesh(outerRing, holeRings = []) {
         try {
-            const convertedPoints = this.convertPointFormat(outlinePoints);
-
-            const shape = new THREE.Shape();
-            const firstPoint = convertedPoints[0];
-            shape.moveTo(firstPoint.x, firstPoint.y);
-
-            for (let i = 1; i < convertedPoints.length; i++) {
-                const point = convertedPoints[i];
-                shape.lineTo(point.x, point.y);
+            const shape = this.buildContour(outerRing, THREE.Shape);
+            if (!shape) {
+                console.error('外轮廓外环无效');
+                return null;
             }
 
-            shape.lineTo(firstPoint.x, firstPoint.y);
+            for (const ring of holeRings) {
+                const hole = this.buildContour(ring, THREE.Path);
+                if (hole) shape.holes.push(hole);
+            }
 
             const extrudeSettings = {
                 steps: 1,
