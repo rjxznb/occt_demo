@@ -323,8 +323,20 @@ export class RoomRenderer {
             // 所以之前的一些userData全都不存在啦，我们需要自己再设置；
             result.outlineMesh.userData.type="outWall";
 
-            // 7. 调整相机视角
+            // 6. 开启阴影。CSG 会产出全新的 mesh，所以统一在最后遍历设置，
+            //    避免在各处创建点上遗漏。
+            this.sceneGroup.traverse(object => {
+                if (object.isMesh) {
+                    object.castShadow = true;
+                    object.receiveShadow = true;
+                }
+            });
+
+            // 7. 调整相机视角，并按场景实际尺度拟合阴影相机
             this.adjustCamera();
+
+            const bounds = new THREE.Box3().setFromObject(this.sceneGroup);
+            this.sceneManager.fitShadowToScene(bounds);
 
             return result;
 

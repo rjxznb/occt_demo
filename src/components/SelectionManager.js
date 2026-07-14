@@ -73,6 +73,8 @@ export class SelectionManager {
                 if (this.selectedObject) {
                     this.handleObjectTransformation();
                 }
+                // 阴影图不再每帧自动更新，物体动了必须主动标脏
+                this.sceneManager.invalidateShadow();
             });
             
             // 添加鼠标按下和释放事件监听

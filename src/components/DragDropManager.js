@@ -493,8 +493,17 @@ export class DragDropManager {
             createdAt: Date.now()
         };
 
+        // 新放置的模型也要参与阴影；阴影图不再每帧自动更新，须主动标脏
+        mesh.traverse(object => {
+            if (object.isMesh) {
+                object.castShadow = true;
+                object.receiveShadow = true;
+            }
+        });
+
         // 添加到场景
         this.sceneManager.scene.add(mesh);
+        this.sceneManager.invalidateShadow();
 
         console.log(`已成功创建 ${modelData.name} 模型:`, {
             position: mesh.position,

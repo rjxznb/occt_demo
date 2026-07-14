@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { AutoRotationManager } from '../components/AutoRotationManager.js';
 
+// 主光源方向（场景为 Z 轴向上）。只表示方向，实际距离由场景尺度决定。
+const KEY_LIGHT_DIR = new THREE.Vector3(100, 80, 120).normalize();
+
 /**
  * 场景管理器 - 负责Three.js场景的初始化和管理
  */
@@ -116,25 +119,20 @@ export class SceneManager {
      * 设置专业级三点照明系统
      */
     setupProfessionalLighting() {
-        // 1. 主光源 (Key Light) - 平衡调整
-        const keyLight = new THREE.DirectionalLight(0xFFF8DC, 0.5); // 适度增加到0.5
-        keyLight.position.set(100, 80, 120);
+        // 1. 主光源 (Key Light)
+        // 阴影相机的范围不在这里写死——户型尺度有上万毫米，任何硬编码的范围都会
+        // 覆盖不到。等场景建好后由 fitShadowToScene() 按实际包围盒拟合。
+        const keyLight = new THREE.DirectionalLight(0xFFF8DC, 0.5);
+        keyLight.position.copy(KEY_LIGHT_DIR).multiplyScalar(1000);
         keyLight.castShadow = true;
-        
-        // 高质量阴影设置，扩大范围适应大场景
+
         keyLight.shadow.mapSize.width = 2048;
         keyLight.shadow.mapSize.height = 2048;
-        keyLight.shadow.camera.near = 0.1;
-        keyLight.shadow.camera.far = 2000;
-        keyLight.shadow.camera.left = -1000;
-        keyLight.shadow.camera.right = 1000;
-        keyLight.shadow.camera.top = 1000;
-        keyLight.shadow.camera.bottom = -1000;
-        keyLight.shadow.bias = -0.0001;
-        keyLight.shadow.normalBias = 0.02;
-        
+
         this.scene.add(keyLight);
-        
+        this.scene.add(keyLight.target);
+        this.keyLight = keyLight;
+
         // 2. 适度增加补光
         const fillLight = new THREE.DirectionalLight(0xE6F3FF, 0.5); // 增加到0.15
         fillLight.position.set(-80, 40, 80);
@@ -153,6 +151,65 @@ export class SceneManager {
         this.createProfessionalGround();
         
         console.log('专业级光照系统已设置完成（平衡调整）');
+    }
+
+    /**
+     * 按场景实际包围盒拟合主光源的阴影相机。
+     *
+     * 户型的尺度是上万毫米，而阴影相机是正交的、范围必须显式给定——写死的范围
+     * （原先是 ±1000 / far=2000）只能盖住场景的百分之几，等于每帧白算一张阴影图。
+     * 因此必须等几何建好、拿到真实包围盒之后再拟合。
+     *
+     * 场景是静态的，阴影算一次就够，故拟合后关掉 shadowMap.autoUpdate。
+     *
+     * @param {THREE.Box3} box - 场景包围盒（世界坐标）
+     */
+    fitShadowToScene(box) {
+        const light = this.keyLight;
+        if (!light || !box || box.isEmpty()) {
+            console.warn('阴影拟合跳过：包围盒为空');
+            return;
+        }
+
+        const center = box.getCenter(new THREE.Vector3());
+        const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+
+        // 光源退到场景之外，正交阴影相机罩住整个包围球
+        const distance = radius * 2.5;
+        light.position.copy(center).addScaledVector(KEY_LIGHT_DIR, distance);
+        light.target.position.copy(center);
+        light.target.updateMatrixWorld();
+
+        const cam = light.shadow.camera;
+        cam.left = -radius;
+        cam.right = radius;
+        cam.top = radius;
+        cam.bottom = -radius;
+        cam.near = Math.max(1, distance - radius * 1.5);
+        cam.far = distance + radius * 1.5;
+        cam.updateProjectionMatrix();
+
+        // bias 以世界单位（毫米）计：场景尺度大，太小的值挡不住阴影痤疮
+        light.shadow.bias = -0.0005;
+        light.shadow.normalBias = Math.max(1, radius * 0.001);
+
+        // 静态场景：阴影图渲染一次即可，不必每帧重算。
+        // 场景一旦变动（拖拽、变换、增删物体），须调用 invalidateShadow()。
+        this.renderer.shadowMap.autoUpdate = false;
+        this.renderer.shadowMap.needsUpdate = true;
+
+        console.log(`阴影相机已拟合场景：半径 ${radius.toFixed(0)}mm，光源距离 ${distance.toFixed(0)}mm`);
+    }
+
+    /**
+     * 标记阴影图需要重算。
+     * 因为 shadowMap.autoUpdate 被关掉了（静态场景不必每帧重算一张 2048² 的阴影图），
+     * 所以任何改变场景的操作都要主动调用它，否则阴影会停留在旧状态。
+     */
+    invalidateShadow() {
+        if (this.renderer) {
+            this.renderer.shadowMap.needsUpdate = true;
+        }
     }
 
     /**
