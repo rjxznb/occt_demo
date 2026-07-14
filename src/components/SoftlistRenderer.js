@@ -35,39 +35,38 @@ export class SoftlistRenderer {
             this.softlistItems = softlistsData.softlists || [];
             
             console.log(`获取到${this.softlistItems.length}个软装项`);
-            
-            // 逐个加载并渲染软装项
-            for (let i = 0; i < this.softlistItems.length; i++) {
-                const item = this.softlistItems[i];
 
-                // 自由绘制的图例，这里需要获取dxf文件名_前的编号，这样才能获取dxf的typeid；
-                if(item.id.split('_')[0] in freestyle){
+            // 自由绘制的图例：点数据已在列表里，无需再拉取 dxf
+            const dxfItems = [];
+            this.softlistItems.forEach((item, i) => {
+                if (item.id.split('_')[0] in freestyle) {
                     item.points = this.convertPointFormat(item.points);
-                    console.log(item.points);
-                    let freestyle_soft = this.createPlaneMeshFromPoints(item.points, 0x333333, 0.1);
+                    const freestyleSoft = this.createPlaneMeshFromPoints(item.points, 0x333333, 0.1);
+                    if (!freestyleSoft) return;
 
-                    // 添加用户数据
-                    freestyle_soft.userData = {
+                    freestyleSoft.userData = {
                         type: 'freestyle',
                         softlistId: item.id,
                         index: i,
                         basepoint: item.basepoint,
                         originalData: item
                     };
-                    
-                    // 添加到场景
-                    this.scene2D.add(freestyle_soft);
-                    this.softlistGroups.push(freestyle_soft);
-                    continue;
+
+                    this.scene2D.add(freestyleSoft);
+                    this.softlistGroups.push(freestyleSoft);
+                } else {
+                    dxfItems.push({ item, index: i });
                 }
-                try {
-                    await this.loadAndRenderSoftlistItem(item, i);
-                } catch (error) {
-                    console.warn(`软装项${item.id}渲染失败:`, error);
-                }
-            }
-            
-            console.log('软装数据加载完成');
+            });
+
+            // 其余软装的 dxf 数据并行拉取——原先是 for 循环里逐个 await，
+            // 几十个请求的往返时延被串成了一条链
+            await Promise.all(dxfItems.map(({ item, index }) =>
+                this.loadAndRenderSoftlistItem(item, index)
+                    .catch(error => console.warn(`软装项${item.id}渲染失败:`, error))
+            ));
+
+            console.log(`软装数据加载完成，共${this.softlistGroups.length}个`);
             
         } catch (error) {
             console.error('软装数据初始化失败:', error);
@@ -121,8 +120,6 @@ export class SoftlistRenderer {
      */
     async loadAndRenderSoftlistItem(softlistItem, index) {
         try {
-            console.log(`加载软装项${index}: ${softlistItem.id}`);
-            
             // 获取几何数据
             const geometryData = await this.fetchSoftlistPoints(softlistItem.id);
             
@@ -130,20 +127,16 @@ export class SoftlistRenderer {
             const softlistGroup = new THREE.Group();
             softlistGroup.name = `Softlist_${softlistItem.id}_${index}`;
             
-            // 渲染polylines（线条）
-            if (geometryData.polylines && geometryData.polylines.length > 0) {
-                console.log(`渲染${geometryData.polylines.length}条polylines`);
-                geometryData.polylines.forEach((polyline, lineIndex) => {
-                    const lineMesh = this.createPolylineMesh(polyline, lineIndex);
-                    if (lineMesh) {
-                        softlistGroup.add(lineMesh);
-                    }
-                });
+            // 渲染polylines：合并成单个 LineSegments。
+            // 一个 dxf 常有上百条 polyline，每条平均只有 3 个点；若各自成 THREE.Line，
+            // 整个场景会有上万次 draw call 去画几万个顶点，纯属调用开销。
+            const lineSegments = this.createMergedPolylines(geometryData.polylines);
+            if (lineSegments) {
+                softlistGroup.add(lineSegments);
             }
-            
+
             // 渲染wipeouts（填充区域）
             if (geometryData.wipeouts && geometryData.wipeouts.length > 0) {
-                console.log(`渲染${geometryData.wipeouts.length}个wipeouts`);
                 geometryData.wipeouts.forEach((wipeout, wipeoutIndex) => {
                     const wipeoutMesh = this.createWipeoutMesh(wipeout, wipeoutIndex);
                     if (wipeoutMesh) {
@@ -167,9 +160,7 @@ export class SoftlistRenderer {
             // 添加到场景
             this.scene2D.add(softlistGroup);
             this.softlistGroups.push(softlistGroup);
-            
-            console.log(`软装项${softlistItem.id}渲染完成，包含${softlistGroup.children.length}个几何体`);
-            
+
         } catch (error) {
             console.error(`加载软装项${softlistItem.id}失败:`, error);
             throw error;
@@ -177,35 +168,47 @@ export class SoftlistRenderer {
     }
 
     /**
-     * 创建polyline网格
-     * @param {Array} polyline - polyline点数组 [[x,y], [x,y], ...]
-     * @param {number} index - polyline索引
-     * @returns {THREE.Line|null}
+     * 把一个软装的所有 polyline 合并成单个 LineSegments
+     * @param {Array} polylines - polyline 数组，每条为 [[x,y], [x,y], ...]
+     * @returns {THREE.LineSegments|null}
      */
-    createPolylineMesh(polyline, index) {
-        if (!polyline || polyline.length < 2) {
+    createMergedPolylines(polylines) {
+        if (!Array.isArray(polylines) || polylines.length === 0) {
             return null;
         }
 
-        try {
-            // 将2D点转换为3D点
-            const points = polyline.map(point => new THREE.Vector3(point[0], point[1], this.defaultStyle.z));
-            
-            const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const material = new THREE.LineBasicMaterial({
-                color: this.defaultStyle.polylineColor,
-                linewidth: this.defaultStyle.polylineWidth
-            });
-            
-            const line = new THREE.Line(geometry, material);
-            line.name = `Polyline_${index}`;
-            line.userData = { type: 'softlist-polyline' };
-            
-            return line;
-        } catch (error) {
-            console.warn(`创建polyline ${index} 失败:`, error);
+        const z = this.defaultStyle.z;
+        const positions = [];
+
+        for (const polyline of polylines) {
+            if (!polyline || polyline.length < 2) continue;
+
+            // LineSegments 按“每两个顶点一段”消费缓冲区，
+            // 因此折线的中间点需要成对展开
+            for (let i = 0; i < polyline.length - 1; i++) {
+                const a = polyline[i];
+                const b = polyline[i + 1];
+                positions.push(a[0], a[1], z, b[0], b[1], z);
+            }
+        }
+
+        if (positions.length === 0) {
             return null;
         }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+        // 材质按软装项独立：选择器高亮时会替换 child.material
+        const material = new THREE.LineBasicMaterial({
+            color: this.defaultStyle.polylineColor
+        });
+
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.name = 'Polylines';
+        lines.userData = { type: 'softlist-polyline' };
+
+        return lines;
     }
 
     /**
@@ -280,21 +283,10 @@ export class SoftlistRenderer {
             // 1. 首先处理缩放（包括翻转）
             let scaleX = 1, scaleY = 1, scaleZ = 1;
             if (softlistItem.scale) {
+                // scale 为 -1 表示沿该轴翻转，makeScale 直接支持
                 scaleX = softlistItem.scale.x || 1;
                 scaleY = softlistItem.scale.y || 1;
                 scaleZ = softlistItem.scale.z || 1;
-
-
-                // 处理scale=-1的翻转情况
-                if (scaleX === -1) {
-                    console.log(`软装${softlistItem.id}: X轴翻转`);
-                }
-                if (scaleY === -1) {
-                    console.log(`软装${softlistItem.id}: Y轴翻转`);
-                }
-                if (scaleZ === -1) {
-                    console.log(`软装${softlistItem.id}: Z轴翻转`);
-                }
             }
             
             // 创建缩放矩阵
@@ -327,18 +319,7 @@ export class SoftlistRenderer {
 
             // 应用变换矩阵到组
             group.applyMatrix4(transformMatrix);
-            
-            console.log(`软装${softlistItem.id}变换应用完成:`, {
-                位置: softlistItem.basepoint ? `(${softlistItem.basepoint.x}, ${softlistItem.basepoint.y})` : '(0, 0)',
-                旋转: `${softlistItem.rotate || 0}°`,
-                缩放: `(${scaleX}, ${scaleY}, ${scaleZ})`,
-                翻转: {
-                    X: scaleX === -1,
-                    Y: scaleY === -1,
-                    Z: scaleZ === -1
-                }
-            });
-            
+
         } catch (error) {
             console.warn(`软装${softlistItem.id}应用变换失败:`, error);
         }
@@ -427,59 +408,28 @@ export class SoftlistRenderer {
      * @returns {THREE.Mesh|null}
      */
     createPlaneMeshFromPoints(Points, color, z) {
-        console.log('========= 创建带洞的形状开始 =========');
-        console.log('点数据', Points);
-        
-        // 创建外轮廓形状
-        if (!Points || !Array.isArray(Points) || Points.length < 3) {
-            console.warn('外轮廓数据无效:', {
-                exists: !!Points,
-                isArray: Array.isArray(Points),
-                length: Points ? Points.length : 'N/A'
-            });
+        const valid = Array.isArray(Points)
+            ? Points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number')
+            : [];
+
+        if (valid.length < 3) {
+            console.warn('自由绘制轮廓有效点不足3个，跳过');
             return null;
         }
-        
+
         const shape = new THREE.Shape();
-        
-        // 创建外轮廊
-        console.log('开始创建外轮廊，点数:', Points.length);
-        const firstPoint = Points[0];
-        console.log('第一个点:', firstPoint);
-        
-        if (!firstPoint || typeof firstPoint.x !== 'number' || typeof firstPoint.y !== 'number') {
-            console.error('外轮廊第一个点无效:', firstPoint);
-            return null;
-        }
-        
-        shape.moveTo(firstPoint.x, firstPoint.y);
-        let validPointCount = 1;
-        
-        for (let i = 1; i < Points.length; i++) {
-            const point = Points[i];
-            if (point && typeof point.x === 'number' && typeof point.y === 'number') {
-                shape.lineTo(point.x, point.y);
-                validPointCount++;
-            } else {
-                console.warn(`外轮廊点${i}无效，跳过:`, point);
-            }
+        shape.moveTo(valid[0].x, valid[0].y);
+        for (let i = 1; i < valid.length; i++) {
+            shape.lineTo(valid[i].x, valid[i].y);
         }
         shape.closePath();
-        
-        // 创建几何体
-        const geometry = new THREE.ShapeGeometry(shape);
-        
-        // 创建材质
-        const material = new THREE.MeshBasicMaterial({
-            color: color,
-            side: THREE.DoubleSide
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
+
+        const mesh = new THREE.Mesh(
+            new THREE.ShapeGeometry(shape),
+            new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide })
+        );
         mesh.position.z = z;
 
-
-        console.log(`外轮廊创建完成，有效点数: ${validPointCount}/${Points.length}`);
         return mesh;
     }
 }

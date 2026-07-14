@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import {CSGOperations} from './RoomRenderer.js';
-// import {SoftlistRenderer} from './SoftlistRenderer';
 
 /**
  * 2D彩平图渲染器 - 使用Three.js渲染2D平面图
@@ -39,8 +37,6 @@ export class PlanRenderer {
      * @returns {Object} 包含创建的mesh对象
      */
     async render(data, scene) {
-        console.log('开始渲染2D彩平图:', data);
-        
         try {
             // 处理数据
             this.processData(data);
@@ -56,53 +52,56 @@ export class PlanRenderer {
             
             // 首次渲染：清空现有的2D对象
             this.clearPlanObjects(scene);
-            
-            // 创建2D户型平面
-            let OutlineMesh = await this.createPlaneMeshFromPoints(this.outlineData, this.colors.outline, 0);
-            
-                
-            // 创建2D房间平面
-            for(let i=0; i < this.roomsData.length; i++){
-                const RoomplanMesh = await this.createPlaneMeshFromPoints(this.roomsData[i], this.colors.rooms, 0.1);
-                if (RoomplanMesh) {
-                    // 为房间mesh添加标识信息
-                    RoomplanMesh.userData = {
-                        type: '2d-room',
-                        roomIndex: i,
-                        isSelectable: true,
-                        roomData: this.roomsData[i] // 存储房间的点数据
-                    };
-                    OutlineMesh = CSGOperations.subtract(OutlineMesh, RoomplanMesh);
-                    this.planGroup.add(RoomplanMesh);
-                    this.roomMeshes.push(RoomplanMesh); // 添加到房间mesh数组
+
+            // 户型底板：外轮廓为 shape，房间/门/窗作为 holes 一次性挖出。
+            // 这些图形都是零厚度的平面，用 CSG 做布尔是退化情形（平面没有内外之分），
+            // 引擎会在其中空转；Shape.holes 由 ShapeGeometry 一次三角化即可得到同样结果。
+            const outlineShape = this.createShape(this.outlineData);
+            if (outlineShape) {
+                const holes = [
+                    ...this.roomsData,
+                    ...this.doorsData.map(door => door.points),
+                    ...this.windowsData.map(win => win.points)
+                ];
+
+                for (const holePoints of holes) {
+                    const path = this.createPath(holePoints);
+                    if (path) outlineShape.holes.push(path);
                 }
+
+                const outlineMesh = new THREE.Mesh(
+                    new THREE.ShapeGeometry(outlineShape),
+                    new THREE.MeshBasicMaterial({ color: this.colors.outline, side: THREE.DoubleSide })
+                );
+                outlineMesh.position.z = 0;
+                this.planGroup.add(outlineMesh);
             }
 
+            // 房间平面：单独成 mesh，供 Room2DSelector 拾取
+            const roomMaterial = new THREE.MeshBasicMaterial({
+                color: this.colors.rooms,
+                side: THREE.DoubleSide
+            });
 
-            // 创建门窗进行挖洞
-            for(let i=0; i < this.doorsData.length; i++){
-                const DoorplanMesh = await this.createPlaneMeshFromPoints(this.doorsData[i].points, this.colors.door, 0.1);
-                if (DoorplanMesh) {
-                    OutlineMesh = CSGOperations.subtract(OutlineMesh, DoorplanMesh);
-                    //this.planGroup.add(DoorplanMesh);
-                }
-            }
+            for (let i = 0; i < this.roomsData.length; i++) {
+                const roomShape = this.createShape(this.roomsData[i]);
+                if (!roomShape) continue;
 
-            for(let i=0; i < this.windowsData.length; i++){
-                const WindowplanMesh = await this.createPlaneMeshFromPoints(this.windowsData[i].points, this.colors.window, 0.1);
-                if (WindowplanMesh) {
-                    OutlineMesh = CSGOperations.subtract(OutlineMesh, WindowplanMesh);
-                    // this.planGroup.add(WindowplanMesh);
-                }
-            }
+                // 材质需各自独立：选中房间时会改它的颜色
+                const roomMesh = new THREE.Mesh(
+                    new THREE.ShapeGeometry(roomShape),
+                    roomMaterial.clone()
+                );
+                roomMesh.position.z = 0.1;
+                roomMesh.userData = {
+                    type: '2d-room',
+                    roomIndex: i,
+                    isSelectable: true,
+                    roomData: this.roomsData[i]
+                };
 
-
-            // 创建门窗线条
-            // this.createDoorWindowLines();
-
-            // 最后添加整体mesh
-            if (OutlineMesh) {
-                this.planGroup.add(OutlineMesh);
+                this.planGroup.add(roomMesh);
+                this.roomMeshes.push(roomMesh);
             }
 
             // 创建标签
@@ -131,37 +130,22 @@ export class PlanRenderer {
      * @param {Object} data - 原始数据
      */
     processData(data) {
-        console.log('========= PlanRenderer 数据处理开始 =========');
-        console.log('完整数据对象:', data);
-        
-        // 处理外轮廓数据 - 参考RoomRenderer的convertPointFormat
-        console.log('原始外轮廓数据:', data.outline);
-        
-        if (data.outline && data.outline.outlinePoints && Array.isArray(data.outline.outlinePoints)) {
+        if (data.outline && Array.isArray(data.outline.outlinePoints)) {
             this.outlineData = this.convertPointFormat(data.outline.outlinePoints);
-            console.log('✅ 从对象中提取外轮廓数组，长度:', this.outlineData.length);
         } else if (Array.isArray(data.outline)) {
             this.outlineData = this.convertPointFormat(data.outline);
-            console.log('✅ 外轮廓已是数组，长度:', this.outlineData.length);
         } else {
-            console.warn('❌ 无法处理外轮廓数据');
+            console.warn('无法处理外轮廓数据');
             this.outlineData = null;
         }
-        
-        console.log('处理后的外轮廓数据:', this.outlineData);
-        
-        // 处理房间数据 - 参考RoomRenderer的createRoomMeshes
-        if (data.rooms && data.rooms.roomPoints && Array.isArray(data.rooms.roomPoints)) {
-            this.roomsData = data.rooms.roomPoints.map(roomPoints => {
-                return this.convertPointFormat(roomPoints);
-            });
-            console.log('✅ 房间数据处理完成，房间数:', this.roomsData.length);
+
+        if (data.rooms && Array.isArray(data.rooms.roomPoints)) {
+            this.roomsData = data.rooms.roomPoints.map(roomPoints => this.convertPointFormat(roomPoints));
         } else {
-            console.warn('❌ 未找到有效的房间数据');
-            console.log('data.rooms:', data.rooms);
+            console.warn('未找到有效的房间数据');
             this.roomsData = [];
         }
-        
+
         // 处理门窗数据
         if (data.doorWindows) {
             // 处理门数据
@@ -273,64 +257,40 @@ export class PlanRenderer {
     // }
 
     /**
-     * 创建户型平面；
-     * @returns {THREE.Mesh|null}
+     * 由点数组构建轮廓（Shape 或 Path）
+     * @param {Array} points - 点数组 [{x, y}, ...]
+     * @param {Function} Ctor - THREE.Shape 或 THREE.Path
+     * @returns {THREE.Shape|THREE.Path|null}
      */
-    createPlaneMeshFromPoints(Points, color, z) {
-        console.log('========= 创建带洞的形状开始 =========');
-        console.log('点数据', Points);
-        
-        // 创建外轮廓形状
-        if (!Points || !Array.isArray(Points) || Points.length < 3) {
-            console.warn('外轮廓数据无效:', {
-                exists: !!Points,
-                isArray: Array.isArray(Points),
-                length: Points ? Points.length : 'N/A'
-            });
+    buildContour(points, Ctor) {
+        if (!Array.isArray(points) || points.length < 3) {
             return null;
         }
-        
-        const shape = new THREE.Shape();
-        
-        // 创建外轮廊
-        console.log('开始创建外轮廊，点数:', Points.length);
-        const firstPoint = Points[0];
-        console.log('第一个点:', firstPoint);
-        
-        if (!firstPoint || typeof firstPoint.x !== 'number' || typeof firstPoint.y !== 'number') {
-            console.error('外轮廊第一个点无效:', firstPoint);
+
+        const valid = points.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+        if (valid.length < 3) {
+            console.warn('轮廓有效点不足3个，跳过');
             return null;
         }
-        
-        shape.moveTo(firstPoint.x, firstPoint.y);
-        let validPointCount = 1;
-        
-        for (let i = 1; i < Points.length; i++) {
-            const point = Points[i];
-            if (point && typeof point.x === 'number' && typeof point.y === 'number') {
-                shape.lineTo(point.x, point.y);
-                validPointCount++;
-            } else {
-                console.warn(`外轮廊点${i}无效，跳过:`, point);
-            }
+
+        const contour = new Ctor();
+        contour.moveTo(valid[0].x, valid[0].y);
+        for (let i = 1; i < valid.length; i++) {
+            contour.lineTo(valid[i].x, valid[i].y);
         }
-        shape.closePath();
-        
-        // 创建几何体
-        const geometry = new THREE.ShapeGeometry(shape);
-        
-        // 创建材质
-        const material = new THREE.MeshBasicMaterial({
-            color: color,
-            side: THREE.DoubleSide
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.z = z;
+        contour.closePath();
 
+        return contour;
+    }
 
-        console.log(`外轮廊创建完成，有效点数: ${validPointCount}/${Points.length}`);
-        return mesh;
+    /** 构建外轮廓 Shape */
+    createShape(points) {
+        return this.buildContour(points, THREE.Shape);
+    }
+
+    /** 构建挖洞用的 Path */
+    createPath(points) {
+        return this.buildContour(points, THREE.Path);
     }
 
     // /**
