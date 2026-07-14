@@ -218,13 +218,13 @@ door_list / window_list 全局递增）。所以这批文件和特定的户型 J
 合并或做布尔前必须先用 `bakeGeometry()` 把 mesh.matrix 烘焙进几何、统一属性集，
 否则会错位。
 
-### 死依赖
+### 依赖
 
-`react`、`react-dom`、`@vitejs/plugin-react`、`lodash-es`、`@ke/kedxf` **未被任何代码
-引用**（无 `.jsx`，`index.html` 也没有挂载点）——UI 全是原生 DOM 操作。文档里曾长期写着
-"UI: React 18"，是错的。
+**UI 全是原生 DOM 操作，没有前端框架。** 文档里曾长期写着 "UI: React 18"，是错的——
+`react`、`react-dom`、`@vitejs/plugin-react`、`lodash-es`、`@ke/kedxf`、`opencascade.js`
+都曾是未被引用的死依赖，现已全部移除。
 
-但 `three-mesh-bvh` 虽然源码里没直接 import，**是 `three-bvh-csg` 的 peer dependency，
+`three-mesh-bvh` 虽然源码里没直接 import，**是 `three-bvh-csg` 的 peer dependency，
 必须保留**。
 
 ### 不要在热路径里 console.log

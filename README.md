@@ -44,8 +44,8 @@
 | UI | 原生 DOM（无框架） |
 | 构建 | Vite 6 |
 
-> `package.json` 里的 `react`、`react-dom`、`@vitejs/plugin-react`、`lodash-es`、
-> `@ke/kedxf` 均**未被任何代码引用**，是遗留的死依赖。UI 全部是原生 DOM 操作。
+> UI 全部是原生 DOM 操作，没有前端框架。`three-mesh-bvh` 虽然源码里没直接
+> import，但它是 `three-bvh-csg` 的 peer dependency，必须保留。
 
 ## 项目结构
 
