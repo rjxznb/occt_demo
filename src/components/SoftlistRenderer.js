@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {freestyle} from "../config/freestyle.js"
+import { geometryService } from "../core/GeometryService.js";
 
 /**
  * 软装渲染器 - 负责获取软装数据并将其渲染到2D场景中
@@ -80,11 +81,8 @@ export class SoftlistRenderer {
      */
     async fetchSoftlists() {
         try {
-            const response = await fetch('http://localhost:4001/softlists');
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return await response.json();
+            await geometryService.init();
+            return await geometryService.getSoftlists();
         } catch (error) {
             console.error('获取软装列表失败:', error);
             throw error;
@@ -103,16 +101,11 @@ export class SoftlistRenderer {
                 return this.loadedSoftlists.get(id);
             }
 
-            const response = await fetch(`http://localhost:4001/softlists_points?id=${id}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
+            const data = await geometryService.getSoftlistPoints(id);
+
             // 缓存数据
             this.loadedSoftlists.set(id, data);
-            
+
             return data;
         } catch (error) {
             console.error(`获取软装项${id}几何数据失败:`, error);

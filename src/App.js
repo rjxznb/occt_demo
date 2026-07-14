@@ -11,6 +11,7 @@ import { Room2DSelector } from './components/Room2DSelector.js';
 import { Softlist2DSelector } from './components/Softlist2DSelector.js';
 import { SoftlistRenderer } from './components/SoftlistRenderer.js';
 import { DXFMaterialSidebar } from './components/DXFMaterialSidebar.js';
+import { geometryService } from './core/GeometryService.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -545,30 +546,25 @@ class OCCTApp {
      */
     async loadData() {
         try {
+            this.updateStatus('正在初始化几何引擎...');
+
+            // 几何运算全部在浏览器内完成（OpenCascade wasm），不再依赖后端
+            await geometryService.init();
+
             this.updateStatus('正在加载数据...');
-            
-            // 从现有的 Node.js 后端 API 端点加载数据
-            const backendUrl = 'http://localhost:4001';
-            const [outlineResponse, roomsResponse, doorWindowResponse] = await Promise.all([
-                fetch(`${backendUrl}/outline`),
-                fetch(`${backendUrl}/rooms`),
-                fetch(`${backendUrl}/doors_and_windows`)
+
+            const [outline, rooms, doorWindows] = await Promise.all([
+                geometryService.getOutline(),
+                geometryService.getRooms(),
+                geometryService.getDoorsAndWindows()
             ]);
-            
-            if (!outlineResponse.ok || !roomsResponse.ok || !doorWindowResponse.ok) {
-                throw new Error(`数据加载失败: outline ${outlineResponse.status}, rooms ${roomsResponse.status}, doors_and_windows ${doorWindowResponse.status}`);
-            }
-            
-            const outline = await outlineResponse.json();
-            const rooms = await roomsResponse.json();
-            const doorWindows = await doorWindowResponse.json();
-            
+
             const data = { outline, rooms, doorWindows };
             
             // 缓存共享数据
             this.sharedData = data;
             
-            console.log('从后端加载的数据:', data);
+            console.log('加载的数据:', data);
 
             // 根据当前视图模式渲染数据
             this.updateStatus('正在渲染几何体...');

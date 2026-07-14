@@ -1,6 +1,6 @@
 import { Shape } from "three";
 import * as Render from "./colorplane.js";
-import { freestyle } from "./src/config/freestyle.js";
+import { freestyle } from "../config/freestyle.js";
 
 // 解析json字符串为对象，并且返回所有解析后的数据；
 export default function ParseJson(json){
