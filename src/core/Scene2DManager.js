@@ -85,6 +85,7 @@ export class Scene2DManager {
         this.scene.add(directionalLight);
     }
 
+
     onWindowResize() {
         const aspect = window.innerWidth / window.innerHeight;
         

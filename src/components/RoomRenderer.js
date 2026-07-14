@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { SUBTRACTION, ADDITION, Brush, Evaluator } from 'three-bvh-csg';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
+import { SUBTRACTION, ADDITION, INTERSECTION, Brush, Evaluator } from 'three-bvh-csg';
 import { CSGMeshOperations } from '../utils/CSGMeshOperations.js';
 import { WallFactory } from './WallFactory.js';
 import { DoorWindowFactory } from './DoorWindowFactory.js';
@@ -9,7 +9,7 @@ import { FloorFactory } from './FloorFactory.js';
 /**
  * CSG布尔运算操作类
  */
-class CSGOperations {
+export class CSGOperations {
     /**
      * 验证mesh是否有效
      * @param {THREE.Mesh} mesh - 要验证的mesh
@@ -49,25 +49,31 @@ class CSGOperations {
         return true;
     }
     
-    
+    /**
+     * CSG减法运算 - A减去B
+     * @param {THREE.Mesh} meshA - 被减数mesh
+     * @param {THREE.Mesh} meshB - 减数mesh
+     * @returns {THREE.Mesh} 运算结果mesh
+     */
     static subtract(meshA, meshB) {
         try {
-            if (!this.isValidMesh(meshA) || !this.isValidMesh(meshB)) {
+            if (!CSGOperations.isValidMesh(meshA) || !CSGOperations.isValidMesh(meshB)) {
                 throw new Error("输入几何体无效");
             }
             
+            // 使用three-bvh-csg引擎
             const evaluator = new Evaluator();
             const brushA = new Brush(meshA.geometry);
             const brushB = new Brush(meshB.geometry);
             
             const targetBrush = new Brush();
             evaluator.evaluate(brushA, brushB, SUBTRACTION, targetBrush);
-
+            
             if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
                 const resultMaterial = meshA.material.clone();
                 const resultMesh = new THREE.Mesh(targetBrush.geometry, resultMaterial);
                 
-                // 保留原始mesh的userData（关键修复：解决挖洞后wallType丢失问题）
+                // 保留原始mesh的userData
                 if (meshA.userData) {
                     resultMesh.userData = { ...meshA.userData };
                     console.log('CSG减法（three-bvh-csg）：已保留原始mesh的userData:', resultMesh.userData);
@@ -87,9 +93,15 @@ class CSGOperations {
         }
     }
     
+    /**
+     * CSG并集运算 - A与B合并
+     * @param {THREE.Mesh} meshA - mesh A
+     * @param {THREE.Mesh} meshB - mesh B
+     * @returns {THREE.Mesh} 运算结果mesh
+     */
     static union(meshA, meshB) {
         try {
-            if (!this.isValidMesh(meshA) || !this.isValidMesh(meshB)) {
+            if (!CSGOperations.isValidMesh(meshA) || !CSGOperations.isValidMesh(meshB)) {
                 console.error("CSG合并：输入几何体无效", {
                     meshA: !!meshA,
                     meshB: !!meshB,
@@ -101,6 +113,7 @@ class CSGOperations {
                 throw new Error("输入几何体无效");
             }
             
+            // 使用three-bvh-csg引擎
             const evaluator = new Evaluator();
             const brushA = new Brush(meshA.geometry);
             const brushB = new Brush(meshB.geometry);
@@ -131,37 +144,50 @@ class CSGOperations {
             return meshA;
         }
     }
-
-    static Hollow_Intersection(meshA, meshB) {
+    
+    /**
+     * CSG交集运算 - A与B的交集
+     * @param {THREE.Mesh} meshA - mesh A
+     * @param {THREE.Mesh} meshB - mesh B
+     * @returns {THREE.Mesh} 运算结果mesh
+     */
+    static intersect(meshA, meshB) {
         try {
-            if (!this.isValidMesh(meshA) || !this.isValidMesh(meshB)) {
+            if (!CSGOperations.isValidMesh(meshA) || !CSGOperations.isValidMesh(meshB)) {
                 throw new Error("输入几何体无效");
             }
             
+            // 使用three-bvh-csg引擎
             const evaluator = new Evaluator();
             const brushA = new Brush(meshA.geometry);
             const brushB = new Brush(meshB.geometry);
             
             const targetBrush = new Brush();
-            evaluator.evaluate(brushA, brushB, HOLLOW_INTERSECTION , targetBrush);
-
+            evaluator.evaluate(brushA, brushB, INTERSECTION, targetBrush);
+            
             if (targetBrush.geometry && targetBrush.geometry.attributes.position.count > 0) {
                 const resultMaterial = meshA.material.clone();
-                return new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                const resultMesh = new THREE.Mesh(targetBrush.geometry, resultMaterial);
+                
+                // 保留原始mesh的userData
+                if (meshA.userData) {
+                    resultMesh.userData = { ...meshA.userData };
+                    console.log('CSG交集（three-bvh-csg）：已保留原始mesh的userData:', resultMesh.userData);
+                }
+                
+                return resultMesh;
             } else {
-                throw new Error("CSG减法运算返回空几何体");
+                throw new Error("CSG交集运算返回空几何体");
             }
             
         } catch (error) {
-            console.error("CSG减法失败:", error);
+            console.error("CSG交集失败:", error);
             
             // 降级方案：返回原始meshA（不进行CSG操作）
-            console.warn("CSG减法降级：返回原始meshA");
+            console.warn("CSG交集降级：返回原始meshA");
             return meshA;
         }
     }
-
-
 }
 
 /**
@@ -335,11 +361,12 @@ export class RoomRenderer {
             // 4. 显示基础场景，挖除门窗和房间；
             if (result.outlineMesh) {
                 // 先挖去房间（这个通常很快）
+                this.csgEngine = "three-bvh-csg";
                 let baseMesh = result.outlineMesh;
                 if (roomMeshes.length > 0) {
                     baseMesh = this.performCSGRoomSubtraction(baseMesh, roomMeshes);
                 }
-                
+               this.csgEngine = "three-csgmesh";
                 if (baseMesh) {
                     // 同步执行门窗挖洞，逐个处理
                     if (doorWindowMeshes.doors.length > 0 || doorWindowMeshes.windows.length > 0) {
@@ -395,7 +422,6 @@ export class RoomRenderer {
                             this.sceneGroup.add(wallMesh);
                             wallSelector.addWall(wallMesh);
                         }
-                        // wallMesh.userData.type='wall';
                     }
                 });
                 

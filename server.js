@@ -1,23 +1,60 @@
 import initOpenCascade from "opencascade.js/dist/node.js"
 import express from 'express';
 import ParseJson from "./json_parse.js";
-import {readFileSync} from "node:fs";
+import {fstat, readFileSync} from "node:fs";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { spawn, exec } from 'node:child_process';
+import { promisify } from 'node:util';
 
 
 
-let oc = await initOpenCascade();
+// 初始化OpenCascade和数据（异步，不阻塞服务器启动）
+let oc = null;
+let json = null;
+let parse_data = null;
 
+// 异步初始化函数
+async function initializeServerData() {
+    try {
+        console.log('正在初始化OpenCascade...');
+        oc = await initOpenCascade();
+        console.log('OpenCascade初始化完成');
 
-// 读取JSON文件并解析
-let json = JSON.parse(readFileSync("C:/Users/User/Desktop/Drawing2.json", "utf-8"));
-let parse_data = ParseJson(json); // 解析json数据
+        let json_file_path = "C:/Users/User/Desktop/Drawing2.json";
+        let executeParser_path = "F:/vscode_project/dxfparse/Source/CadToolTest/Debug/CadToolTest.exe";
 
-// 转换成数组；
-parse_data.Room_Points.forEach((item, index) => {
-    for (let i = 0; i < item.length; i++) {
-        item[i] = Object.values(item[i]);
+        console.log('正在执行解析器...');
+        // let res = await executeParser(executeParser_path, [json_file_path]);
+        // console.log('解析器执行完成:', res);
+
+        // 读取JSON文件并解析
+        console.log('正在解析JSON数据...');
+        json = JSON.parse(readFileSync(json_file_path, "utf-8"));
+        parse_data = ParseJson(json); // 解析json数据
+
+        // 注意：必须在ParseJson完成弧形采样后再转换成数组格式
+        // ParseJson中的弧形采样需要对象格式 {x,y,z,bulge}
+        // 转换成数组格式供前端渲染使用，保留bulge信息；
+        parse_data.Room_Points.forEach((item, index) => {
+            for (let i = 0; i < item.length; i++) {
+                // 检查是否已经是数组格式，避免重复转换
+                if (typeof item[i] === 'object' && !Array.isArray(item[i])) {
+                    // 保留bulge值，格式：[x, y, z, bulge]
+                    item[i] = [item[i].x, item[i].y, item[i].z || 0, item[i].bulge || 0];
+                }
+            }
+        });
+        
+        console.log('服务器数据初始化完成');
+    } catch (error) {
+        console.error('服务器数据初始化失败:', error);
+        console.log('服务器将以有限功能模式运行');
     }
-});
+}
+
+// 启动异步初始化，但不等待完成
+initializeServerData();
 
 
 // 构建多边形的wire（不仅限于矩形）
@@ -27,8 +64,9 @@ function createPolygonWire(points) {
         let wireBuilder = new oc.BRepBuilderAPI_MakeWire_1();
         
         for (let i = 0; i < points.length; i++) {
-            let p1 = new oc.gp_Pnt_3(points[i][0], points[i][1], points[i][2]);
-            let p2 = new oc.gp_Pnt_3(points[(i + 1) % points.length][0], points[(i + 1) % points.length][1], points[(i + 1) % points.length][2]);
+            // 从4元素数组中取前3个坐标 [x, y, z, bulge] -> [x, y, z]
+            let p1 = new oc.gp_Pnt_3(points[i][0], points[i][1], points[i][2] || 0);
+            let p2 = new oc.gp_Pnt_3(points[(i + 1) % points.length][0], points[(i + 1) % points.length][1], points[(i + 1) % points.length][2] || 0);
             
             // 检查点是否相同（避免创建长度为0的边）
             let distance = p1.Distance(p2);
@@ -224,109 +262,6 @@ function getOutlineWires(face) {
     return wires;
 }
 
-/**
- * 使用SampleArc函数处理所有点，包括弧形段
- * @param {Array} points - 原始点数组，格式: [{x, y, z, bulge}, ...]
- * @returns {Array} 采样后的点数组
- */
-function sampleAllArcs(points) {
-    let sampledPoints = [];
-    
-    for (let i = 0; i < points.length; i++) {
-        const currentPoint = points[i];
-        const nextPoint = points[(i + 1) % points.length];
-        
-        // 检查当前点是否有bulge值
-        if (currentPoint.bulge && Math.abs(currentPoint.bulge) > 0.001) {
-            try {
-                // 使用专门的门窗弧形采样函数
-                const arcPoints = sampleDoorWindowArc(currentPoint, nextPoint, currentPoint.bulge);
-                
-                // 添加弧形采样点（排除最后一个点，避免重复）
-                for (let j = 0; j < arcPoints.length - 1; j++) {
-                    sampledPoints.push(arcPoints[j]);
-                }
-            } catch (error) {
-                console.warn('弧形采样失败，使用直线替代:', error);
-                sampledPoints.push(currentPoint);
-            }
-        } else {
-            // 直接添加当前点
-            sampledPoints.push(currentPoint);
-        }
-    }
-    
-    return sampledPoints;
-}
-
-/**
- * 门窗专用弧形采样函数 - 适配顺时针坐标系（去除THREE.js依赖）
- * @param {Object} startPoint - 起点 {x, y, z, bulge}
- * @param {Object} endPoint - 终点 {x, y, z, bulge}
- * @param {number} bulge - 凸度值
- * @returns {Array} 采样点数组
- */
-function sampleDoorWindowArc(startPoint, endPoint, bulge) {
-    // 1. 计算弦长和方向向量
-    const dx = endPoint.x - startPoint.x;
-    const dy = endPoint.y - startPoint.y;
-    const chordLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (chordLength === 0) {
-        console.warn("起点和终点重合，无法绘制圆弧");
-        return [startPoint];
-    }
-
-    // 2. 根据 bulge 值计算圆弧对应的夹角（弧度）
-    const theta = 2 * Math.atan(Math.abs(bulge));
-    const radius = chordLength / (2 * Math.sin(theta));
-
-    // 3. 计算垂直于弦的方向（即指向圆心的方向）
-    const perpDirX = -dy / chordLength;
-    const perpDirY = dx / chordLength;
-
-    // 4. 圆心位置
-    const chordMidpointX = (startPoint.x + endPoint.x) / 2;
-    const chordMidpointY = (startPoint.y + endPoint.y) / 2;
-
-    const centerOffset = radius * Math.cos(theta); // 向圆心偏移的距离
-    const centerX = chordMidpointX + perpDirX * centerOffset * (bulge > 0 ? 1 : -1);
-    const centerY = chordMidpointY + perpDirY * centerOffset * (bulge > 0 ? 1 : -1);
-
-    // 5. 起始角和终止角
-    const startAngle = Math.atan2(startPoint.y - centerY, startPoint.x - centerX);
-    const endAngle = Math.atan2(endPoint.y - centerY, endPoint.x - centerX);
-
-    // 6. 确定圆弧方向（门窗坐标系：bulge < 0 表示顺时针）
-    const clockwise = bulge < 0;
-    
-    // 7. 计算角度差
-    let angleDiff = endAngle - startAngle;
-    if (clockwise) {
-        if (angleDiff > 0) {
-            angleDiff -= 2 * Math.PI;
-        }
-    } else {
-        if (angleDiff < 0) {
-            angleDiff += 2 * Math.PI;
-        }
-    }
-
-    // 8. 采样（降低采样密度以减少复杂度）
-    const sampleCount = 50; // 采样点数量
-    let points = [];
-    
-    for (let i = 0; i <= sampleCount; i++) {
-        const t = i / sampleCount;
-        const angle = startAngle + angleDiff * t;
-        const x = centerX + radius * Math.cos(angle);
-        const y = centerY + radius * Math.sin(angle);
-        
-        points.push({x: x, y: y, z: 0, bulge: 0});
-    }
-    
-    return points;
-}
 
 // 将轮廓线拆分成点
 function wireToPoints(wire) {
@@ -361,10 +296,15 @@ function wireToPoints(wire) {
 const app = express();
 const port = 4001;
 
+// 添加JSON解析中间件
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // 在Express应用中添加CORS支持
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     next();
 });
 
@@ -382,11 +322,28 @@ app.use(express.static('.', {
     }
 }));
 
+// 添加服务器状态检查端点
+app.get('/status', (req, res) => {
+    res.json({
+        status: 'running',
+        dataInitialized: !!(parse_data && oc),
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
 
 // 注册GET方法回调函数
 // 在Express应用中调整处理逻辑
 app.get('/outline', async (req, res) => {
     try {
+        // 检查数据是否已初始化
+        if (!parse_data || !oc) {
+            return res.status(503).json({ 
+                error: '服务器数据尚未初始化完成，请稍后重试',
+                status: 'initializing'
+            });
+        }
+        
         console.log("开始处理矩形...");
         
         // 1. 创建原始矩形的wire以及对应的面；
@@ -486,6 +443,13 @@ app.get('/outline', async (req, res) => {
 // 添加房间数据端点
 app.get('/rooms', async (req, res) => {
     try {
+        // 检查数据是否已初始化
+        if (!parse_data || !oc) {
+            return res.status(503).json({ 
+                error: '服务器数据尚未初始化完成，请稍后重试',
+                status: 'initializing'
+            });
+        }
         res.json({
             success: true,
             roomPoints: parse_data.Room_Points,
@@ -501,6 +465,13 @@ app.get('/rooms', async (req, res) => {
 // 获取门窗数据
 app.get('/doors_and_windows', async (req, res) => {
     try {
+        // 检查数据是否已初始化
+        if (!parse_data || !oc) {
+            return res.status(503).json({ 
+                error: '服务器数据尚未初始化完成，请稍后重试',
+                status: 'initializing'
+            });
+        }
         console.log("开始处理门窗数据...");
         
         // 处理门数据
@@ -517,7 +488,7 @@ app.get('/doors_and_windows', async (req, res) => {
                 
                 try {
                     // 先处理弧形采样（门通常不会有弧形，但为了统一处理）
-                    const sampledPoints = sampleAllArcs(door.points);
+                    const sampledPoints = door.points;
                     console.log(`门${i}采样后点数量:`, sampledPoints.length);
 
                     doorData.push({
@@ -525,8 +496,8 @@ app.get('/doors_and_windows', async (req, res) => {
                         points: structuredClone(sampledPoints)
                     });
                     
-                    // 转换点格式为3D坐标
-                    const points3D = sampledPoints.map(point => [point.x, point.y, 0]);
+                    // 转换点格式为3D坐标（保持与房间数据一致的4元素格式）
+                    const points3D = sampledPoints.map(point => [point.x, point.y, 0, 0]);
                     console.log(`门${i}的3D点:`, points3D);
                     
                     // 构建门的wire
@@ -569,7 +540,7 @@ app.get('/doors_and_windows', async (req, res) => {
                     console.error(`处理门${i}时出错:`, error);
                     // 出错时先尝试采样，如果采样也失败则使用原始数据
                     try {
-                        const sampledPoints = sampleAllArcs(door.points);
+                        const sampledPoints = door.points;
                         // 添加到原始数据数组
                         doorData.push({
                             ...door,
@@ -602,7 +573,7 @@ app.get('/doors_and_windows', async (req, res) => {
                 
                 try {
                     // 先处理弧形采样（窗户可能有弧形，需要特别处理）
-                    const sampledPoints = sampleAllArcs(window.points);
+                    const sampledPoints = window.points;
                     console.log(`窗${i}采样前点数量: ${window.points.length}, 采样后点数量: ${sampledPoints.length}`);
                     
                     windowData.push({
@@ -611,8 +582,8 @@ app.get('/doors_and_windows', async (req, res) => {
                     });
                     
 
-                    // 转换点格式为3D坐标
-                    const points3D = sampledPoints.map(point => [point.x, point.y, 0]);
+                    // 转换点格式为3D坐标（保持与房间数据一致的4元素格式）
+                    const points3D = sampledPoints.map(point => [point.x, point.y, 0, 0]);
                     console.log(`窗${i}的3D点:`, points3D);
                     
                     // 构建窗的wire
@@ -655,7 +626,7 @@ app.get('/doors_and_windows', async (req, res) => {
                     console.error(`处理窗${i}时出错:`, error);
                     // 出错时先尝试采样，如果采样也失败则使用原始数据
                     try {
-                        const sampledPoints = sampleAllArcs(window.points);
+                        const sampledPoints = window.points;
                         // 添加到原始数据数组
                         windowData.push({
                             ...window,
@@ -697,9 +668,200 @@ app.get('/doors_and_windows', async (req, res) => {
 });
 
 
+// 获取软装
+app.get('/softlists', async (req, res) => {
+    // let json = JSON.parse(readFileSync("C:/Users/User/Desktop/Drawing2.json", "utf-8"));
+    // let parse_data = ParseJson(json); // 解析json数据
+    try {
+        // 检查数据是否已初始化
+        if (!parse_data) {
+            return res.status(503).json({ 
+                error: '服务器数据尚未初始化完成，请稍后重试',
+                status: 'initializing'
+            });
+        }
+        res.json({
+            success: true,
+            softlists: parse_data.SoftLists || []
+        });
+    } catch (error) {
+        console.error('房间数据处理失败:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
+// 前端发来请求的软装id，服务端根据id读取文件返回数据；
+app.get('/softlists_points', async (req, res) => {
+    const { id } = req.query;
+    
+    // 验证ID参数是否存在
+    if (!id) {
+        return res.status(400).json({ error: '软装ID不能为空' });
+    }
+    
+    // 验证ID格式，防止路径遍历攻击
+    if (!/^[a-zA-Z0-9_]+$/.test(id)) {
+        return res.status(400).json({ error: '软装ID格式不正确' });
+    }
+    
+    // 构建文件路径（假设数据文件存放在server.js同级的data/softlists目录下）
+    const filePath = path.join('C:','Users', 'User', 'desktop', 'parsed_dxf', `${id}.json`);
+    
+    try {
+        // 读取文件内容
+        const data = await fs.promises.readFile(filePath, 'utf8');
+        // 解析JSON数据
+        const result = JSON.parse(data);
+        // 返回成功响应
+        res.status(200).json(result);
+    } catch (err) {
+        // 处理不同类型的错误
+        if (err.code === 'ENOENT') {
+            return res.status(404).json({ error: '软装数据文件不存在' });
+        } else if (err instanceof SyntaxError) {
+            return res.status(400).json({ error: '文件内容格式错误，无法解析JSON' });
+        } else {
+            console.error('读取软装数据文件错误:', err);
+            return res.status(500).json({ error: '服务器内部错误' });
+        }
+    }
+});
 
+
+/**
+ * 执行解析器可执行文件
+ * @param {string} executablePath - 可执行文件路径
+ * @param {Array} args - 命令行参数
+ * @returns {Promise<Object>} 执行结果
+ */
+async function executeParser(executablePath, args = []) {
+    return new Promise((resolve, reject) => {
+        // 确保参数是数组类型
+        if (!Array.isArray(args)) {
+            reject(new TypeError('args必须是数组类型'));
+            return;
+        }
+
+        const child = spawn(executablePath, args, {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            shell: false
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data) => {
+            stdout += data.toString();
+            console.log(`解析器输出: ${data}`);
+        });
+
+        child.stderr.on('data', (data) => {
+            stderr += data.toString();
+            console.error(`解析器错误: ${data}`);
+        });
+
+        // 添加错误处理事件
+        child.on('error', (err) => {
+            console.error('进程启动失败:', err);
+            reject(new Error(`执行解析器失败: ${err.message}`));
+        });
+
+        // 处理进程退出
+        child.on('close', (code) => {
+            console.log(`解析器进程退出，退出码: ${code}`);
+            if (code !== 0) {
+                reject(new Error(`解析器执行失败，退出码: ${code}, 错误信息: ${stderr}`));
+                return;
+            }
+            
+            // 成功时resolve Promise
+            resolve({
+                success: true,
+                output: stdout,
+                stderr: stderr,
+                exitCode: code
+            });
+        });
+    });
+}
+
+/**
+ * 解析JSON文件的通用函数
+ * @param {string} jsonFilePath - JSON文件路径
+ * @param {string} executablePath - 可执行文件路径
+ * @param {string} outputPath - 输出路径（可选）
+ * @returns {Promise<Object>} 解析结果
+ */
+// async function parseJsonFile(jsonFilePath, executablePath, outputPath = null) {
+//     try {
+//         // 验证文件存在性
+//         if (!fs.existsSync(jsonFilePath)) {
+//             throw new Error('JSON文件不存在');
+//         }
+        
+//         if (!fs.existsSync(executablePath)) {
+//             throw new Error('可执行文件不存在');
+//         }
+        
+//         // 构建参数
+//         const args = [jsonFilePath];
+//         if (outputPath) {
+//             args.push(outputPath);
+//         }
+        
+//         // 执行解析
+//         const result = await executeParser(executablePath, args);
+        
+//         return {
+//             success: result.success,
+//             message: result.success ? '解析完成' : '解析失败',
+//             output: result.output,
+//             stderr: result.stderr,
+//             exitCode: result.exitCode
+//         };
+        
+//     } catch (error) {
+//         return {
+//             success: false,
+//             message: '解析过程中发生错误',
+//             error: error.message
+//         };
+//     }
+// }
+
+/**
+ * 重新加载解析后的数据
+ * @param {string} jsonFilePath - JSON文件路径
+ */
+// async function reloadParsedData(jsonFilePath) {
+//     try {
+//         console.log(`重新加载数据文件: ${jsonFilePath}`);
+        
+//         // 重新读取并解析JSON文件
+//         const newJson = JSON.parse(fs.readFileSync(jsonFilePath, "utf-8"));
+//         const newParseData = ParseJson(newJson);
+        
+//         // 转换数组格式
+//         if (newParseData.Room_Points) {
+//             newParseData.Room_Points.forEach((item, index) => {
+//                 for (let i = 0; i < item.length; i++) {
+//                     item[i] = Object.values(item[i]);
+//                 }
+//             });
+//         }
+        
+//         // 更新全局变量
+//         json = newJson;
+//         parse_data = newParseData;
+        
+//         console.log('数据重新加载完成');
+        
+//     } catch (error) {
+//         console.error('重新加载数据失败:', error);
+//         throw error;
+//     }
+// }
 
 // 添加根路由进行测试
 app.get('/', (req, res) => {
@@ -716,9 +878,12 @@ app.get('/', (req, res) => {
             <li><a href="/outline">外轮廓数据</a></li>
             <li><a href="/rooms">房间数据</a></li>
             <li><a href="/doors_and_windows">门窗数据</a></li>
+            <li><a href="/softlists">软装列表数据</a></li>
+            <li><a href="/softlists_points?id=1202">软装点数据</a></li>
         </ul>
     `);
 });
+
 
 
 
@@ -747,6 +912,7 @@ app.listen(port, () => {
     console.log(`访问 http://localhost:${port}/outline 来获取外轮廓`);
     console.log(`访问 http://localhost:${port}/rooms 来获取房间数据`);
     console.log(`访问http://localhost:${port}/doors_and_windows 来获取房间数据`);
+    console.log(`访问http://localhost:${port}/softlists 来获取软装数据`);
 });
 
 

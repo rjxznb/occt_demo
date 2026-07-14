@@ -200,6 +200,7 @@ export class SceneManager {
         console.log('自动旋转管理器已初始化');
     }
 
+
     onWindowResize() {
         const aspect = window.innerWidth / window.innerHeight;
         

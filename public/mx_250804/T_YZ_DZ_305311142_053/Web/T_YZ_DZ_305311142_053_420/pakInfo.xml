@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Texture Version="100" Type="Material">
+<TextureType>MI_V8_Normal</TextureType>
+ <MapCount>4</MapCount>
+ <MapSize>X=512 Y=2048</MapSize>
+ <ColorMap>T_Color.jpg</ColorMap>
+ <NormalMap>T_Normal.jpg</NormalMap>
+ <RoughnessMap>T_Roughness.jpg</RoughnessMap>
+ <TextureSize>X=800 Y=3200</TextureSize>
+</Texture>

@@ -63,6 +63,9 @@ export class SelectionManager {
             this.transformControls.addEventListener('dragging-changed', (event) => {
                 console.log('拖拽状态改变:', event.value);
                 this.sceneManager.getControls().enabled = !event.value;
+                
+                // 设置全局拖拽状态，让其他选择器知道
+                window.__transformControlsDragging = event.value;
             });
             
             // 监听对象变化事件 - 添加碰撞检测
@@ -96,13 +99,13 @@ export class SelectionManager {
         const canvas = this.sceneManager.renderer.domElement;
         
         // 绑定事件处理器到this上下文
-        this.handleClickBound = this.handleClick.bind(this);
+        this.handleMouseDownBound = this.handleMouseDown.bind(this);
         this.handleKeydownBound = this.handleKeydown.bind(this);
         this.handleContextMenuBound = this.handleContextMenu.bind(this);
         this.hideContextMenuBound = this.hideContextMenu.bind(this);
         
-        // 监听鼠标点击事件
-        canvas.addEventListener('click', this.handleClickBound);
+        // 监听鼠标按下事件，使用捕获阶段确保优先执行
+        canvas.addEventListener('mousedown', this.handleMouseDownBound, true);
         
         // 监听右键上下文菜单事件
         canvas.addEventListener('contextmenu', this.handleContextMenuBound);
@@ -116,10 +119,15 @@ export class SelectionManager {
         console.log('SelectionManager事件绑定完成');
     }
 
-    handleClick(event) {
+    handleMouseDown(event) {
         if (!this.enabled) return;
         
-        console.log('处理点击事件...');
+        // 只处理左键按下
+        if (event.button !== 0) {
+            return;
+        }
+        
+        console.log('处理鼠标左键按下事件...');
         
         // 如果正在拖拽TransformControls，不处理点击
         if (this.transformControls.dragging) {
@@ -164,8 +172,25 @@ export class SelectionManager {
                 console.log('找到父对象:', targetObject.userData);
             }
             
-            console.log('最终选择对象:', targetObject.userData.name || targetObject.userData.modelType);
-            this.selectObject(targetObject);
+            // 检查是否点击的是已选中的对象
+            if (this.selectedObject === targetObject) {
+                console.log('再次点击已选中对象，取消选择');
+                this.deselectObject();
+            } else {
+                console.log('选择新对象:', targetObject.userData.name || targetObject.userData.modelType);
+                this.selectObject(targetObject);
+            }
+            
+            // 阻止事件传播，防止其他选择器被触发
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            
+            // 设置一个全局标志，让其他选择器知道已经有对象被选中
+            window.__selectionHandled = true;
+            setTimeout(() => {
+                window.__selectionHandled = false;
+            }, 10);
+            
         } else {
             // 点击空白处，取消选择
             console.log('点击空白处，取消选择');
@@ -218,9 +243,11 @@ export class SelectionManager {
             return;
         }
 
+
         // 显示上下文菜单
         this.showContextMenu(event.clientX, event.clientY);
     }
+
 
     // 隐藏上下文菜单
     hideContextMenu(event) {
@@ -916,8 +943,8 @@ export class SelectionManager {
         
         // 移除事件监听器
         const canvas = this.sceneManager.renderer.domElement;
-        if (this.handleClickBound) {
-            canvas.removeEventListener('click', this.handleClickBound);
+        if (this.handleMouseDownBound) {
+            canvas.removeEventListener('mousedown', this.handleMouseDownBound, true);
         }
         if (this.handleContextMenuBound) {
             canvas.removeEventListener('contextmenu', this.handleContextMenuBound);
@@ -931,6 +958,9 @@ export class SelectionManager {
         
         this.selectedObject = null;
         this.contextMenu = null;
+        
+        // 清理全局状态标志
+        window.__transformControlsDragging = false;
     }
 
     /**

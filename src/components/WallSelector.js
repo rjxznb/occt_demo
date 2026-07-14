@@ -27,9 +27,8 @@ export class WallSelector {
      * 绑定鼠标事件
      */
     bindEvents() {
-        this.renderer.domElement.addEventListener('click', (event) => {
-            this.handleWallClick(event);
-        });
+        this.handleWallMouseDownBound = this.handleWallMouseDown.bind(this);
+        this.renderer.domElement.addEventListener('mousedown', this.handleWallMouseDownBound);
     }
 
     /**
@@ -66,12 +65,29 @@ export class WallSelector {
     }
 
     /**
-     * 处理墙面点击事件
-     * @param {Event} event - 鼠标点击事件
+     * 处理墙面鼠标按下事件
+     * @param {Event} event - 鼠标按下事件
      */
-    handleWallClick(event) {
+    handleWallMouseDown(event) {
         if (!this.enabled) {
             return; // 禁用状态下不处理点击
+        }
+        
+        // 只处理左键按下
+        if (event.button !== 0) {
+            return;
+        }
+        
+        // 检查是否已经有其他选择器处理了这次点击
+        if (window.__selectionHandled) {
+            console.log('WallSelector: 其他选择器已处理此次点击，跳过墙体选择');
+            return;
+        }
+        
+        // 检查是否正在拖拽TransformControls（通过检查全局拖拽状态）
+        if (window.__transformControlsDragging) {
+            console.log('WallSelector: 正在拖拽TransformControls，跳过墙体选择');
+            return;
         }
         
         // 计算标准化鼠标坐标
@@ -81,7 +97,41 @@ export class WallSelector {
         // 更新射线
         this.raycaster.setFromCamera(this.mouse, this.sceneManager.getCamera());
 
-        // 检测碰撞
+        // 首先检测是否点击到了TransformControls或其他不应被选中的对象
+        const allObjects = [];
+        this.sceneManager.scene.traverse((child) => {
+            if (child.visible) {
+                allObjects.push(child);
+            }
+        });
+        
+        const allIntersects = this.raycaster.intersectObjects(allObjects, true);
+        
+        if (allIntersects.length > 0) {
+            const firstHit = allIntersects[0].object;
+            
+            // 检查是否点击到了TransformControls
+            if (this.isTransformControlsElement(firstHit) || this.isTransformControlsObject(firstHit)) {
+                console.log('WallSelector: 点击到了TransformControls，跳过墙体选择');
+                this.clearSelection();
+                return;
+            }
+            
+            // 检查最近的交点对象类型
+            let targetObject = firstHit;
+            while (targetObject.parent && targetObject.parent.userData.type === 'placedModel') {
+                targetObject = targetObject.parent;
+            }
+            
+            // 如果最近的对象是放置的模型，不处理墙体选择
+            if (targetObject.userData.type === 'placedModel') {
+                console.log('WallSelector: 最近的对象是放置的模型，跳过墙体选择');
+                this.clearSelection();
+                return;
+            }
+        }
+
+        // 检测墙体碰撞
         const intersects = this.raycaster.intersectObjects(this.wallMeshes);
 
         if (intersects.length > 0) {
@@ -89,7 +139,14 @@ export class WallSelector {
             
             // 检查是否点击正面
             if (this.isFrontFaceClick(intersection)) {
-                this.selectWall(intersection.object);
+                // 检查是否点击的是已选中的墙体
+                if (this.selectedWall === intersection.object) {
+                    console.log('再次点击已选中墙体，取消选择');
+                    this.clearSelection();
+                } else {
+                    console.log('选择新墙体');
+                    this.selectWall(intersection.object);
+                }
             }
         } else {
             this.clearSelection();
@@ -416,6 +473,90 @@ export class WallSelector {
     }
 
     /**
+     * 检查是否为TransformControls的元素
+     * @param {THREE.Object3D} object - 要检查的对象
+     * @returns {boolean} 是否为TransformControls元素
+     */
+    isTransformControlsElement(object) {
+        // 检查对象的构造函数名称
+        if (object.constructor && object.constructor.name && (
+            object.constructor.name.includes('TransformControls') ||
+            object.constructor.name.includes('Gizmo') ||
+            object.constructor.name.includes('Plane') ||
+            object.constructor.name.includes('Helper')
+        )) {
+            return true;
+        }
+        
+        // 检查对象及其父对象是否属于TransformControls
+        let current = object;
+        while (current) {
+            // 检查对象名称是否包含TransformControls相关的标识
+            if (current.name && (
+                current.name.includes('TransformControls') ||
+                current.name.includes('Gizmo') ||
+                current.name.includes('Plane') ||
+                current.name.includes('Helper')
+            )) {
+                return true;
+            }
+            
+            // 检查是否为TransformControls的子对象
+            if (current.userData && (
+                current.userData.isTransformControl ||
+                current.userData.isGizmo ||
+                current.userData.isHelper
+            )) {
+                return true;
+            }
+            
+            // 检查材质名称（TransformControls通常使用特定的材质）
+            if (current.material && current.material.name && (
+                current.material.name.includes('gizmo') ||
+                current.material.name.includes('helper')
+            )) {
+                return true;
+            }
+            
+            current = current.parent;
+            
+            // 避免无限循环，检查到Scene就停止
+            if (current && current.type === 'Scene') {
+                break;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * 更直接的TransformControls对象检测
+     * @param {THREE.Object3D} object - 要检查的对象
+     * @returns {boolean} 是否为TransformControls对象
+     */
+    isTransformControlsObject(object) {
+        // 检查构造函数名称
+        const constructorName = object.constructor.name;
+        if (constructorName === 'TransformControlsPlane' ||
+            constructorName === 'TransformControlsGizmo' ||
+            constructorName === 'TransformControlsRoot' ||
+            constructorName.startsWith('TransformControls')) {
+            return true;
+        }
+
+        // 检查对象类型属性
+        if (object.type && (
+            object.type.includes('TransformControls') ||
+            object.type.includes('Gizmo') ||
+            object.type.includes('Helper')
+        )) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * 销毁选择器
      */
     dispose() {
@@ -423,7 +564,9 @@ export class WallSelector {
         this.wallMeshes = [];
         
         // 移除事件监听
-        this.renderer.domElement.removeEventListener('click', this.handleWallClick);
+        if (this.handleWallMouseDownBound) {
+            this.renderer.domElement.removeEventListener('mousedown', this.handleWallMouseDownBound);
+        }
     }
 
 }

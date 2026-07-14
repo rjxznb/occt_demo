@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {CSGOperations} from './RoomRenderer.js';
+// import {SoftlistRenderer} from './SoftlistRenderer';
 
 /**
  * 2D彩平图渲染器 - 使用Three.js渲染2D平面图
@@ -9,6 +11,9 @@ export class PlanRenderer {
         // 2D平面对象组
         this.planGroup = new THREE.Group();
         this.labelGroup = new THREE.Group();
+        
+        // 房间mesh数组，用于选择器
+        this.roomMeshes = [];
         
         // 颜色配置
         this.colors = {
@@ -53,41 +58,57 @@ export class PlanRenderer {
             this.clearPlanObjects(scene);
             
             // 创建2D户型平面
-            const OutlineMesh = await this.createPlaneMeshFromPoints(this.outlineData, this.colors.outline, 0);
-            if (OutlineMesh) {
-                this.planGroup.add(OutlineMesh);
-            }
+            let OutlineMesh = await this.createPlaneMeshFromPoints(this.outlineData, this.colors.outline, 0);
             
+                
             // 创建2D房间平面
             for(let i=0; i < this.roomsData.length; i++){
                 const RoomplanMesh = await this.createPlaneMeshFromPoints(this.roomsData[i], this.colors.rooms, 0.1);
                 if (RoomplanMesh) {
+                    // 为房间mesh添加标识信息
+                    RoomplanMesh.userData = {
+                        type: '2d-room',
+                        roomIndex: i,
+                        isSelectable: true,
+                        roomData: this.roomsData[i] // 存储房间的点数据
+                    };
+                    OutlineMesh = CSGOperations.subtract(OutlineMesh, RoomplanMesh);
                     this.planGroup.add(RoomplanMesh);
+                    this.roomMeshes.push(RoomplanMesh); // 添加到房间mesh数组
                 }
             }
-            
 
-            // 创建门窗线条
+
+            // 创建门窗进行挖洞
             for(let i=0; i < this.doorsData.length; i++){
                 const DoorplanMesh = await this.createPlaneMeshFromPoints(this.doorsData[i].points, this.colors.door, 0.1);
                 if (DoorplanMesh) {
-                    this.planGroup.add(DoorplanMesh);
+                    OutlineMesh = CSGOperations.subtract(OutlineMesh, DoorplanMesh);
+                    //this.planGroup.add(DoorplanMesh);
                 }
             }
 
             for(let i=0; i < this.windowsData.length; i++){
                 const WindowplanMesh = await this.createPlaneMeshFromPoints(this.windowsData[i].points, this.colors.window, 0.1);
                 if (WindowplanMesh) {
-                    this.planGroup.add(WindowplanMesh);
+                    OutlineMesh = CSGOperations.subtract(OutlineMesh, WindowplanMesh);
+                    // this.planGroup.add(WindowplanMesh);
                 }
             }
 
+
+            // 创建门窗线条
             // this.createDoorWindowLines();
 
-            
+            // 最后添加整体mesh
+            if (OutlineMesh) {
+                this.planGroup.add(OutlineMesh);
+            }
+
             // 创建标签
             // this.createLabels();
-            
+
+
             // 添加到场景
             scene.add(this.planGroup);
             scene.add(this.labelGroup);
@@ -168,6 +189,36 @@ export class PlanRenderer {
             windows: this.windowsData.length
         });
         console.log('========= PlanRenderer 数据处理结束 =========');
+    }
+
+    /**
+     * 获取房间mesh数组
+     * @returns {Array} 房间mesh数组，每个元素包含 {mesh, roomIndex}
+     */
+    getRoomMeshes() {
+        return this.roomMeshes.map(mesh => ({
+            mesh: mesh,
+            roomIndex: mesh.userData.roomIndex
+        }));
+    }
+
+    /**
+     * 根据房间索引获取房间mesh
+     * @param {number} roomIndex - 房间索引
+     * @returns {THREE.Mesh|null} 房间mesh
+     */
+    getRoomMeshByIndex(roomIndex) {
+        return this.roomMeshes.find(mesh => 
+            mesh.userData.roomIndex === roomIndex
+        ) || null;
+    }
+
+    /**
+     * 获取房间总数
+     * @returns {number} 房间数量
+     */
+    getRoomCount() {
+        return this.roomMeshes.length;
     }
 
     /**
@@ -525,6 +576,9 @@ export class PlanRenderer {
         // 清空组
         this.planGroup.clear();
         this.labelGroup.clear();
+        
+        // 清空房间mesh数组
+        this.roomMeshes = [];
     }
 
     /**

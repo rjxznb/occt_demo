@@ -7,6 +7,10 @@ import { WallSelector } from './components/WallSelector.js';
 import { MaterialSidebar } from './components/MaterialSidebar.js';
 import { DragDropManager } from './components/DragDropManager.js';
 import { SelectionManager } from './components/SelectionManager.js';
+import { Room2DSelector } from './components/Room2DSelector.js';
+import { Softlist2DSelector } from './components/Softlist2DSelector.js';
+import { SoftlistRenderer } from './components/SoftlistRenderer.js';
+import { DXFMaterialSidebar } from './components/DXFMaterialSidebar.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -26,6 +30,12 @@ class OCCTApp {
         this.materialSidebar = null;
         this.dragDropManager = null;
         this.selectionManager = null;
+        
+        // 2D交互组件
+        this.room2DSelector = null;
+        this.softlist2DSelector = null;
+        this.softlistRenderer = null;
+        this.dxfMaterialSidebar = null;
         
         // UI和状态
         this.uiElements = {};
@@ -70,6 +80,27 @@ class OCCTApp {
             this.dragDropManager = new DragDropManager(this.sceneManager3D);
             this.selectionManager = new SelectionManager(this.sceneManager3D);
             
+            // 初始化2D房间选择器
+            this.room2DSelector = new Room2DSelector(this.sceneManager2D);
+            
+            // 初始化2D软装选择器
+            this.softlist2DSelector = new Softlist2DSelector(this.sceneManager2D);
+            
+            // 初始化DXF材质编辑器
+            this.dxfMaterialSidebar = new DXFMaterialSidebar();
+            
+            // 设置材质应用回调，连接材质编辑器和选择器
+            this.dxfMaterialSidebar.onMaterialApplied = (softlistGroup, softlistId, materialData) => {
+                console.log(`材质已应用到软装 ${softlistId}`);
+                // 通知软装选择器更新材质备份
+                if (this.softlist2DSelector) {
+                    this.softlist2DSelector.updateAppliedMaterials(softlistGroup, softlistId, materialData);
+                }
+            };
+            
+            // 初始化软装渲染器
+            this.softlistRenderer = new SoftlistRenderer(this.sceneManager2D.getScene());
+            
             // 设置渐进式渲染进度回调
             this.roomRenderer.setProgressCallback((current, total) => {
                 this.updateStatus(`正在挖洞门窗: ${current}/${total} (${Math.round(current/total*100)}%)`);
@@ -105,6 +136,24 @@ class OCCTApp {
             
             this.selectionManager.onObjectDeleted = (object) => {
                 this.onObjectDeleted(object);
+            };
+            
+            // 设置2D房间选择器事件回调
+            this.room2DSelector.onRoomSelected = (roomMesh, roomIndex) => {
+                this.onRoomSelected(roomMesh, roomIndex);
+            };
+            
+            this.room2DSelector.onRoomDeselected = (roomMesh, roomIndex) => {
+                this.onRoomDeselected(roomMesh, roomIndex);
+            };
+            
+            // 设置2D软装选择器事件回调
+            this.softlist2DSelector.onSoftlistSelected = (softlistGroup, softlistId) => {
+                this.onSoftlistSelected(softlistGroup, softlistId);
+            };
+            
+            this.softlist2DSelector.onSoftlistDeselected = (softlistGroup, softlistId) => {
+                this.onSoftlistDeselected(softlistGroup, softlistId);
             };
             
             // 所有组件创建完成后，设置初始模式为查看模式
@@ -155,6 +204,7 @@ class OCCTApp {
 
         // 初始化FPS计数器
         this.initFPSCounter();
+        
 
         // 绑定模式切换按钮事件
         this.uiElements.modeToggle?.addEventListener('click', () => {
@@ -286,6 +336,7 @@ class OCCTApp {
      */
     updateInteractionStates() {
         const is3DView = this.currentView === '3d';
+        const is2DView = this.currentView === '2d';
         const isEditMode = this.currentMode === 'edit';
         
         // 墙面选择器：需要3D视图且编辑模式
@@ -300,6 +351,15 @@ class OCCTApp {
         
         if (this.selectionManager) {
             this.selectionManager.setEnabled(is3DView);
+        }
+        
+        // 2D选择器：在2D视图下启用
+        if (this.room2DSelector) {
+            this.room2DSelector.setEnabled(is2DView);
+        }
+        
+        if (this.softlist2DSelector) {
+            this.softlist2DSelector.setEnabled(is2DView);
         }
     }
 
@@ -320,6 +380,9 @@ class OCCTApp {
         
         try {
             this.updateStatus('正在切换到2D彩平图视图...');
+            
+            // 清理3D拖拽状态
+            this.cleanupDragState();
             
             // 切换视图模式
             this.currentView = '2d';
@@ -347,12 +410,21 @@ class OCCTApp {
                 this.renderState['2d'] = true;
                 console.log('2D场景首次渲染完成');
                 
+                // 设置2D房间选择器
+                this.setup2DRoomSelector();
+                
+                // 加载并渲染软装
+                await this.loadAndRenderSoftlists();
+                
                 // 适应视图
                 this.sceneManager2D.fitToView();
             }
             
             // 隐藏3D相关UI和交互
             this.set3DUIVisible(false);
+            
+            // 显示2D相关UI
+            this.set2DUIVisible(true);
             
             this.updateStatus('2D彩平图视图已切换');
             
@@ -370,6 +442,9 @@ class OCCTApp {
         
         try {
             this.updateStatus('正在切换到3D视图...');
+            
+            // 清理可能的拖拽状态
+            this.cleanupDragState();
             
             // 切换视图模式
             this.currentView = '3d';
@@ -400,6 +475,9 @@ class OCCTApp {
             
             // 显示3D相关UI和交互
             this.set3DUIVisible(true);
+            
+            // 隐藏2D相关UI
+            this.set2DUIVisible(false);
             
             this.updateStatus('3D视图已切换');
             
@@ -452,6 +530,15 @@ class OCCTApp {
         this.updateInteractionStates();
     }
 
+    /**
+     * 设置2D相关UI的显示状态
+     * @param {boolean} visible - 是否显示
+     */
+    set2DUIVisible(visible) {
+        
+        console.log(`2D UI已${visible ? '显示' : '隐藏'}`);
+    }
+
 
     /**
      * 加载数据
@@ -495,6 +582,9 @@ class OCCTApp {
                 const data2D = JSON.parse(JSON.stringify(data));
                 const result = await this.planRenderer.render(data2D, this.sceneManager2D.getScene());
                 this.renderState['2d'] = true;
+                
+                // 设置2D房间选择器
+                this.setup2DRoomSelector();
             }
             
             console.log('数据加载和基础渲染完成');
@@ -641,6 +731,23 @@ class OCCTApp {
             this.selectionManager.destroy();
         }
         
+        if (this.room2DSelector) {
+            this.room2DSelector.dispose();
+        }
+        
+        if (this.softlist2DSelector) {
+            this.softlist2DSelector.dispose();
+        }
+        
+        if (this.softlistRenderer) {
+            this.softlistRenderer.dispose();
+        }
+        
+        if (this.dxfMaterialSidebar) {
+            this.dxfMaterialSidebar.dispose();
+        }
+        
+        
         // 清理双场景管理器
         if (this.sceneManager3D) {
             this.sceneManager3D.destroy();
@@ -652,6 +759,158 @@ class OCCTApp {
         
         console.log('双场景应用已清理');
     }
+
+    /**
+     * 清理拖拽状态
+     * 在视图切换时调用，确保拖拽预览不会残留
+     */
+    cleanupDragState() {
+        if (this.dragDropManager) {
+            // 使用DragDropManager的强制清理方法
+            this.dragDropManager.forceCleanupDragState();
+            console.log('拖拽状态已清理');
+        }
+    }
+
+    /**
+     * 设置2D房间选择器
+     */
+    setup2DRoomSelector() {
+        if (this.room2DSelector && this.planRenderer) {
+            // 从PlanRenderer获取房间meshes
+            const roomMeshes = this.planRenderer.getRoomMeshes();
+            
+            if (roomMeshes && roomMeshes.length > 0) {
+                console.log(`设置2D房间选择器，房间数量: ${roomMeshes.length}`);
+                this.room2DSelector.addRooms(roomMeshes);
+            } else {
+                console.warn('未找到可选择的房间mesh');
+            }
+        }
+    }
+
+    /**
+     * 加载并渲染软装
+     */
+    async loadAndRenderSoftlists() {
+        if (this.softlistRenderer) {
+            try {
+                this.updateStatus('正在加载软装数据...');
+                console.log('开始加载软装数据...');
+                
+                await this.softlistRenderer.initialize();
+                
+                // 软装渲染完成后，将软装组添加到软装选择器
+                this.setupSoftlistSelector();
+                
+                const stats = this.softlistRenderer.getStats();
+                console.log(`软装加载完成，总计: ${stats.totalItems} 个软装项，渲染组: ${stats.renderedGroups} 个`);
+                this.updateStatus(`软装加载完成，共 ${stats.totalItems} 个软装项`);
+                
+            } catch (error) {
+                console.error('软装加载失败:', error);
+                this.updateStatus('软装加载失败: ' + error.message);
+            }
+        }
+    }
+
+    /**
+     * 设置软装选择器
+     */
+    setupSoftlistSelector() {
+        if (this.softlist2DSelector && this.softlistRenderer) {
+            // 从SoftlistRenderer获取软装组
+            const softlistGroups = this.softlistRenderer.softlistGroups;
+            
+            if (softlistGroups && softlistGroups.length > 0) {
+                console.log(`设置2D软装选择器，软装组数量: ${softlistGroups.length}`);
+                
+                // 打印每个软装组的详细信息
+                softlistGroups.forEach((group, index) => {
+                    console.log(`软装组 ${index}:`, {
+                        name: group.name,
+                        id: group.userData.softlistId,
+                        children: group.children.length,
+                        type: group.userData.type
+                    });
+                });
+                
+                this.softlist2DSelector.addSoftlists(softlistGroups);
+            } else {
+                console.warn('未找到可选择的软装组');
+                console.log('SoftlistRenderer状态:', {
+                    exists: !!this.softlistRenderer,
+                    softlistGroups: this.softlistRenderer?.softlistGroups?.length || 0
+                });
+            }
+        } else {
+            console.warn('软装选择器设置失败：', {
+                softlist2DSelector: !!this.softlist2DSelector,
+                softlistRenderer: !!this.softlistRenderer
+            });
+        }
+    }
+
+    /**
+     * 房间选择事件处理
+     * @param {THREE.Mesh} roomMesh - 选中的房间mesh
+     * @param {number} roomIndex - 房间索引
+     */
+    onRoomSelected(roomMesh, roomIndex) {
+        console.log(`房间 ${roomIndex} 被选中`);
+        this.updateStatus(`选中房间 ${roomIndex + 1}`);
+        
+        // 这里可以添加更多房间选择后的逻辑
+        // 例如显示房间信息、切换材质等
+    }
+
+    /**
+     * 房间取消选择事件处理
+     * @param {THREE.Mesh} roomMesh - 被取消选择的房间mesh
+     * @param {number} roomIndex - 房间索引
+     */
+    onRoomDeselected(roomMesh, roomIndex) {
+        console.log(`房间 ${roomIndex} 被取消选择`);
+        this.updateStatus('就绪');
+        
+        // 这里可以添加更多房间取消选择后的逻辑
+    }
+
+    /**
+     * 软装选择事件处理
+     * @param {THREE.Group} softlistGroup - 选中的软装组
+     * @param {string} softlistId - 软装ID
+     */
+    onSoftlistSelected(softlistGroup, softlistId) {
+        console.log(`软装 ${softlistId} 被选中`);
+        this.updateStatus(`选中软装 ${softlistId} - 材质编辑器已打开`);
+        
+        // 显示DXF材质编辑器
+        if (this.dxfMaterialSidebar) {
+            this.dxfMaterialSidebar.show(softlistGroup, softlistId);
+        }
+        
+        // 这里可以添加更多软装选择后的逻辑
+        // 例如显示软装信息、允许编辑属性等
+    }
+
+    /**
+     * 软装取消选择事件处理
+     * @param {THREE.Group} softlistGroup - 被取消选择的软装组
+     * @param {string} softlistId - 软装ID
+     */
+    onSoftlistDeselected(softlistGroup, softlistId) {
+        console.log(`软装 ${softlistId} 被取消选择`);
+        this.updateStatus('就绪');
+        
+        // 隐藏DXF材质编辑器
+        if (this.dxfMaterialSidebar) {
+            this.dxfMaterialSidebar.hide();
+        }
+        
+        // 这里可以添加更多软装取消选择后的逻辑
+    }
+
 }
 
 // 启动应用

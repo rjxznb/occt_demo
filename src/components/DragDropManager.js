@@ -12,6 +12,7 @@ export class DragDropManager {
         this.mouse = new THREE.Vector2();
         this.enabled = true; // 默认启用
         
+        
         this.init();
     }
 
@@ -94,6 +95,16 @@ export class DragDropManager {
             // 重置光标样式
             this.sceneManager.renderer.domElement.style.cursor = '';
         });
+
+        // 监听页面可见性变化，确保在页面恢复时清理拖拽状态
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                // 页面变为可见时，清理可能残留的拖拽状态
+                setTimeout(() => {
+                    this.forceCleanupDragState();
+                }, 100);
+            }
+        });
     }
 
     createDragPreview() {
@@ -136,9 +147,24 @@ export class DragDropManager {
     }
 
     hideDragPreview() {
-        this.dragPreview.style.display = 'none';
+        if (this.dragPreview) {
+            this.dragPreview.style.display = 'none';
+        }
         // 重置光标样式
-        this.sceneManager.renderer.domElement.style.cursor = '';
+        if (this.sceneManager && this.sceneManager.renderer) {
+            this.sceneManager.renderer.domElement.style.cursor = '';
+        }
+    }
+    
+    /**
+     * 强制清理所有拖拽状态
+     * 用于视图切换等情况下的状态重置
+     */
+    forceCleanupDragState() {
+        this.isDragging = false;
+        this.dragData = null;
+        this.hideDragPreview();
+        console.log('DragDropManager: 强制清理拖拽状态');
     }
 
     handleDrop(event) {
@@ -814,14 +840,56 @@ export class DragDropManager {
         return candidates[0].object;
     }
     
+    
+    /**
+     * 计算放置位置
+     * @returns {THREE.Vector3} 放置位置
+     */
+    calculateDropPosition() {
+        // 先尝试与现有场景对象相交
+        const allObjects = [];
+        this.sceneManager.scene.traverse((child) => {
+            if (child.isMesh && child.visible && !child.userData.isHelper) {
+                allObjects.push(child);
+            }
+        });
+        
+        const intersects = this.raycaster.intersectObjects(allObjects);
+        let position = new THREE.Vector3(0, 0, 0);
+        
+        if (intersects.length > 0) {
+            position = intersects[0].point.clone();
+            console.log('射线检测到交点:', position);
+        } else {
+            // 如果没有交点，在摄像机前方放置
+            const direction = new THREE.Vector3();
+            const camera = this.sceneManager.getCamera();
+            camera.getWorldDirection(direction);
+            position.copy(camera.position).add(direction.multiplyScalar(8));
+            position.z = Math.max(0, position.z); // 确保不在地面以下（Z轴是高度）
+            console.log('使用摄像机前方位置:', position);
+        }
+        
+        return position;
+    }
+
     /**
      * 启用/禁用拖拽功能
      * @param {boolean} enabled - 是否启用
      */
     setEnabled(enabled) {
         this.enabled = enabled;
+        
+        // 如果禁用拖拽，清理当前状态
+        if (!enabled) {
+            this.forceCleanupDragState();
+        }
+        
         if (this.dragPreview) {
-            this.dragPreview.style.display = enabled ? 'block' : 'none';
+            // 当禁用时隐藏预览，启用时不自动显示（只有拖拽时才显示）
+            if (!enabled) {
+                this.dragPreview.style.display = 'none';
+            }
         }
         console.log(`拖拽管理器已${enabled ? '启用' : '禁用'}`);
     }

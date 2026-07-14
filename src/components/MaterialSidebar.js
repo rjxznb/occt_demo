@@ -13,6 +13,7 @@ export class MaterialSidebar {
         this.customMaterials = [];
         this.textureLoader = new THREE.TextureLoader();
         
+        
         // 调整大小相关
         this.isResizing = false;
         this.startX = 0;
@@ -62,7 +63,15 @@ export class MaterialSidebar {
                 
                 <div id="models-panel" class="panel">
                     <div class="panel-title">拖拽模型到场景中</div>
-                    <div id="models-grid" class="models-grid"></div>
+                    
+                    
+                    <!-- 基础模型 -->
+                    <div class="basic-models-section">
+                        <div class="section-header">
+                            <h4>基础模型</h4>
+                        </div>
+                        <div id="models-grid" class="models-grid"></div>
+                    </div>
                 </div>
             </div>
             
@@ -110,6 +119,7 @@ export class MaterialSidebar {
             });
         });
     }
+
 
     setupResizeHandlers() {
         const resizeHandle = this.sidebar.querySelector('.sidebar-resize-handle');
@@ -879,6 +889,24 @@ export class MaterialSidebar {
         } catch (error) {
             console.warn('保存自定义材质失败:', error);
         }
+    }
+
+
+
+    addDragEvents(item, type) {
+        item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                type: type,
+                data: type === 'material' ? item.materialData : item.modelData
+            }));
+            
+            // 添加拖拽时的视觉效果
+            item.classList.add('dragging');
+        });
+
+        item.addEventListener('dragend', () => {
+            item.classList.remove('dragging');
+        });
     }
 
     destroy() {
