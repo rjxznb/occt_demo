@@ -1,16 +1,14 @@
 import initOpenCascade from "opencascade.js";
 import ParseJson from "../utils/json_parse.js";
+import { BundledDataSource } from "./DataSource.js";
 
 /**
  * 几何服务
  *
  * 原先由 server.js（Node + Express）承担的职责，现在全部跑在浏览器里：
- * OpenCascade 通过 wasm 初始化，户型数据从 public/data/ 读取。
+ * OpenCascade 通过 wasm 初始化，户型数据由 DataSource 提供（内置示例或用户选的本地文件）。
  * 对外暴露的方法与原来的 HTTP 端点一一对应。
  */
-
-const DATA_URL = '/data/Drawing2.json';
-const SOFTLIST_DIR = '/data/parsed_dxf';
 
 const WALL_THICKNESS = 240;   // 墙厚 240mm，房间轮廓向外偏移量
 const OPENING_OFFSET = 15;    // 门窗向外偏移量，用于 CSG 挖洞时留出余量
@@ -262,6 +260,18 @@ class GeometryService {
         this.parseData = null;
         this.initPromise = null;
         this.softlistCache = new Map();
+        this.dataSource = new BundledDataSource();
+    }
+
+    /**
+     * 指定数据来源。必须在 init() 之前调用。
+     * @param {BundledDataSource|LocalFileDataSource} dataSource
+     */
+    setDataSource(dataSource) {
+        if (this.initPromise) {
+            throw new Error('几何服务已初始化，无法更换数据源');
+        }
+        this.dataSource = dataSource;
     }
 
     /**
@@ -276,12 +286,8 @@ class GeometryService {
             oc = await initOpenCascade();
             console.log('OpenCascade初始化完成');
 
-            console.log('正在加载户型数据...');
-            const response = await fetch(DATA_URL);
-            if (!response.ok) {
-                throw new Error(`加载户型数据失败: HTTP ${response.status}`);
-            }
-            const json = await response.json();
+            console.log(`正在加载户型数据（${this.dataSource.name}）...`);
+            const json = await this.dataSource.loadDrawing();
 
             const parseData = ParseJson(json);
 
@@ -437,15 +443,7 @@ class GeometryService {
             return this.softlistCache.get(id);
         }
 
-        const response = await fetch(`${SOFTLIST_DIR}/${id}.json`);
-        if (response.status === 404) {
-            throw new Error(`软装数据文件不存在: ${id}`);
-        }
-        if (!response.ok) {
-            throw new Error(`获取软装${id}失败: HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await this.dataSource.loadSoftlist(id);
         this.softlistCache.set(id, data);
         return data;
     }

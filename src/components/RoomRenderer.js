@@ -196,15 +196,6 @@ export class RoomRenderer {
     }
 
     /**
-     * 保留此接口以兼容 App.js 的引擎切换 UI。
-     * 布尔运算现在统一走 three-bvh-csg：BSP 引擎（three-csgmesh）单次运算慢 3 倍，
-     * 且面分割会把结果顶点数放大到 2.5 倍，没有保留的理由。
-     */
-    setCSGEngine() {
-        console.warn('CSG 引擎已固定为 three-bvh-csg，setCSGEngine 不再生效');
-    }
-
-    /**
      * 渲染房间数据
      * @param {Object} data - 包含outline，rooms，doorwindows的数据
      * @param {Object} wallSelector - 墙面选择器实例

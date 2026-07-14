@@ -1,0 +1,76 @@
+/**
+ * 数据源
+ *
+ * 渲染一套户型需要两样东西，且二者是配套的：
+ *   1. 户型 JSON —— 房间、门窗，以及软装清单（含每个软装实例的 TypeId 与宽/长）
+ *   2. parsed_dxf/{TypeId}_{序号}.json —— 每个软装实例的几何
+ *
+ * 注意 parsed_dxf 不是 DXF 图例库的直接产物：外部解析器会按实例的宽/长
+ * 对图例做参数化拉伸后再输出，因此几何是「按实例」而非「按 TypeId」的，
+ * 文件名里的序号就是该软装在 soft_list 中的下标。换一份户型 JSON，
+ * 就必须换上与之一同产出的那套 parsed_dxf。
+ *
+ * 原始 .dxf 用不上——拉伸逻辑不在 DXF 里，浏览器无法自行还原。
+ */
+
+/** 内置示例数据：public/data/ 下随仓库分发的那一套 */
+export class BundledDataSource {
+    constructor(drawingUrl = '/data/Drawing2.json', softlistDir = '/data/parsed_dxf') {
+        this.drawingUrl = drawingUrl;
+        this.softlistDir = softlistDir;
+        this.name = '内置示例数据';
+    }
+
+    async loadDrawing() {
+        const response = await fetch(this.drawingUrl);
+        if (!response.ok) {
+            throw new Error(`加载户型数据失败: HTTP ${response.status}`);
+        }
+        return response.json();
+    }
+
+    async loadSoftlist(id) {
+        const response = await fetch(`${this.softlistDir}/${id}.json`);
+        if (response.status === 404) {
+            throw new Error(`软装数据文件不存在: ${id}.json`);
+        }
+        if (!response.ok) {
+            throw new Error(`加载软装${id}失败: HTTP ${response.status}`);
+        }
+        return response.json();
+    }
+}
+
+/** 用户从本地选中的文件 */
+export class LocalFileDataSource {
+    /**
+     * @param {File} drawingFile - 户型 JSON
+     * @param {Map<string, File>} softlistFiles - id（不含 .json）→ 文件
+     */
+    constructor(drawingFile, softlistFiles = new Map()) {
+        this.drawingFile = drawingFile;
+        this.softlistFiles = softlistFiles;
+        this.name = drawingFile.name;
+    }
+
+    async loadDrawing() {
+        return readJsonFile(this.drawingFile);
+    }
+
+    async loadSoftlist(id) {
+        const file = this.softlistFiles.get(id);
+        if (!file) {
+            throw new Error(`软装数据文件不存在: ${id}.json`);
+        }
+        return readJsonFile(file);
+    }
+}
+
+async function readJsonFile(file) {
+    const text = await file.text();
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        throw new Error(`${file.name} 不是合法的 JSON: ${error.message}`);
+    }
+}

@@ -12,6 +12,7 @@ import { Softlist2DSelector } from './components/Softlist2DSelector.js';
 import { SoftlistRenderer } from './components/SoftlistRenderer.js';
 import { DXFMaterialSidebar } from './components/DXFMaterialSidebar.js';
 import { geometryService } from './core/GeometryService.js';
+import { DataSourcePicker } from './components/DataSourcePicker.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -44,9 +45,7 @@ class OCCTApp {
         this.currentView = '3d'; // '3d' 或 '2d'
         this.sharedData = null; // 共享的数据
         this.fpsCounter = null;
-        this.currentCSGEngine = 'three-csgmesh'; // 当前CSG引擎
-        this.currentEpsilon = 30.1; // 当前精度
-        
+
         // 渲染状态
         this.renderState = {
             '3d': false,
@@ -71,10 +70,7 @@ class OCCTApp {
             this.sceneManager2D = new Scene2DManager(container2D);
             
             // 初始化组件（只使用3D场景管理器）
-            this.roomRenderer = new RoomRenderer(this.sceneManager3D, {
-                csgEngine: this.currentCSGEngine,
-                csgEpsilon: this.currentEpsilon
-            });
+            this.roomRenderer = new RoomRenderer(this.sceneManager3D);
             this.planRenderer = new PlanRenderer();
             this.wallSelector = new WallSelector(this.sceneManager3D);
             this.materialSidebar = new MaterialSidebar(this.sceneManager3D);
@@ -684,16 +680,6 @@ class OCCTApp {
         });
     }
 
-   
-    /**
-     * 应用CSG配置到RoomRenderer
-     */
-    applyCSGConfig() {
-        if (this.roomRenderer) {
-            this.roomRenderer.setCSGEngine(this.currentCSGEngine, this.currentEpsilon);
-            this.updateStatus(`CSG引擎已更新: ${this.currentCSGEngine} (ε=${this.currentEpsilon.toExponential(0)})`);
-        }
-    }
 
     /**
      * 更新状态信息
@@ -909,8 +895,11 @@ class OCCTApp {
 
 }
 
-// 启动应用
-document.addEventListener('DOMContentLoaded', () => {
+// 启动应用：先让用户选数据，再初始化
+document.addEventListener('DOMContentLoaded', async () => {
+    const dataSource = await new DataSourcePicker().show();
+    geometryService.setDataSource(dataSource);
+
     window.occtApp = new OCCTApp();
 });
 
