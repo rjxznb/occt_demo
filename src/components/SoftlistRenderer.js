@@ -39,6 +39,12 @@ export class SoftlistRenderer {
             // 自由绘制的图例：点数据已在列表里，无需再拉取 dxf
             const dxfItems = [];
             this.softlistItems.forEach((item, i) => {
+                // id 缺失的软装项直接跳过，不要让它中断整批加载
+                if (!item || typeof item.id !== 'string') {
+                    console.warn(`软装项${i}缺少有效 id，跳过`);
+                    return;
+                }
+
                 if (item.id.split('_')[0] in freestyle) {
                     item.points = this.convertPointFormat(item.points);
                     const freestyleSoft = this.createPlaneMeshFromPoints(item.points, 0x333333, 0.1);

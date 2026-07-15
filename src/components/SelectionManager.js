@@ -483,7 +483,10 @@ export class SelectionManager {
             
             // 从场景中移除对象
             this.sceneManager.scene.remove(this.selectedObject);
-            
+
+            // 阴影图不再每帧自动更新，删掉物体后必须主动标脏，否则地面会残留它的阴影
+            this.sceneManager.invalidateShadow();
+
             // 触发删除事件
             if (this.onObjectDeleted) {
                 this.onObjectDeleted(this.selectedObject);

@@ -233,8 +233,18 @@ export class CSGOperations {
             const cutter = mergeMeshGeometries(batch);
             if (!cutter) continue;
 
-            current = CSGOperations.subtractGeometry(current, cutter);
+            const next = CSGOperations.subtractGeometry(current, cutter);
             cutter.dispose();
+
+            // 释放上一轮由本函数产出的中间几何体。
+            // 只动本函数造出来的中间体：传入的 meshA 由调用方持有（result.outlineMesh /
+            // result.wallMeshes 仍引用它），不能在这里 dispose。
+            // next === current 说明这一次减法失败、原样返回，也不能 dispose。
+            if (current !== meshA && next !== current) {
+                current.geometry.dispose();
+            }
+
+            current = next;
         }
 
         return current;
@@ -383,7 +393,10 @@ export class RoomRenderer {
             }
             // 因为对外墙挖洞，返回的实例对象其实已经不是原来的mesh啦，
             // 所以之前的一些userData全都不存在啦，我们需要自己再设置；
-            result.outlineMesh.userData.type="outWall";
+            // （outline 数据缺失时 outlineMesh 为 null，与上面的创建守卫保持一致）
+            if (result.outlineMesh) {
+                result.outlineMesh.userData.type = "outWall";
+            }
 
             // 6. 开启阴影。CSG 会产出全新的 mesh，所以统一在最后遍历设置，
             //    避免在各处创建点上遗漏。
