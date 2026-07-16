@@ -41,12 +41,18 @@ export class FloorFactory {
                 const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
                 geometry.computeVertexNormals();
 
-                // 使用红色材质用于CSG运算（与旧版本保持一致）
-                const material = new THREE.MeshLambertMaterial({
-                    color: 0xffffff,
+                // 地板：暖色浅木/米色。用 PBR 材质响应环境光，观感比纯白 Lambert 好；
+                // 与偏冷的墙面形成冷暖对比，房间也更易与墙区分。
+                // 浅木色。基色要压得够深、够饱和，否则在高曝光 + ACES 下会被冲成白。
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0xC7A87A,
+                    roughness: 0.9,
+                    metalness: 0.0,
                     side: THREE.DoubleSide,
+                    // 往深处推：地板与墙脚/门槛共面时，让墙、门稳定压过地板，消除 z-fighting
                     polygonOffset: true,
-                    polygonOffsetFactor:-1,
+                    polygonOffsetFactor: 2,
+                    polygonOffsetUnits: 2,
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);

@@ -219,7 +219,25 @@ class OCCTApp {
             this.updateViewButton(); // 初始化按钮状态和事件
         }
 
+        // 绑定快速视角按钮：切到对应鸟瞰角度（保留鼠标旋转）
+        document.querySelectorAll('.view-angle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.sceneManager3D?.setView(btn.dataset.view);
+            });
+        });
+        // 快速视角只在 3D 视图有意义
+        this.uiElements.viewAngleGroup = document.getElementById('view-angle-group');
+        this.updateViewAngleVisibility();
+
         // 先不设置模式，等组件创建完成后再设置
+    }
+
+    /** 快速视角按钮组仅在 3D 视图显示 */
+    updateViewAngleVisibility() {
+        if (this.uiElements.viewAngleGroup) {
+            this.uiElements.viewAngleGroup.style.display =
+                this.currentView === '3d' ? '' : 'none';
+        }
     }
 
     /**
@@ -499,6 +517,7 @@ class OCCTApp {
                 button.onclick = () => this.switchTo3DView();
             }
         }
+        this.updateViewAngleVisibility();
     }
 
 

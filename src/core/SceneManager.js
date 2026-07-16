@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { AutoRotationManager } from '../components/AutoRotationManager.js';
 
 // 主光源方向（场景为 Z 轴向上）。只表示方向，实际距离由场景尺度决定。
@@ -33,6 +34,9 @@ export class SceneManager {
         // 创建透视相机（3D视图）
         const aspect = window.innerWidth / window.innerHeight;
         this.perspectiveCamera = new THREE.PerspectiveCamera(75, aspect, 10, 100000);
+        // 场景是 Z 轴向上（户型在 XY 平面，墙体往 +Z 挤出）。相机 up 必须设为 Z，
+        // 否则 OrbitControls 会绕默认的 Y 轴转，导致画面滚转、地平线不水平。
+        this.perspectiveCamera.up.set(0, 0, 1);
         this.perspectiveCamera.position.set(0, -150, 100);
         
         // 创建正交相机（2D视图）
@@ -64,10 +68,15 @@ export class SceneManager {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-        this.renderer.toneMapping = THREE.LinearToneMapping; // 使用线性色调映射，避免过度曝光
-        this.renderer.toneMappingExposure = 1.0; // 适中的曝光度
-        
+        // ACES Filmic：比线性映射色彩更饱满、高光过渡更自然（建筑可视化常用）
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.08;
+
         this.container.appendChild(this.renderer.domElement);
+
+        // 基于图像的环境光照：给 PBR 材质（墙面等）柔和的环境反射与漫反射，
+        // 是提升观感最有效的一步。用内置 RoomEnvironment 生成，不需要外部贴图文件。
+        this.setupEnvironmentLighting();
 
         // 创建控制器
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -118,39 +127,52 @@ export class SceneManager {
     /**
      * 设置专业级三点照明系统
      */
+    /**
+     * 基于图像的环境光照（IBL）。用 three 内置的 RoomEnvironment 烘一张环境贴图，
+     * 赋给 scene.environment —— PBR 材质据此得到柔和的环境漫反射和微反射，
+     * 是整体观感从"死板"到"有质感"的关键一步。不依赖任何外部 HDR 文件。
+     */
+    setupEnvironmentLighting() {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        // 环境光的整体强度（three r155+ 支持），压低一点避免冲淡方向光的明暗
+        this.scene.environmentIntensity = 0.55;
+        pmrem.dispose();
+    }
+
     setupProfessionalLighting() {
-        // 1. 主光源 (Key Light)
-        // 阴影相机的范围不在这里写死——户型尺度有上万毫米，任何硬编码的范围都会
-        // 覆盖不到。等场景建好后由 fitShadowToScene() 按实际包围盒拟合。
-        const keyLight = new THREE.DirectionalLight(0xFFF8DC, 0.5);
+        // 光照强度按 three r155+ 的物理光照标定（旧值 0.5 在新版里明显偏暗）。
+        // 暖色主光 + 冷色补光形成冷暖对比，比一片均匀白光更有立体感。
+
+        // 1. 主光源 (Key Light) —— 暖白，负责主要明暗与投影
+        // 阴影相机范围不在这里写死（户型上万毫米，硬编码盖不到），
+        // 等场景建好后由 fitShadowToScene() 按实际包围盒拟合。
+        const keyLight = new THREE.DirectionalLight(0xFFF4E2, 2.1);
         keyLight.position.copy(KEY_LIGHT_DIR).multiplyScalar(1000);
         keyLight.castShadow = true;
-
         keyLight.shadow.mapSize.width = 2048;
         keyLight.shadow.mapSize.height = 2048;
-
         this.scene.add(keyLight);
         this.scene.add(keyLight.target);
         this.keyLight = keyLight;
 
-        // 2. 适度增加补光
-        const fillLight = new THREE.DirectionalLight(0xE6F3FF, 0.5); // 增加到0.15
-        fillLight.position.set(-80, 40, 80);
+        // 2. 补光 (Fill Light) —— 冷调，柔化背光面的死黑，不投影
+        const fillLight = new THREE.DirectionalLight(0xDCE8FF, 0.8);
+        fillLight.position.set(-800, 400, 900);
         this.scene.add(fillLight);
-        
-        // 3. 适度增加环境光
-        const ambientLight = new THREE.AmbientLight(0xF0F8FF, 0.5); // 增加到0.12
+
+        // 3. 天空/地面半球光 —— 天光偏冷、地面反光偏暖，模拟室内漫反射
+        const hemiLight = new THREE.HemisphereLight(0xCFE0F5, 0xD8CFC0, 0.9);
+        this.scene.add(hemiLight);
+
+        // 4. 少量环境光兜底（env + 半球光已提供大部分环境，这里只补一点点）
+        const ambientLight = new THREE.AmbientLight(0xFFFFFF, 0.15);
         this.scene.add(ambientLight);
-        
-        // 4. 添加少量地面反射光
-        const groundLight = new THREE.HemisphereLight(0xE6F3FF, 0xB8B8B8, 0.8); // 添加少量反射光
-        groundLight.position.set(0, 0, -50);
-        this.scene.add(groundLight);
-        
-        // 5. 添加地面
+
+        // 5. 地面网格
         this.createProfessionalGround();
-        
-        console.log('专业级光照系统已设置完成（平衡调整）');
+
+        console.log('光照系统已设置（物理标定 + 冷暖对比）');
     }
 
     /**
@@ -173,6 +195,17 @@ export class SceneManager {
 
         const center = box.getCenter(new THREE.Vector3());
         const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+
+        // 存下场景中心/半径，供快速视角（setView）框景用
+        this.sceneCenter = center.clone();
+        this.sceneRadius = radius;
+
+        // 雾按场景尺度推到模型之外：只在远处地面渐隐，任何观察角度都不会把户型糊掉。
+        // （原先写死 12000~25000，斜视时相机离模型两万多毫米，正好把模型笼进雾里。）
+        if (this.scene.fog) {
+            this.scene.fog.near = radius * 3;
+            this.scene.fog.far = radius * 8;
+        }
 
         // 光源退到场景之外，正交阴影相机罩住整个包围球
         const distance = radius * 2.5;
@@ -218,10 +251,13 @@ export class SceneManager {
     createProfessionalGround() {
         // 只创建网格线，不创建地面平面，避免中间出现多余平面
         const gridHelper = new THREE.GridHelper(20000, 400, 0x999999, 0xBBBBBB); // 适中的灰色
-        gridHelper.position.z = 0;
+        // 压到地板下方 200mm。地板在 z=0，网格若也在 z=0 会与地板共面 z-fighting
+        // （俯视时地板上会出现斜向网点带）。下移一点让两者在深度上分开即可。
+        gridHelper.position.z = -200;
         gridHelper.rotation.x = Math.PI / 2;
         gridHelper.material.transparent = true;
         gridHelper.material.opacity = 0.08; // 适中的透明度，既不过于突出也不太隐蔽
+        gridHelper.material.depthWrite = false; // 淡网格不必写深度，避免和其他面互抢
         gridHelper.userData.isHelper = true;
         
         this.scene.add(gridHelper);
@@ -370,10 +406,100 @@ export class SceneManager {
         this.controls.update();
     }
 
+    /**
+     * 快速切换到预设鸟瞰视角。保留 OrbitControls，切换后鼠标可继续从该角度旋转。
+     *
+     * @param {'SE'|'SW'|'NE'|'NW'|'top'} dir - 视角方向
+     */
+    setView(dir) {
+        const center = this.sceneCenter ? this.sceneCenter.clone() : new THREE.Vector3(0, 0, 0);
+        const radius = this.sceneRadius || 8000;
+
+        // 各方向的单位向量（场景 Z 轴向上）。水平分量选角落，Z 分量决定俯角。
+        const dirs = {
+            SE: new THREE.Vector3( 1, -1, 1.25),
+            SW: new THREE.Vector3(-1, -1, 1.25),
+            NE: new THREE.Vector3( 1,  1, 1.25),
+            NW: new THREE.Vector3(-1,  1, 1.25),
+            top: new THREE.Vector3( 0,  0.001, 1),   // 近乎正俯视
+        };
+        const v = (dirs[dir] || dirs.SE).clone().normalize();
+
+        // 75° FOV 下 ~1.8r 能把整个包围球框满，又不至于远到吃上雾效
+        const distance = radius * 1.85;
+        const toPos = center.clone().addScaledVector(v, distance);
+
+        // 停掉自动旋转，否则切过去马上又被转走
+        this.enableAutoRotation(false);
+
+        // 用绕 Z 轴的球面坐标插值，而不是直线位置插值。
+        // 直线插值会让相机沿两点连线（穿过球心的弦）俯冲再拉出、从顶部飞过去 → 晕；
+        // 球面插值固定半径与俯角、只转方位角，相机沿圆弧平滑绕 Z 扫过去（转盘式）。
+        const from = this._toZSpherical(this.camera.position, this.controls.target);
+        const to = this._toZSpherical(toPos, center);
+
+        // 方位角走最短弧；正好 180°（对面视角）时统一取正方向，绕 Z 转半圈
+        let dAz = to.az - from.az;
+        while (dAz > Math.PI) dAz -= Math.PI * 2;
+        while (dAz < -Math.PI) dAz += Math.PI * 2;
+        if (Math.abs(Math.abs(dAz) - Math.PI) < 1e-4) dAz = Math.PI;
+
+        this._viewTween = {
+            from, to, dAz,
+            fromCenter: this.controls.target.clone(),
+            toCenter: center,
+            t: 0,
+            dur: 0.6,
+        };
+    }
+
+    /** 相机位置相对目标点，转成绕 Z 轴的球面坐标 {radius, az(方位), el(俯仰)} */
+    _toZSpherical(pos, target) {
+        const dx = pos.x - target.x, dy = pos.y - target.y, dz = pos.z - target.z;
+        const radius = Math.hypot(dx, dy, dz) || 1;
+        return {
+            radius,
+            az: Math.atan2(dy, dx),         // XY 平面内绕 Z 的方位角
+            el: Math.asin(Math.max(-1, Math.min(1, dz / radius))), // 相对 XY 平面的俯仰角
+        };
+    }
+
+    /** 推进视角补间（每帧调用）。easeInOutCubic 让起止更顺。 */
+    _updateViewTween(dt) {
+        const tw = this._viewTween;
+        if (!tw) return;
+
+        tw.t = Math.min(1, tw.t + dt / tw.dur);
+        const e = tw.t < 0.5 ? 4 * tw.t ** 3 : 1 - Math.pow(-2 * tw.t + 2, 3) / 2;
+
+        // 半径、俯角线性插值；方位角沿最短弧插值 → 绕 Z 旋转
+        const radius = tw.from.radius + (tw.to.radius - tw.from.radius) * e;
+        const el = tw.from.el + (tw.to.el - tw.from.el) * e;
+        const az = tw.from.az + tw.dAz * e;
+
+        const center = this.controls.target;
+        center.lerpVectors(tw.fromCenter, tw.toCenter, e);
+
+        const hr = radius * Math.cos(el);
+        this.camera.position.set(
+            center.x + hr * Math.cos(az),
+            center.y + hr * Math.sin(az),
+            center.z + radius * Math.sin(el),
+        );
+
+        if (tw.t >= 1) this._viewTween = null;
+    }
+
     animate(callback = null) {
         requestAnimationFrame(() => this.animate(callback));
-        
+
         try {
+            // 视角补间（按帧间隔推进，独立于 controls）
+            const now = performance.now();
+            const dt = this._lastFrame ? Math.min(0.05, (now - this._lastFrame) / 1000) : 0.016;
+            this._lastFrame = now;
+            this._updateViewTween(dt);
+
             this.controls.update();
             
             // 执行回调函数（如FPS更新）

@@ -316,10 +316,13 @@ export class RoomRenderer {
                 doorWindowSubMeshes = this.createDoorWindowMeshes(data.doorWindows.processed_doors, data.doorWindows.processed_windows);
             }
 
-            // 3. 创建房间 mesh 用于布尔运算
+            // 3. 创建房间 mesh 用于布尔运算（只做减数，不渲染）。
+            //    必须在竖向上完全包住外壳（-25 ~ 2775），否则外壳底部那段挖不穿，
+            //    会在每个房间底下留一层白色残料盖住地板。故从 -100 挤到 2900。
             let roomMeshes = [];
             if (data.rooms && data.rooms.roomPoints) {
-                roomMeshes = this.createRoomMeshes(data.rooms.roomPoints, 2800);
+                roomMeshes = this.createRoomMeshes(data.rooms.roomPoints, 3000);
+                roomMeshes.forEach(m => { m.position.z = -100; });
                 result.roomMeshes = roomMeshes;
             }
 
@@ -329,8 +332,14 @@ export class RoomRenderer {
                 floorMeshes = FloorFactory.createFloorMeshes(data.rooms.roomPoints, 0);
                 result.floorMeshes = floorMeshes;
             }
-            for(let i=0;i<floorMeshes.length;i++)
+            // 地板保持在 z=0，与墙脚贴合、无悬空缝隙。
+            // 门槛/墙脚处地板与门窗、墙共面：靠地板材质的 polygonOffset 把地板往深处推，
+            // 让墙/门稳定压过它（地板本就该在墙下），从而不 z-fighting。
+            // 外壳底部残料已由房间减数（-100~2900）挖穿，不会盖住地板。
+            for (let i = 0; i < floorMeshes.length; i++) {
+                floorMeshes[i].position.z = 0;
                 this.sceneGroup.add(floorMeshes[i]);
+            }
             wallSelector.addWalls(floorMeshes);
 
             // 4. 外轮廓挖洞：房间与门窗各自互不相交，
@@ -475,14 +484,19 @@ export class RoomRenderer {
             const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
             geometry.computeVertexNormals();
 
-            const material = new THREE.MeshLambertMaterial({
-                color: 0xcccccc,
+            // 外壳（外墙）：暖白 PBR，和内墙同色，响应环境光
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xEFEBE4,
+                roughness: 0.9,
+                metalness: 0.0,
                 side: THREE.DoubleSide
             });
 
             const mesh = new THREE.Mesh(geometry, material);
-            
-            // 将outlineMesh稍微下移，确保wallMesh在其上方，避免Z-fighting
+
+            // 外壳仅下移 2mm，让顶面与墙段(z≈0，顶 2800)基本齐平——不能多移，
+            // 否则外壳顶面（墙体）低于墙段顶面（墙面），会露出一道白唇。
+            // 外壳底部那段（z=-2~0）由房间减数（-100~2900）贯穿挖穿，不留残料。
             mesh.position.z = -2;
             
             return mesh;
@@ -622,7 +636,7 @@ export class RoomRenderer {
                         ]);
 
                         wallMesh = WallFactory.createArcWall(points, {
-                            color: 0xF8F8F8,  // 专业的浅灰白色
+                            color: 0xEFEBE4,  // 暖白墙面
                             height: 2800
                         });
                         
@@ -645,7 +659,7 @@ export class RoomRenderer {
                         ];
 
                         wallMesh = WallFactory.createStraightWall(startPoint, endPoint, {
-                            color: 0xF8F8F8,  // 专业的浅灰白色
+                            color: 0xEFEBE4,  // 暖白墙面
                             height: 2800
                         });
                         

@@ -143,13 +143,22 @@ export class DoorWindowFactory {
      * @returns {THREE.Material} 材质对象
      */
     static createMaterial(type, color, opacity, transparent) {
-        // 创建基础材质
         const material = new THREE.MeshLambertMaterial({
             color: color,
             transparent: transparent,
             opacity: opacity,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
         });
+
+        // 玻璃与墙面共面处的 z-fighting：用 polygonOffset 把玻璃在深度上微微前提，
+        // 让它稳定地压过墙面，消除随视角闪烁。
+        // 注意 depthWrite 保持默认 true —— 窗户是双面透明实体盒子，若关掉 depthWrite，
+        // 盒子自身的正/背面会失去深度排序、随相机旋转互相闪烁（比原问题更糟）。
+        if (transparent) {
+            material.polygonOffset = true;
+            material.polygonOffsetFactor = -4;
+            material.polygonOffsetUnits = -4;
+        }
 
         return material;
     }

@@ -89,7 +89,7 @@ static createStraightWall(startPoint, endPoint, options = {}) {
 
     // 使用专业级PBR材质
     const material = new THREE.MeshStandardMaterial({
-        color: color || 0xF5F5F5,  // 默认为专业的浅灰白色
+        color: color || 0xEFEBE4,  // 暖白墙面
         roughness: 0.8,            // 适中的粗糙度，类似石膏墙面
         metalness: 0.02,           // 微量金属感
         side: THREE.DoubleSide,
@@ -218,7 +218,7 @@ static createArcWall(points, options = {}) {
 
     // 使用专业级PBR材质 - 与直线墙面保持一致
     const material = new THREE.MeshStandardMaterial({
-        color: color || 0xF5F5F5,  // 默认为专业的浅灰白色
+        color: color || 0xEFEBE4,  // 暖白墙面
         roughness: 0.8,            // 适中的粗糙度，类似石膏墙面
         metalness: 0.02,           // 微量金属感
         side: THREE.DoubleSide,

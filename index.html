@@ -468,6 +468,22 @@
             border-color: #FF5722 !important;
         }
 
+        .view-angle-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .view-angle-btn {
+            padding: 8px 0;
+            font-size: 13px;
+            background: #2b2b2b;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .view-angle-btn:hover {
+            background: #3a7bd5;
+            border-color: #4a8be5;
+        }
+
         /* 拖拽时的视觉反馈 */
         .drag-preview {
             position: fixed;
@@ -1009,7 +1025,17 @@
             <div class="control-label">视图切换</div>
             <button id="view-toggle" class="view-toggle-btn">📋 2D彩平图</button>
         </div>
-        
+
+        <div class="control-group" id="view-angle-group">
+            <div class="control-label">快速视角</div>
+            <div class="view-angle-grid">
+                <button class="view-angle-btn" data-view="NW">西北</button>
+                <button class="view-angle-btn" data-view="NE">东北</button>
+                <button class="view-angle-btn" data-view="SW">西南</button>
+                <button class="view-angle-btn" data-view="SE">东南</button>
+            </div>
+        </div>
+
         <div class="control-group">
             <div class="control-label">编辑快捷键</div>
             <div class="shortcuts-info">
