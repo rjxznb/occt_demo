@@ -14,6 +14,7 @@ import { DXFMaterialSidebar } from './components/DXFMaterialSidebar.js';
 import { geometryService } from './core/GeometryService.js';
 import { DataSourcePicker } from './components/DataSourcePicker.js';
 import { TemplatePicker } from './components/TemplatePicker.js';
+import { RoomInfoView } from './components/RoomInfoView.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -245,12 +246,20 @@ class OCCTApp {
         // 先不设置模式，等组件创建完成后再设置
     }
 
+    /** 幂等地创建房间信息查看器（sceneGroup 就绪后） */
+    _ensureRoomInfoView() {
+        if (this.roomInfoView || !this.roomRenderer?.sceneGroup) return;
+        this.roomInfoView = new RoomInfoView(this.sceneManager3D, this.roomRenderer.sceneGroup);
+    }
+
     /** 快速视角按钮组仅在 3D 视图显示 */
     updateViewAngleVisibility() {
         if (this.uiElements.viewAngleGroup) {
             this.uiElements.viewAngleGroup.style.display =
                 this.currentView === '3d' ? '' : 'none';
         }
+        // 房间信息查看只在 3D 视图有意义（点击地板/标注弹尺寸）
+        if (this.roomInfoView) this.roomInfoView.setEnabled(this.currentView === '3d');
     }
 
     /**
@@ -498,6 +507,7 @@ class OCCTApp {
                 
                 const result = await this.roomRenderer.render(data3D, this.wallSelector);
                 this.renderState['3d'] = true;
+                this._ensureRoomInfoView();
                 console.log('3D场景首次渲染完成');
             }
             
@@ -602,6 +612,7 @@ class OCCTApp {
                 const data3D = JSON.parse(JSON.stringify(data));
                 const result = await this.roomRenderer.render(data3D, this.wallSelector);
                 this.renderState['3d'] = true;
+                this._ensureRoomInfoView();
             } else {
                 // 为2D创建数据深拷贝并渲染
                 const data2D = JSON.parse(JSON.stringify(data));

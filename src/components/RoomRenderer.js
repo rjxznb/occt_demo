@@ -5,6 +5,7 @@ import { WallFactory } from './WallFactory.js';
 import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { Softlist3DFactory } from './Softlist3DFactory.js';
+import { RoomLabelFactory } from './RoomLabelFactory.js';
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
@@ -338,11 +339,14 @@ export class RoomRenderer {
             // 让墙/门稳定压过它（地板本就该在墙下），从而不 z-fighting。
             // 外壳底部残料已由房间减数（-100~2900）挖穿，不会盖住地板。
             const roomNames = data.rooms?.roomNames || [];
+            const roomInfo = data.rooms?.roomInfo || [];
             for (let i = 0; i < floorMeshes.length; i++) {
                 floorMeshes[i].position.z = 0;
-                // 标记类型与房间名，供应用模板时识别地板、按房间上色
+                const ri = floorMeshes[i].userData.roomIndex;
+                // 标记类型、房间名与房间信息，供应用模板上色、点击查看尺寸
                 floorMeshes[i].userData.type = 'floor';
-                floorMeshes[i].userData.roomName = roomNames[floorMeshes[i].userData.roomIndex] || '';
+                floorMeshes[i].userData.roomName = roomNames[ri] || '';
+                floorMeshes[i].userData.roomInfo = roomInfo[ri] || null;
                 this.sceneGroup.add(floorMeshes[i]);
             }
             wallSelector.addWalls(floorMeshes);
@@ -416,6 +420,13 @@ export class RoomRenderer {
             if (data.softlists?.softlists) {
                 result.softlistMeshes = Softlist3DFactory.createBoxes(data.softlists.softlists);
                 result.softlistMeshes.forEach(mesh => this.sceneGroup.add(mesh));
+            }
+
+            // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
+            if (data.rooms?.roomInfo) {
+                result.roomLabels = RoomLabelFactory.createLabels(data.rooms.roomInfo);
+                result.roomLabels.forEach(label => this.sceneGroup.add(label));
+                this.roomLabels = result.roomLabels;
             }
 
             // 6. 开启阴影。CSG 会产出全新的 mesh，所以统一在最后遍历设置，

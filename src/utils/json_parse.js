@@ -6,6 +6,7 @@ import { freestyle } from "../config/freestyle.js";
 export default function ParseJson(json){
     const Room_Points = []; // 每一个元素都是一个房间（每一个元素还是一个数组），之后每个房间数组里面有无数个坐标对象；
     const Room_Names = [];  // 与 Room_Points 一一对应的房间名（主卧/客厅…），供模板按房间上色用；
+    const Room_Info = [];   // 与 Room_Points 一一对应的房间信息：{name, area, perimeter, center:{x,y}}，供标注与尺寸查看；
     const Dim_Points = []; // 标注线；
     const SoftList = []; // 软装在dwg里面的变换数据，包括：旋转和缩放 [ {id: , basepoint: {x, y, z}, scale: {x: , y: , z: }, OutRotateRadian: 0}, { ... }]；
     const parse_data = {}; // 最终返回的解析数据对象；
@@ -43,6 +44,28 @@ export default function ParseJson(json){
                 });
                 Room_Points.push(Room_pointsArray);
                 Room_Names.push(item.RoomName || item.DisplayName || '');
+
+                // 房间中心（BasePoint，世界坐标，用作标注锚点）+ 面积/周长
+                let center = { x: 0, y: 0 };
+                const bp = (item.BasePoint || '').match(/X=([\d.-]+)\s+Y=([\d.-]+)/);
+                if (bp) {
+                    center = { x: parseFloat(bp[1]), y: parseFloat(bp[2]) };
+                } else if (Room_pointsArray.length) {
+                    // 兜底：用顶点平均值
+                    center = Room_pointsArray.reduce((a, p) => ({ x: a.x + p.x / Room_pointsArray.length, y: a.y + p.y / Room_pointsArray.length }), { x: 0, y: 0 });
+                }
+                // 各段内墙长度（mm）——供「查看内墙尺寸」。
+                // 房间边界点很多（含弧线采样点、小折角），直接逐边会碎成几十段。
+                // 先把近似共线的连续边合并成一面墙，再过滤掉太短的碎段，得到几面主墙。
+                const wallLengths = computeWallLengths(Room_pointsArray);
+
+                Room_Info.push({
+                    name: item.RoomName || item.DisplayName || '',
+                    area: item.RoomArea || 0,          // m²
+                    perimeter: item.RoomPerimeter || 0, // m
+                    center,
+                    wallLengths,                        // 各段内墙长度（mm），从长到短
+                });
             }
         });
 
@@ -357,6 +380,7 @@ export default function ParseJson(json){
 
     parse_data.Room_Points = Room_Points;
     parse_data.Room_Names = Room_Names;
+    parse_data.Room_Info = Room_Info;
     parse_data.SoftLists = SoftList;
     parse_data.Dim_Points = Dim_Points;
     parse_data.door_list = Doors_Points;
@@ -382,6 +406,63 @@ export default function ParseJson(json){
     });
 
     return parse_data;
+}
+
+/**
+ * 计算房间各面内墙的长度（mm）。
+ *
+ * 房间边界点包含弧线采样点、门窗洞口造成的小折角，逐边统计会碎成几十段、
+ * 读起来没意义。这里把方向近似一致的连续边合并成「一面墙」（拐角处才断开），
+ * 再滤掉过短的碎段，得到几面主墙的长度，从长到短排序。
+ *
+ * @param {Array<{x:number,y:number}>} pts - 房间边界点（首尾隐式相连的闭合环）
+ * @returns {Array<number>} 各面墙长度（mm），降序
+ */
+function computeWallLengths(pts) {
+    if (!pts || pts.length < 3) return [];
+
+    const MERGE_ANGLE = 12 * Math.PI / 180;  // 转角小于此值视为同一面墙（共线）
+    const MIN_WALL = 300;                     // 短于此长度的墙段丢弃（门窗洞口侧壁、柱子回折等碎段，mm）
+
+    // 先收集有效边（跳过重复点造成的零长边）
+    const edges = [];
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 1) edges.push({ len, ang: Math.atan2(dy, dx) });
+    }
+    if (edges.length === 0) return [];
+
+    const angDiff = (a, b) => {
+        let d = Math.abs(a - b) % (2 * Math.PI);
+        if (d > Math.PI) d = 2 * Math.PI - d;
+        return d;
+    };
+
+    // 合并近似共线的连续边
+    const walls = [];
+    let cur = { len: edges[0].len, ang: edges[0].ang };
+    for (let i = 1; i < edges.length; i++) {
+        if (angDiff(edges[i].ang, cur.ang) < MERGE_ANGLE) {
+            cur.len += edges[i].len;   // 同一面墙，累加
+        } else {
+            walls.push(cur);
+            cur = { len: edges[i].len, ang: edges[i].ang };
+        }
+    }
+    walls.push(cur);
+
+    // 环是闭合的：首尾两段若共线，应合并为一面墙
+    if (walls.length > 1 && angDiff(walls[0].ang, walls[walls.length - 1].ang) < MERGE_ANGLE) {
+        walls[0].len += walls.pop().len;
+    }
+
+    return walls
+        .map(w => Math.round(w.len))
+        .filter(len => len >= MIN_WALL)
+        .sort((a, b) => b - a);
 }
 
 /**
