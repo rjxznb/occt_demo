@@ -54,17 +54,21 @@ export default function ParseJson(json){
                     // 兜底：用顶点平均值
                     center = Room_pointsArray.reduce((a, p) => ({ x: a.x + p.x / Room_pointsArray.length, y: a.y + p.y / Room_pointsArray.length }), { x: 0, y: 0 });
                 }
-                // 各段内墙长度（mm）——供「查看内墙尺寸」。
-                // 房间边界点很多（含弧线采样点、小折角），直接逐边会碎成几十段。
-                // 先把近似共线的连续边合并成一面墙，再过滤掉太短的碎段，得到几面主墙。
-                const wallLengths = computeWallLengths(Room_pointsArray);
+                // 内墙分段——供「查看内墙尺寸」的俯视图标注。
+                // 分段用原始点（带 bulge）算：一条弧 = 一面墙（按真实弧长），
+                // 直墙的近似共线碎段合并、门窗侧壁等短段滤掉。
+                // 画轮廓则用采样后的平滑折线，弧墙才画得圆润。
+                const outlinePts = sampleAllArcs(Room_pointsArray).map(p => ({ x: p.x, y: p.y }));
+                const walls = computeRoomWalls(Room_pointsArray);
 
                 Room_Info.push({
                     name: item.RoomName || item.DisplayName || '',
                     area: item.RoomArea || 0,          // m²
                     perimeter: item.RoomPerimeter || 0, // m
                     center,
-                    wallLengths,                        // 各段内墙长度（mm），从长到短
+                    outline: outlinePts,                // 房间闭合轮廓（2D，mm），用于画俯视图
+                    walls,                              // [{a:{x,y}, b:{x,y}, len}]，每面墙及其长度(mm)
+                    wallLengths: walls.map(w => w.len).sort((a, b) => b - a), // 兼容：长度列表，降序
                 });
             }
         });
@@ -409,29 +413,49 @@ export default function ParseJson(json){
 }
 
 /**
- * 计算房间各面内墙的长度（mm）。
+ * 计算房间各面内墙及其两端点（mm）。
  *
- * 房间边界点包含弧线采样点、门窗洞口造成的小折角，逐边统计会碎成几十段、
- * 读起来没意义。这里把方向近似一致的连续边合并成「一面墙」（拐角处才断开），
- * 再滤掉过短的碎段，得到几面主墙的长度，从长到短排序。
+ * 输入是房间的原始边界点（带 bulge）。处理原则：
+ * - 带 bulge 的边是一条弧墙，单独成一面墙，长度取真实弧长（不是弦长）；
+ * - 相邻的直边若近似共线（门窗洞口、柱子把一面墙切成几段），合并回一面墙；
+ * - 过短的碎段（洞口侧壁、回折）丢弃。
+ * 保留每面墙的起止端点（弧墙用弦端点）与 isArc 标记，供俯视图定位标注。
  *
- * @param {Array<{x:number,y:number}>} pts - 房间边界点（首尾隐式相连的闭合环）
- * @returns {Array<number>} 各面墙长度（mm），降序
+ * @param {Array<{x:number,y:number,bulge?:number}>} pts - 原始边界点（首尾隐式相连）
+ * @returns {Array<{a:{x,y}, b:{x,y}, len:number, isArc:boolean}>} 每面墙，按轮廓顺序
  */
-function computeWallLengths(pts) {
+function computeRoomWalls(pts) {
     if (!pts || pts.length < 3) return [];
 
-    const MERGE_ANGLE = 12 * Math.PI / 180;  // 转角小于此值视为同一面墙（共线）
+    const MERGE_ANGLE = 15 * Math.PI / 180;  // 直墙相邻边转角小于此值视为共线、合并（弧墙已单独处理，无需靠这个并弧）
     const MIN_WALL = 300;                     // 短于此长度的墙段丢弃（门窗洞口侧壁、柱子回折等碎段，mm）
 
-    // 先收集有效边（跳过重复点造成的零长边）
+    // 逐边：直边记方向，弧边（有 bulge）算真实弧长并标记
     const edges = [];
     const n = pts.length;
     for (let i = 0; i < n; i++) {
         const a = pts[i], b = pts[(i + 1) % n];
         const dx = b.x - a.x, dy = b.y - a.y;
-        const len = Math.hypot(dx, dy);
-        if (len > 1) edges.push({ len, ang: Math.atan2(dy, dx) });
+        const chord = Math.hypot(dx, dy);
+        if (chord <= 1) continue;   // 跳过重复点造成的零长边
+        const ea = { x: a.x, y: a.y }, eb = { x: b.x, y: b.y };
+        const bulge = a.bulge || 0;
+        if (Math.abs(bulge) > 0.001) {
+            // 弧长：bulge = tan(θ/4)，θ 为弧所对圆心角
+            const theta = 4 * Math.atan(Math.abs(bulge));
+            const radius = chord / (2 * Math.sin(theta / 2));
+            // 标注锚点取弧顶：直接采样这段弧、找离弦最远的点。
+            // 不靠 bulge 正负或「远离质心」推方向——对 >180° 的反弧(凸窗)那些启发式都会指反。
+            let apex = { x: (ea.x + eb.x) / 2, y: (ea.y + eb.y) / 2 }, maxD = -1;
+            const arcPts = sampleDoorWindowArc(a, b, bulge);
+            for (const q of arcPts) {
+                const d = Math.abs((q.x - a.x) * dy - (q.y - a.y) * dx) / chord; // 点到弦距离
+                if (d > maxD) { maxD = d; apex = { x: q.x, y: q.y }; }
+            }
+            edges.push({ a: ea, b: eb, mid: apex, len: radius * theta, ang: Math.atan2(dy, dx), isArc: true });
+        } else {
+            edges.push({ a: ea, b: eb, len: chord, ang: Math.atan2(dy, dx), isArc: false });
+        }
     }
     if (edges.length === 0) return [];
 
@@ -441,28 +465,40 @@ function computeWallLengths(pts) {
         return d;
     };
 
-    // 合并近似共线的连续边
+    // 合并：弧边自成一段、打断直边的合并；直边间近似共线才累加
     const walls = [];
-    let cur = { len: edges[0].len, ang: edges[0].ang };
-    for (let i = 1; i < edges.length; i++) {
-        if (angDiff(edges[i].ang, cur.ang) < MERGE_ANGLE) {
-            cur.len += edges[i].len;   // 同一面墙，累加
+    let cur = null;
+    for (const e of edges) {
+        if (e.isArc) {
+            if (cur) { walls.push(cur); cur = null; }
+            walls.push({ a: e.a, b: e.b, mid: e.mid, len: e.len, ang: e.ang, isArc: true });
+        } else if (cur && !cur.isArc && angDiff(e.ang, cur.ang) < MERGE_ANGLE) {
+            cur.len += e.len;   // 同一面直墙，累加并延伸终点
+            cur.b = e.b;
         } else {
-            walls.push(cur);
-            cur = { len: edges[i].len, ang: edges[i].ang };
+            if (cur) walls.push(cur);
+            cur = { a: e.a, b: e.b, len: e.len, ang: e.ang, isArc: false };
         }
     }
-    walls.push(cur);
+    if (cur) walls.push(cur);
 
-    // 环是闭合的：首尾两段若共线，应合并为一面墙
-    if (walls.length > 1 && angDiff(walls[0].ang, walls[walls.length - 1].ang) < MERGE_ANGLE) {
-        walls[0].len += walls.pop().len;
+    // 环闭合：首尾两段若都是直墙且共线，合并为一面墙
+    if (walls.length > 1 && !walls[0].isArc && !walls[walls.length - 1].isArc &&
+        angDiff(walls[0].ang, walls[walls.length - 1].ang) < MERGE_ANGLE) {
+        const last = walls.pop();
+        walls[0].len += last.len;
+        walls[0].a = last.a;
     }
 
     return walls
-        .map(w => Math.round(w.len))
-        .filter(len => len >= MIN_WALL)
-        .sort((a, b) => b - a);
+        .filter(w => w.len >= MIN_WALL)
+        .map(w => ({
+            a: w.a, b: w.b,
+            // 标注锚点：直墙取两端中点，弧墙取弧顶（采样求得）
+            mid: w.mid || { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 },
+            len: Math.round(w.len),
+            isArc: !!w.isArc,
+        }));
 }
 
 /**
