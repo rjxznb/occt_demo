@@ -149,6 +149,7 @@ class GeometryService {
         return {
             success: true,
             roomPoints: this.parseData.Room_Points,
+            roomNames: this.parseData.Room_Names || [],
             message: `处理完成，共${this.parseData.Room_Points.length}个房间`
         };
     }

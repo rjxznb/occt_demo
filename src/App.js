@@ -13,6 +13,7 @@ import { SoftlistRenderer } from './components/SoftlistRenderer.js';
 import { DXFMaterialSidebar } from './components/DXFMaterialSidebar.js';
 import { geometryService } from './core/GeometryService.js';
 import { DataSourcePicker } from './components/DataSourcePicker.js';
+import { TemplatePicker } from './components/TemplatePicker.js';
 
 /**
  * OCCT 户型图可视化应用
@@ -228,6 +229,18 @@ class OCCTApp {
         // 快速视角只在 3D 视图有意义
         this.uiElements.viewAngleGroup = document.getElementById('view-angle-group');
         this.updateViewAngleVisibility();
+
+        // 应用模板：弹出模板选择器，把配色应用到 3D 场景
+        document.getElementById('template-toggle')?.addEventListener('click', () => {
+            if (!this.roomRenderer?.sceneGroup) return;
+            if (!this.templatePicker) {
+                this.templatePicker = new TemplatePicker({
+                    sceneGroup: this.roomRenderer.sceneGroup,
+                    scene: this.sceneManager3D.getScene(),
+                });
+            }
+            this.templatePicker.toggle();
+        });
 
         // 先不设置模式，等组件创建完成后再设置
     }
@@ -568,13 +581,14 @@ class OCCTApp {
 
             this.updateStatus('正在加载数据...');
 
-            const [outline, rooms, doorWindows] = await Promise.all([
+            const [outline, rooms, doorWindows, softlists] = await Promise.all([
                 geometryService.getOutline(),
                 geometryService.getRooms(),
-                geometryService.getDoorsAndWindows()
+                geometryService.getDoorsAndWindows(),
+                geometryService.getSoftlists()
             ]);
 
-            const data = { outline, rooms, doorWindows };
+            const data = { outline, rooms, doorWindows, softlists };
             
             // 缓存共享数据
             this.sharedData = data;

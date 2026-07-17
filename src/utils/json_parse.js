@@ -5,6 +5,7 @@ import { freestyle } from "../config/freestyle.js";
 // 解析json字符串为对象，并且返回所有解析后的数据；
 export default function ParseJson(json){
     const Room_Points = []; // 每一个元素都是一个房间（每一个元素还是一个数组），之后每个房间数组里面有无数个坐标对象；
+    const Room_Names = [];  // 与 Room_Points 一一对应的房间名（主卧/客厅…），供模板按房间上色用；
     const Dim_Points = []; // 标注线；
     const SoftList = []; // 软装在dwg里面的变换数据，包括：旋转和缩放 [ {id: , basepoint: {x, y, z}, scale: {x: , y: , z: }, OutRotateRadian: 0}, { ... }]；
     const parse_data = {}; // 最终返回的解析数据对象；
@@ -41,6 +42,7 @@ export default function ParseJson(json){
                     }
                 });
                 Room_Points.push(Room_pointsArray);
+                Room_Names.push(item.RoomName || item.DisplayName || '');
             }
         });
 
@@ -110,6 +112,22 @@ export default function ParseJson(json){
 
             // 解析出旋转系数；
             ShapeDXF.rotate = item.OutRotateRadian+item.BlockInnerInfo.旋转角度;
+
+            // TypeId 与方块外接轮廓（世界坐标），供 3D 用 box 占位、模板按类别上色。
+            // item.Points 是该图例方块的角点（已是绝对世界坐标，中心即 BasePoint），
+            // 直接当 footprint 挤出即可，无需再变换。
+            ShapeDXF.kind = 'softlist';   // 区别于同存于 SoftLists 里的门/窗
+            ShapeDXF.typeId = item.TypeId;
+            ShapeDXF.footprint = [];
+            if (item.Points && Array.isArray(item.Points)) {
+                item.Points.forEach(pointStr => {
+                    const xMatch = pointStr.match(/X=([\d.-]+)/);
+                    const yMatch = pointStr.match(/Y=([\d.-]+)/);
+                    if (xMatch && yMatch) {
+                        ShapeDXF.footprint.push({ x: parseFloat(xMatch[1]), y: parseFloat(yMatch[1]) });
+                    }
+                });
+            }
 
             // 添加此图例对象到户型图例数组；
             SoftList.push(ShapeDXF);
@@ -338,6 +356,7 @@ export default function ParseJson(json){
         });
 
     parse_data.Room_Points = Room_Points;
+    parse_data.Room_Names = Room_Names;
     parse_data.SoftLists = SoftList;
     parse_data.Dim_Points = Dim_Points;
     parse_data.door_list = Doors_Points;

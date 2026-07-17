@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WallFactory } from './WallFactory.js';
 import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
+import { Softlist3DFactory } from './Softlist3DFactory.js';
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
@@ -336,8 +337,12 @@ export class RoomRenderer {
             // 门槛/墙脚处地板与门窗、墙共面：靠地板材质的 polygonOffset 把地板往深处推，
             // 让墙/门稳定压过它（地板本就该在墙下），从而不 z-fighting。
             // 外壳底部残料已由房间减数（-100~2900）挖穿，不会盖住地板。
+            const roomNames = data.rooms?.roomNames || [];
             for (let i = 0; i < floorMeshes.length; i++) {
                 floorMeshes[i].position.z = 0;
+                // 标记类型与房间名，供应用模板时识别地板、按房间上色
+                floorMeshes[i].userData.type = 'floor';
+                floorMeshes[i].userData.roomName = roomNames[floorMeshes[i].userData.roomIndex] || '';
                 this.sceneGroup.add(floorMeshes[i]);
             }
             wallSelector.addWalls(floorMeshes);
@@ -405,6 +410,12 @@ export class RoomRenderer {
             // （outline 数据缺失时 outlineMesh 为 null，与上面的创建守卫保持一致）
             if (result.outlineMesh) {
                 result.outlineMesh.userData.type = "outWall";
+            }
+
+            // 5.5 软装占位 box：软装没有真实 3D 模型，用挤出的矮柱体占位
+            if (data.softlists?.softlists) {
+                result.softlistMeshes = Softlist3DFactory.createBoxes(data.softlists.softlists);
+                result.softlistMeshes.forEach(mesh => this.sceneGroup.add(mesh));
             }
 
             // 6. 开启阴影。CSG 会产出全新的 mesh，所以统一在最后遍历设置，
