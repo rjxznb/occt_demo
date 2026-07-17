@@ -34,7 +34,7 @@ export class TemplatePicker {
     async render() {
         if (!this.manifest) {
             try {
-                this.manifest = await (await fetch('/data/templates/templates.json')).json();
+                this.manifest = await (await fetch('data/templates/templates.json')).json();
             } catch (e) {
                 this.manifest = [];
             }
@@ -51,7 +51,7 @@ export class TemplatePicker {
                 <div class="tpl-grid">
                     ${this.manifest.map(t => `
                         <div class="tpl-card" data-file="${t.file}">
-                            <img src="/data/templates/${encodeURIComponent(t.preview)}" loading="lazy" alt="${t.name}">
+                            <img src="data/templates/${encodeURIComponent(t.preview)}" loading="lazy" alt="${t.name}">
                             <div class="tpl-name">${t.name}</div>
                         </div>
                     `).join('')}
@@ -72,7 +72,7 @@ export class TemplatePicker {
     async applyByFile(file, card) {
         try {
             this.snapshotMaterials();
-            const template = await (await fetch(`/data/templates/${encodeURIComponent(file)}`)).json();
+            const template = await (await fetch(`data/templates/${encodeURIComponent(file)}`)).json();
             new TemplateApplier(template).apply(this.sceneGroup, this.scene);
 
             // 高亮当前选中

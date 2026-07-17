@@ -3,6 +3,9 @@
   "scripts": {
     "dev": "vite --config vite.config.js --host 0.0.0.0 --port 3000",
     "build": "vite build",
+    "build:3d": "vite build --config vite.config.3d.js",
+    "dev:3d": "vite --config vite.config.3d.js --host 0.0.0.0 --port 3030",
+    "deploy:3d": "npm run build:3d && node scripts/deploy-3d.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

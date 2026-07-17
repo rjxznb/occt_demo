@@ -490,8 +490,16 @@ export class SceneManager {
         if (tw.t >= 1) this._viewTween = null;
     }
 
+    /** 暂停/恢复渲染（嵌入插件时，标签页不可见就停手，别空转烧 CPU） */
+    setPaused(paused) {
+        this.paused = !!paused;
+    }
+
     animate(callback = null) {
         requestAnimationFrame(() => this.animate(callback));
+
+        // 暂停时保持 rAF 存活但跳过更新与渲染
+        if (this.paused) return;
 
         try {
             // 视角补间（按帧间隔推进，独立于 controls）

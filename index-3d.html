@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 户型预览</title>
+    <link rel="icon" href="data:,">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            overflow: hidden;
+        }
+
+        .canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #canvas-3d {
+            z-index: 1;
+        }
+        
+        #canvas-2d {
+            z-index: 0;
+        }
+        
+        .canvas-container.active {
+            z-index: 10;
+        }
+        
+        .canvas-container.hidden {
+            display: none;
+        }
+
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+        }
+
+        #fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 200px;
+            color: #00ff00;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 0, 0.3);
+            z-index: 1000;
+        }
+
+        #auto-rotation-status {
+            position: fixed;
+            top: 60px;
+            right: 200px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+            color: #ccc;
+            min-width: 120px;
+        }
+
+        .rotation-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            background: #666;
+            transition: background-color 0.3s ease;
+        }
+
+        .rotation-indicator.enabled {
+            background: #00ff00;
+        }
+
+        .rotation-indicator.rotating {
+            background: #ff6600;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        #controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 16px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 1000;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-label {
+            color: #ccc;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button {
+            padding: 10px 16px;
+            background: #333;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: #444;
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        button.active {
+            background: #0066cc;
+            border-color: #0088ff;
+        }
+
+        .mode-view {
+            background: #28a745 !important;
+            border-color: #34ce57 !important;
+        }
+
+        .mode-edit {
+            background: #ffc107 !important;
+            border-color: #ffca2c !important;
+            color: #000 !important;
+        }
+
+        .csg-bvh {
+            background: #17a2b8 !important;
+            border-color: #20c0db !important;
+        }
+
+        .csg-mesh {
+            background: #6f42c1 !important;
+            border-color: #7952cc !important;
+        }
+
+        /* 材质侧边栏样式 */
+        .material-sidebar {
+            position: fixed;
+            top: 0;
+            right: -320px;
+            width: 320px;
+            min-width: 280px;
+            max-width: 50vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(15px);
+            box-shadow: -2px 0 20px rgba(0, 0, 0, 0.5);
+            transition: right 0.3s ease, width 0.2s ease;
+            z-index: 2000;
+            overflow-y: auto;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            resize: horizontal;
+        }
+
+        .material-sidebar.visible {
+            right: 0;
+        }
+
+        .material-sidebar.collapsed {
+            width: 60px;
+            overflow: hidden;
+        }
+
+        /* 调整大小手柄 */
+        .sidebar-resize-handle {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 6px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            cursor: ew-resize;
+            opacity: 0;
+            transition: opacity 0.3s ease, background-color 0.3s ease;
+        }
+
+        .sidebar-resize-handle:hover,
+        .sidebar-resize-handle.resizing {
+            opacity: 1;
+            background: rgba(0, 136, 255, 0.6);
+        }
+
+        /* 收起/展开按钮 */
+        .sidebar-collapse-btn {
+            position: absolute;
+            left: -30px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .sidebar-collapse-btn:hover {
+            background: rgba(0, 136, 255, 0.8);
+            border-color: rgba(0, 136, 255, 0.5);
+        }
+
+        .material-sidebar.collapsed .sidebar-collapse-btn {
+            left: -30px;
+        }
+
+        /* 收起状态下隐藏内容 */
+        .material-sidebar.collapsed .sidebar-header h3,
+        .material-sidebar.collapsed .close-btn,
+        .material-sidebar.collapsed .sidebar-tabs,
+        .material-sidebar.collapsed .sidebar-content {
+            display: none;
+        }
+
+        .material-sidebar.collapsed .sidebar-header {
+            padding: 10px;
+            justify-content: center;
+        }
+
+        /* 收起状态显示简化版图标 */
+        .sidebar-collapsed-icons {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding: 20px 10px;
+        }
+
+        .material-sidebar.collapsed .sidebar-collapsed-icons {
+            display: flex;
+        }
+
+        .collapsed-icon {
+            font-size: 20px;
+            opacity: 0.6;
+            transition: opacity 0.3s ease;
+        }
+
+        .collapsed-icon:hover {
+            opacity: 1;
+        }
+
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .sidebar-header h3 {
+            margin: 0;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 8px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 16px 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #ccc;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn.active {
+            color: #0088ff;
+            border-bottom-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+        }
+
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+        }
+
+        .sidebar-content {
+            padding: 20px;
+        }
+
+        .panel {
+            display: none;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        .panel-title {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 16px;
+            text-align: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .materials-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .material-item, .model-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            cursor: grab;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .material-item:hover, .model-item:hover {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 136, 255, 0.2);
+        }
+
+        .material-item.dragging, .model-item.dragging {
+            opacity: 0.5;
+            transform: scale(0.9);
+        }
+
+        .material-item canvas {
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .material-label, .model-label {
+            font-size: 12px;
+            text-align: center;
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .model-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        }
+
+        .model-item {
+            padding: 8px 4px;
+        }
+
+        .model-label {
+            font-size: 10px;
+        }
+
+        .resource-btn {
+            background: #9C27B0 !important;
+            border-color: #BA68C8 !important;
+            color: white !important;
+        }
+
+        .resource-btn:hover {
+            background: #7B1FA2 !important;
+            border-color: #9C27B0 !important;
+        }
+
+        .view-toggle-btn {
+            background: #FF5722 !important;
+            border-color: #FF7043 !important;
+            color: white !important;
+        }
+
+        .view-toggle-btn:hover {
+            background: #E64A19 !important;
+            border-color: #FF5722 !important;
+        }
+
+        .template-btn {
+            background: #00897B !important;
+            border-color: #26A69A !important;
+            color: white !important;
+            margin-top: 8px;
+        }
+        .template-btn:hover {
+            background: #00796B !important;
+            border-color: #009688 !important;
+        }
+
+        .view-angle-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .view-angle-btn {
+            padding: 8px 0;
+            font-size: 13px;
+            background: #2b2b2b;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .view-angle-btn:hover {
+            background: #3a7bd5;
+            border-color: #4a8be5;
+        }
+
+        /* 拖拽时的视觉反馈 */
+        .drag-preview {
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #0088ff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #fff;
+            backdrop-filter: blur(10px);
+        }
+
+        /* 快捷键提示样式 */
+        .shortcuts-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 11px;
+            color: #ccc;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .shortcut-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .shortcut-item:last-child {
+            border-bottom: none;
+        }
+
+        .shortcut-item:hover {
+            color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+            border-radius: 4px;
+            padding: 2px 4px;
+        }
+
+        /* 右键上下文菜单样式 */
+        .context-menu {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 8px 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            z-index: 9999;
+            min-width: 220px;
+            display: none;
+            animation: contextMenuShow 0.15s ease-out;
+        }
+
+        @keyframes contextMenuShow {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .context-menu-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .context-menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .context-menu-item:hover {
+            background: rgba(0, 136, 255, 0.15);
+            color: #0088ff;
+        }
+
+        .context-menu-item.disabled {
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .context-menu-item.disabled:hover {
+            background: none;
+            color: #666;
+        }
+
+        .context-menu-item .icon {
+            margin-right: 10px;
+            width: 16px;
+            text-align: center;
+        }
+
+        .context-menu-separator {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 4px 0;
+        }
+
+        /* 颜色选择器容器 */
+        .color-picker-container {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .color-picker-label {
+            color: #ccc;
+            font-size: 12px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .color-picker {
+            width: 100%;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .color-picker:hover {
+            border-color: #0088ff;
+        }
+
+        /* 预设颜色面板 */
+        .preset-colors {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            margin-top: 8px;
+        }
+
+        .preset-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .preset-color:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: scale(1.1);
+        }
+
+        .preset-color.selected {
+            border-color: #0088ff;
+            box-shadow: 0 0 0 2px rgba(0, 136, 255, 0.3);
+        }
+
+        /* 材质属性调节器 */
+        .material-controls {
+            padding: 12px 16px;
+        }
+
+        .material-control-group {
+            margin-bottom: 12px;
+        }
+
+        .material-control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .material-control-label {
+            color: #ccc;
+            font-size: 11px;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .material-control-value {
+            color: #0088ff;
+            font-weight: bold;
+        }
+
+        .material-slider {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+            -webkit-appearance: none;
+        }
+
+        .material-slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #0088ff;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .material-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #0088ff;
+            cursor: pointer;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 材质上传按钮样式 */
+        .material-upload-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.02);
+            min-height: 120px;
+        }
+
+        .material-upload-btn:hover {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 136, 255, 0.2);
+        }
+
+        .upload-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+            color: #0088ff;
+        }
+
+        .upload-text {
+            font-size: 12px;
+            color: #ccc;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        /* 材质上传模态框样式 */
+        .material-upload-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: modalFadeIn 0.3s ease-out;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-title {
+            color: #fff;
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 8px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .modal-form {
+            display: grid;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            color: #ccc;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 12px;
+            color: #fff;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+        }
+
+        .file-upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .file-upload-area:hover {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.1);
+        }
+
+        .file-upload-area.drag-over {
+            border-color: #0088ff;
+            background: rgba(0, 136, 255, 0.2);
+        }
+
+        .upload-instruction {
+            color: #ccc;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .file-info {
+            color: #0088ff;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .texture-preview {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .texture-preview-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .texture-preview-img {
+            width: 60px;
+            height: 60px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            object-fit: cover;
+        }
+
+        .texture-label {
+            font-size: 10px;
+            color: #ccc;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ccc;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .btn-primary {
+            background: #0088ff;
+            color: #fff;
+            border: 1px solid #0088ff;
+        }
+
+        .btn-primary:hover {
+            background: #0066cc;
+        }
+
+        .btn-primary:disabled {
+            background: rgba(0, 136, 255, 0.3);
+            cursor: not-allowed;
+        }
+
+        /* 自定义材质特殊样式 */
+        .material-item.custom-material {
+            border: 2px solid rgba(255, 215, 0, 0.3);
+        }
+
+        .material-item.custom-material:hover {
+            border-color: rgba(255, 215, 0, 0.8);
+            box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+        }
+
+        .material-item.custom-material::after {
+            content: '⭐';
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            font-size: 12px;
+            color: #FFD700;
+        }
+
+        .material-item {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <!-- 3D视图容器 -->
+    <div id="canvas-3d" class="canvas-container active"></div>
+
+    <div id="info">
+        <div>加载中...</div>
+    </div>
+
+    <div id="fps-counter">
+        <div>FPS: 0</div>
+    </div>
+
+    <div id="auto-rotation-status">
+        <span class="rotation-indicator" id="rotation-indicator"></span>
+        <span id="rotation-status-text">自动旋转: 禁用</span>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <div class="control-label">操作模式</div>
+            <button id="mode-toggle" class="mode-view">🔍 查看模式</button>
+        </div>
+        
+        <div class="control-group">
+            <div class="control-label">资源管理</div>
+            <button id="resource-toggle" class="resource-btn">📚 资源库</button>
+            <button id="template-toggle" class="template-btn">🎨 应用模板</button>
+        </div>
+        
+        <div class="control-group" id="view-angle-group">
+            <div class="control-label">快速视角</div>
+            <div class="view-angle-grid">
+                <button class="view-angle-btn" data-view="NW">西北</button>
+                <button class="view-angle-btn" data-view="NE">东北</button>
+                <button class="view-angle-btn" data-view="SW">西南</button>
+                <button class="view-angle-btn" data-view="SE">东南</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">编辑快捷键</div>
+            <div class="shortcuts-info">
+                <div class="shortcut-item">🖱️ 点击模型选中</div>
+                <div class="shortcut-item">🖱️ 右键弹出工具栏</div>
+                <div class="shortcut-item">G - 移动模式</div>
+                <div class="shortcut-item">R - 旋转模式</div>
+                <div class="shortcut-item">S - 缩放模式</div>
+                <div class="shortcut-item">Del - 删除模型</div>
+                <div class="shortcut-item">Esc - 取消选择</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右键上下文菜单 -->
+    <div id="context-menu" class="context-menu">
+        <!-- 颜色选择器 -->
+        <div class="color-picker-container">
+            <label class="color-picker-label">🎨 物体颜色</label>
+            <input type="color" class="color-picker" id="object-color-picker" value="#8B4513">
+            <div class="preset-colors" id="preset-colors">
+                <!-- 预设颜色将通过JavaScript动态生成 -->
+            </div>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <!-- 材质属性控制 -->
+        <div class="material-controls">
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>粗糙度</span>
+                    <span class="material-control-value" id="roughness-value">0.3</span>
+                </div>
+                <input type="range" class="material-slider" id="roughness-slider" 
+                       min="0" max="1" step="0.01" value="0.3">
+            </div>
+            
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>金属度</span>
+                    <span class="material-control-value" id="metalness-value">0.2</span>
+                </div>
+                <input type="range" class="material-slider" id="metalness-slider" 
+                       min="0" max="1" step="0.01" value="0.2">
+            </div>
+
+            <div class="material-control-group">
+                <div class="material-control-label">
+                    <span>透明度</span>
+                    <span class="material-control-value" id="opacity-value">1.0</span>
+                </div>
+                <input type="range" class="material-slider" id="opacity-slider" 
+                       min="0" max="1" step="0.01" value="1.0">
+            </div>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <!-- 操作选项 -->
+        <div class="context-menu-item" id="context-duplicate">
+            <span class="icon">📋</span>
+            <span>复制对象</span>
+        </div>
+        
+        <div class="context-menu-item" id="context-reset-transform">
+            <span class="icon">🔄</span>
+            <span>重置变换</span>
+        </div>
+
+        <div class="context-menu-item" id="context-reset-material">
+            <span class="icon">🎨</span>
+            <span>重置材质</span>
+        </div>
+
+        <div class="context-menu-separator"></div>
+
+        <div class="context-menu-item" id="context-delete" style="color: #ff6b6b;">
+            <span class="icon">🗑️</span>
+            <span>删除对象</span>
+        </div>
+    </div>
+
+    <!-- 材质上传模态框 -->
+    <div id="material-upload-modal" class="material-upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">🎨 创建自定义材质</h3>
+                <button class="modal-close" id="close-material-modal">×</button>
+            </div>
+            
+            <form class="modal-form" id="material-upload-form">
+                <!-- 材质基本信息 -->
+                <div class="form-group">
+                    <label class="form-label">材质名称</label>
+                    <input type="text" class="form-input" id="material-name" placeholder="输入材质名称" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">材质图标 (Emoji)</label>
+                    <input type="text" class="form-input" id="material-icon" placeholder="🎨" maxlength="2">
+                </div>
+
+                <!-- 漫反射贴图 (Color Map) -->
+                <div class="form-group">
+                    <label class="form-label">漫反射贴图 (Color Map)</label>
+                    <div class="file-upload-area" data-texture-type="colorMap">
+                        <div class="upload-instruction">点击或拖拽图片到这里</div>
+                        <div class="file-info" id="colorMap-info"></div>
+                        <input type="file" id="colorMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 法线贴图 (Normal Map) -->
+                <div class="form-group">
+                    <label class="form-label">法线贴图 (Normal Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="normalMap">
+                        <div class="upload-instruction">点击或拖拽法线贴图到这里</div>
+                        <div class="file-info" id="normalMap-info"></div>
+                        <input type="file" id="normalMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 粗糙度贴图 (Roughness Map) -->
+                <div class="form-group">
+                    <label class="form-label">粗糙度贴图 (Roughness Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="roughnessMap">
+                        <div class="upload-instruction">点击或拖拽粗糙度贴图到这里</div>
+                        <div class="file-info" id="roughnessMap-info"></div>
+                        <input type="file" id="roughnessMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 金属度贴图 (Metalness Map) -->
+                <div class="form-group">
+                    <label class="form-label">金属度贴图 (Metalness Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="metalnessMap">
+                        <div class="upload-instruction">点击或拖拽金属度贴图到这里</div>
+                        <div class="file-info" id="metalnessMap-info"></div>
+                        <input type="file" id="metalnessMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 环境遮蔽贴图 (AO Map) -->
+                <div class="form-group">
+                    <label class="form-label">环境遮蔽贴图 (AO Map) - 可选</label>
+                    <div class="file-upload-area" data-texture-type="aoMap">
+                        <div class="upload-instruction">点击或拖拽AO贴图到这里</div>
+                        <div class="file-info" id="aoMap-info"></div>
+                        <input type="file" id="aoMap-input" accept="image/*" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 贴图预览 -->
+                <div class="form-group">
+                    <label class="form-label">贴图预览</label>
+                    <div class="texture-preview" id="texture-preview"></div>
+                </div>
+                
+                <div class="modal-buttons">
+                    <button type="button" class="btn btn-secondary" id="cancel-material-upload">取消</button>
+                    <button type="submit" class="btn btn-primary" id="create-material-btn">创建材质</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 裸模块名（如 three）由 Vite 解析，不再需要 importmap -->
+    <script type="module" src="./src/App3D.js"></script>
+</body>
+</html>
