@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR 看房</title>
+    <link rel="icon" href="data:,">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+        #canvas-3d { position: absolute; inset: 0; }
+        #canvas-3d canvas { display: block; }
+
+        #info { position: fixed; top: 14px; left: 16px; z-index: 10;
+            padding: 6px 12px; border-radius: 8px; font-size: 13px; color: #e8e8e8;
+            background: rgba(20,20,20,0.55); backdrop-filter: blur(4px); }
+
+        /* 准星 */
+        #crosshair { position: fixed; left: 50%; top: 50%; z-index: 8;
+            width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+            background: rgba(255,255,255,0.75); box-shadow: 0 0 0 1px rgba(0,0,0,0.4); pointer-events: none; }
+
+        /* 进入漫游遮罩 */
+        #vr-enter { position: fixed; inset: 0; z-index: 20; display: flex;
+            align-items: center; justify-content: center; cursor: pointer;
+            background: radial-gradient(ellipse at center, rgba(20,26,36,0.45), rgba(12,16,22,0.72)); }
+        #vr-enter .card { text-align: center; color: #f0f4f8;
+            padding: 26px 40px; border-radius: 16px; user-select: none;
+            background: rgba(30,36,46,0.78); border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+        #vr-enter .title { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+        #vr-enter .sub { font-size: 13px; color: #aeb8c4; line-height: 1.9; }
+        #vr-enter kbd { display: inline-block; min-width: 20px; padding: 1px 7px; margin: 0 2px;
+            font-size: 12px; color: #dfe6ee; background: #2c3644; border-radius: 5px;
+            border: 1px solid rgba(255,255,255,0.14); }
+
+        /* 底部操作提示（锁定时显示） */
+        #vr-hint { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 8;
+            display: none; padding: 7px 16px; border-radius: 20px; font-size: 12.5px; color: #d7dee6;
+            background: rgba(20,20,20,0.5); backdrop-filter: blur(4px); white-space: nowrap; }
+        #vr-hint kbd { padding: 0 6px; margin: 0 1px; background: #2c3644; border-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.14); }
+
+        /* 房间快速切换（层级高于进入遮罩，退出漫游后可直接点击） */
+        #vr-rooms { position: fixed; top: 14px; right: 16px; z-index: 30; width: 168px;
+            padding: 12px; border-radius: 12px; color: #e8e8e8;
+            background: rgba(24,28,36,0.72); backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+        #vr-rooms .hd { font-size: 12px; color: #9aa4b0; margin-bottom: 8px; padding-left: 2px; line-height: 1.5; }
+        #vr-room-list { display: flex; flex-direction: column; gap: 6px; }
+        .vr-room-btn { display: flex; align-items: center; gap: 8px; text-align: left;
+            padding: 8px 10px; border: none; border-radius: 8px; cursor: pointer;
+            font-size: 13px; color: #e8e8e8; background: rgba(255,255,255,0.06);
+            font-family: inherit; transition: background 0.15s; }
+        .vr-room-btn:hover { background: rgba(120,170,235,0.28); }
+        .vr-room-btn.active { background: rgba(90,150,225,0.55); font-weight: 600; }
+        .vr-room-btn .key { flex: none; width: 18px; height: 18px; display: inline-flex;
+            align-items: center; justify-content: center; font-size: 11px; border-radius: 4px;
+            background: rgba(0,0,0,0.3); color: #c7d2de; }
+    </style>
+</head>
+<body>
+    <div id="canvas-3d"></div>
+    <div id="crosshair"></div>
+
+    <div id="info">加载中...</div>
+
+    <div id="vr-rooms">
+        <div class="hd">快速进入房间<br>（漫游中按数字键切换）</div>
+        <div id="vr-room-list"></div>
+    </div>
+
+    <div id="vr-hint">
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 ·
+        <kbd>空格</kbd>/<kbd>C</kbd> 升降 · <kbd>Shift</kbd> 加速 · 鼠标转向 ·
+        <kbd>1</kbd>~<kbd>9</kbd> 切换房间 · <kbd>Esc</kbd> 退出
+    </div>
+
+    <div id="vr-enter">
+        <div class="card">
+            <div class="title">🏠 VR 看房</div>
+            <div class="sub">
+                点击任意处进入漫游<br>
+                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动　<kbd>空格</kbd>/<kbd>C</kbd> 升降　<kbd>Shift</kbd> 加速<br>
+                移动鼠标转向　<kbd>Esc</kbd> 退出漫游<br>
+                漫游中按 <kbd>1</kbd>~<kbd>9</kbd> 快速切换房间<br>
+                退出后也可点右上角房间列表
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/App_VR.js"></script>
+</body>
+</html>
