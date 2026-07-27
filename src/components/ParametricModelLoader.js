@@ -368,14 +368,19 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             );
             rawModel.scale.copy(flipScale);
 
-            // ── 用 wrapper group 隔离变换：内层模型居中，外层做 R·T ────
+            // ── 用 wrapper group 隔离变换：内层模型居中，外层做 S·R·T ──
             const wrapper = new THREE.Group();
 
             const bp = item.basepoint;
             const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
             const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
 
+            // ── 最小保证缩放：模型若 <100 单位说明单位是米/厘米，放大到可见 ─
+            const maxModelDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
+            const baseScale = maxModelDim < 100 ? 1000 : 1;
+
             wrapper.add(rawModel);
+            wrapper.scale.setScalar(baseScale);
             wrapper.quaternion.setFromAxisAngle(
                 new THREE.Vector3(0, 0, 1), -cadRotateRad
             );
@@ -385,7 +390,8 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             console.log(`${LOG_PREFIX}   ${tid} basepoint=(${bp?.x?.toFixed(0) ?? '?'},${bp?.y?.toFixed(0) ?? '?'}) ` +
                 `rotate=${cadRotateDeg.toFixed(1)}° ` +
                 (hFlip ? '左右翻转 ' : '') + (vFlip ? '上下翻转 ' : '') +
-                `modelSize=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)})`);
+                `model=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)}) ` +
+                `baseScale=${baseScale}`);
 
             // 标记 userData
             wrapper.userData = {
