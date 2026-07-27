@@ -101,12 +101,17 @@ function findParameterizedJsonUrl(obj, depth = 0) {
     return null;
 }
 
-async function fetchModelObj(parameterizedJsonUrl) {
+async function fetchModelObj(parameterizedJsonUrl, modelParams) {
+    const body = { url: parameterizedJsonUrl };
+    if (modelParams && modelParams.length > 0) {
+        body.parameters = modelParams;
+        console.log(`${LOG_PREFIX}   params:`, modelParams.map(p => `${p.name}=${p.value}`).join(', '));
+    }
     console.log(`${LOG_PREFIX}   POST modelUrlToObj: ${parameterizedJsonUrl.substring(0, 80)}...`);
     const res = await fetch(`${BACKEND_URL}/api/modelUrlToObj`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: parameterizedJsonUrl }),
+        body: JSON.stringify(body),
     });
     if (!res.ok) {
         const text = await res.text();
@@ -214,51 +219,72 @@ function parseObjString(objContent, typeId) {
 // 核心管线
 //==============================================================================
 
-async function fetchModelForTypeId(typeId) {
+// 单独缓存 parameterizedJsonUrl（不依赖 modelParams）
+const urlCache = new Map();  // TypeId → parameterizedJsonUrl
+
+/** 获取某个 TypeId 的 parameterizedJsonUrl（缓存） */
+async function resolveParametricUrl(typeId) {
+    const tid = String(typeId);
+    if (urlCache.has(tid)) return urlCache.get(tid);
+
+    const entry = templateMap.get(tid);
+    if (!entry) return null;
+
+    try {
+        const detail = await fetchGoodsDetail(entry.resId);
+        const url = findParameterizedJsonUrl(detail?.data?.modelDTO ?? {})
+            ?? findParameterizedJsonUrl(detail);
+        if (url) {
+            urlCache.set(tid, url);
+            console.log(`${LOG_PREFIX} TypeId=${tid} parameterizedJsonUrl 已解析`);
+        }
+        return url;
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} TypeId=${tid} 解析URL失败:`, err.message);
+        return null;
+    }
+}
+
+/** 缓存 key：TypeId + modelParams JSON */
+function cacheKey(typeId, modelParams) {
+    const paramsStr = (modelParams && modelParams.length > 0)
+        ? JSON.stringify(modelParams)
+        : '';
+    return `${typeId}|${paramsStr}`;
+}
+
+async function fetchModelForTypeId(typeId, modelParams) {
     if (!templateMap) {
         console.warn(`${LOG_PREFIX} 模板未加载`);
         return null;
     }
 
     const tid = String(typeId);
+    const ck = cacheKey(tid, modelParams);
 
-    if (modelCache.has(tid)) {
-        console.log(`${LOG_PREFIX} TypeId=${tid} 命中缓存`);
-        return modelCache.get(tid);
+    if (modelCache.has(ck)) {
+        console.log(`${LOG_PREFIX} ${tid} 命中缓存`);
+        return modelCache.get(ck);
     }
 
-    if (pendingRequests.has(tid)) {
-        console.log(`${LOG_PREFIX} TypeId=${tid} 等待飞行中请求`);
-        return pendingRequests.get(tid);
+    if (pendingRequests.has(ck)) {
+        console.log(`${LOG_PREFIX} ${tid} 等待飞行中请求`);
+        return pendingRequests.get(ck);
     }
 
     const promise = (async () => {
-        const entry = templateMap.get(tid);
-        if (!entry) {
-            console.warn(`${LOG_PREFIX} TypeId="${tid}" 不在模板中`);
-            return null;
-        }
+        const url = await resolveParametricUrl(tid);
+        if (!url) return null;
 
+        const entry = templateMap.get(tid);
         const resId = entry.resId;
         console.log(`${LOG_PREFIX} TypeId=${tid} → ResId=${resId} (${entry.typeName})`);
 
         try {
-            // Step 1: getGoodsDetail
-            const detail = await fetchGoodsDetail(resId);
-            const url = findParameterizedJsonUrl(detail?.data?.modelDTO ?? {})
-                ?? findParameterizedJsonUrl(detail);
+            // modelUrlToObj（传入尺寸参数）
+            const result = await fetchModelObj(url, modelParams);
 
-            if (!url) {
-                console.warn(`${LOG_PREFIX}   无 parameterizedJsonUrl, 响应 data keys:`,
-                    Object.keys(detail?.data || {}).join(', '));
-                return null;
-            }
-            console.log(`${LOG_PREFIX}   parameterizedJsonUrl: ${url.substring(0, 80)}...`);
-
-            // Step 2: modelUrlToObj
-            const result = await fetchModelObj(url);
-
-            // Step 3: 提取 OBJ
+            // 提取 OBJ
             const objContent = extractObjContent(result);
             if (!objContent) {
                 console.warn(`${LOG_PREFIX}   响应中无 OBJ 内容`);
@@ -266,7 +292,7 @@ async function fetchModelForTypeId(typeId) {
             }
             console.log(`${LOG_PREFIX}   OBJ 内容: ${(objContent.length / 1024).toFixed(1)} KB`);
 
-            // Step 4: 解析 OBJ
+            // 解析 OBJ
             const group = parseObjString(objContent, tid);
             if (!group) {
                 console.warn(`${LOG_PREFIX}   OBJ 解析后无有效 mesh`);
@@ -281,7 +307,7 @@ async function fetchModelForTypeId(typeId) {
                 defaultSize: entry.defaultSize,
             };
 
-            modelCache.set(tid, group);
+            modelCache.set(ck, group);
             console.log(`${LOG_PREFIX} ✓ TypeId=${tid} (${entry.typeName}) 已缓存`);
             return group;
 
@@ -291,8 +317,8 @@ async function fetchModelForTypeId(typeId) {
         }
     })();
 
-    pendingRequests.set(tid, promise);
-    promise.finally(() => pendingRequests.delete(tid));
+    pendingRequests.set(ck, promise);
+    promise.finally(() => pendingRequests.delete(ck));
     return promise;
 }
 
@@ -323,29 +349,23 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
     console.log(`${LOG_PREFIX} 待加载: ${softlistItems.length} 软装实例, ${uniqueTypeIds.length} 唯一 TypeId`);
     console.log(`${LOG_PREFIX} TypeIds:`, uniqueTypeIds.join(', '));
 
-    // Step 1: 批量预加载模型
-    let loadedCount = 0;
+    // Step 1: 预解析所有 parameterizedJsonUrl（不依赖尺寸参数）
+    let resolvedCount = 0;
     for (let i = 0; i < uniqueTypeIds.length; i += concurrency) {
         const batch = uniqueTypeIds.slice(i, i + concurrency);
-        await Promise.allSettled(batch.map(typeId => fetchModelForTypeId(typeId)));
-        loadedCount += batch.length;
-        if (onProgress) onProgress(Math.min(loadedCount, uniqueTypeIds.length), uniqueTypeIds.length);
+        await Promise.allSettled(batch.map(typeId => resolveParametricUrl(typeId)));
+        resolvedCount += batch.length;
     }
+    console.log(`${LOG_PREFIX} URL 解析完成: ${urlCache.size}/${uniqueTypeIds.length} 个`);
 
-    console.log(`${LOG_PREFIX} 模型缓存: ${modelCache.size}/${uniqueTypeIds.length} 个唯一 TypeId`);
-    for (const [tid, group] of modelCache) {
-        const box = new THREE.Box3().setFromObject(group);
-        const size = box.getSize(new THREE.Vector3());
-        console.log(`${LOG_PREFIX}   缓存 ${tid}: meshes=${group.children.length}, size=(${size.x.toFixed(0)},${size.y.toFixed(0)},${size.z.toFixed(0)})`);
-    }
-
-    // Step 2: 为每个软装实例放置模型
+    // Step 2: 为每个软装实例获取模型并放置（传入 modelParams 控制尺寸）
     const resultGroups = [];
     let placedCount = 0;
 
     for (const item of softlistItems) {
         const tid = String(item.typeId);
-        const templateModel = modelCache.get(tid);
+        const modelParams = item.modelParams || [];
+        const templateModel = await fetchModelForTypeId(tid, modelParams);
         if (!templateModel) continue;
 
         try {

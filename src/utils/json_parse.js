@@ -137,8 +137,8 @@ export default function ParseJson(json){
             ShapeDXF.scale.y = item.OutYScale;
             ShapeDXF.scale.z = item.OutZScale;
 
-            // 解析出旋转系数；
-            ShapeDXF.rotate = item.OutRotateRadian+item.BlockInnerInfo.旋转角度;
+            // 解析出旋转系数（BlockInnerInfo 内部旋转角度，OutRotateRadian 已作用在 footprint 上）
+            ShapeDXF.rotate = item.BlockInnerInfo?.旋转角度 || 0;
 
             // 翻转标志（CAD BlockInnerInfo 中的字段，部分图例有）
             if (item.BlockInnerInfo) {
@@ -146,6 +146,24 @@ export default function ParseJson(json){
                     ShapeDXF.verticalFlip = !!item.BlockInnerInfo.上下翻转;
                 if (item.BlockInnerInfo.左右翻转 !== undefined)
                     ShapeDXF.horizontalFlip = !!item.BlockInnerInfo.左右翻转;
+            }
+
+            // 参数化模型的尺寸参数（从 BlockInnerInfo 提取，key 名映射到 API 参数名）
+            ShapeDXF.modelParams = [];
+            if (item.BlockInnerInfo) {
+                const keyMap = {
+                    '长': '长度',
+                    '宽': '宽度',
+                    '高': '高度',
+                    '自身高度': '自身高度',
+                    '离地高度': '离地高度',
+                    '挡水条高度': '挡水条高度',
+                };
+                for (const [rawKey, apiKey] of Object.entries(keyMap)) {
+                    if (item.BlockInnerInfo[rawKey] !== undefined) {
+                        ShapeDXF.modelParams.push({ name: apiKey, value: item.BlockInnerInfo[rawKey] });
+                    }
+                }
             }
 
             // TypeId 与方块外接轮廓（世界坐标），供 3D 用 box 占位、模板按类别上色。
