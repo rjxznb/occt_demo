@@ -75,6 +75,36 @@ test('non-2xx Node response becomes HTTP_ERROR with status', async () => {
     );
 });
 
+test('malformed Node JSON becomes INVALID_RESPONSE', async () => {
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async () => ({
+            ok: true,
+            status: 200,
+            json: async () => { throw new SyntaxError('Unexpected token'); },
+        }),
+    });
+    await assert.rejects(
+        client.getGoodsDetail('10'),
+        error => error.code === 'INVALID_RESPONSE',
+    );
+});
+
+test('malformed Node POST JSON becomes INVALID_RESPONSE', async () => {
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async () => ({
+            ok: true,
+            status: 200,
+            json: async () => { throw new SyntaxError('Unexpected token'); },
+        }),
+    });
+    await assert.rejects(
+        client.convertModel('https://model.test/a.json'),
+        error => error.code === 'INVALID_RESPONSE',
+    );
+});
+
 test('malformed host JSON becomes INVALID_RESPONSE', async () => {
     const client = new ParametricApiClient({
         hostClient: {

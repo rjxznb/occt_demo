@@ -49,7 +49,7 @@ export class ParametricApiClient {
 
     async fetchJson(url) {
         const response = await this.fetch(url);
-        return response.json();
+        return this.parseResponseJson(response);
     }
 
     async postJson(url, payload) {
@@ -58,7 +58,15 @@ export class ParametricApiClient {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
-        return response.json();
+        return this.parseResponseJson(response);
+    }
+
+    async parseResponseJson(response) {
+        try {
+            return await response.json();
+        } catch (error) {
+            throw createError('INVALID_RESPONSE', 'Response is not valid JSON', { cause: error });
+        }
     }
 
     async fetch(url, init) {
