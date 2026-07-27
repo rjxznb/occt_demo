@@ -30,6 +30,100 @@ const pendingRequests = new Map();   // TypeId → Promise（飞行去重）
 //==============================================================================
 const objLoader = new OBJLoader();
 
+/** 构造软装的俯视平面变换：局部 XY 翻转，再绕 Z 轴旋转，最后平移。 */
+export function createPlanTransform(item) {
+    const bp = item?.basepoint || {};
+    const position = new THREE.Vector3(bp.x ?? 0, bp.y ?? 0, bp.z ?? 0);
+    const quaternion = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        THREE.MathUtils.degToRad(Number(item?.rotate) || 0),
+    );
+    const scale = new THREE.Vector3(
+        item?.horizontalFlip === true ? -1 : 1,
+        item?.verticalFlip === true ? -1 : 1,
+        1,
+    );
+
+    return new THREE.Matrix4().compose(position, quaternion, scale);
+}
+
+/** 将参数化 OBJ 的 Y-up 坐标系转换为户型场景使用的 Z-up。 */
+export function createYUpToZUpTransform() {
+    return new THREE.Matrix4().makeRotationX(Math.PI / 2);
+}
+
+/**
+ * 根据 JSON 的 BasePoint 与 footprint 关系，计算 OBJ 在块局部坐标中的偏移。
+ * BasePoint 可能是中心、角点或边中点，不能一律把模型包围盒中心移到原点。
+ */
+export function computeModelPlacementOffset(item, modelBox, baseScale = 1) {
+    const bp = item?.basepoint || {};
+    const footprintCenter = item?.footprint?.length
+        ? computeFootprintCenter(item.footprint)
+        : { x: bp.x ?? 0, y: bp.y ?? 0 };
+    const targetWorld = new THREE.Vector3(
+        footprintCenter.x,
+        footprintCenter.y,
+        bp.z ?? 0,
+    );
+    const targetLocal = targetWorld.applyMatrix4(createPlanTransform(item).invert());
+    const modelCenter = modelBox.getCenter(new THREE.Vector3());
+    const safeScale = Number.isFinite(baseScale) && baseScale !== 0 ? baseScale : 1;
+
+    return new THREE.Vector3(
+        targetLocal.x / safeScale - modelCenter.x,
+        targetLocal.y / safeScale - modelCenter.y,
+        -modelBox.min.z,
+    );
+}
+
+function vectorToPlain(vector) {
+    return {
+        x: Number(vector?.x ?? 0),
+        y: Number(vector?.y ?? 0),
+        z: Number(vector?.z ?? 0),
+    };
+}
+
+function clonePlain(value) {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+/** 创建不持有 Three.js 对象引用的软装调试快照。 */
+export function createParametricDebugInfo(item, templateInfo, placement) {
+    const worldSize = placement.worldBox.getSize(new THREE.Vector3());
+    return {
+        typeId: String(item.typeId),
+        softlistId: item.id ?? null,
+        typeName: templateInfo.typeName ?? null,
+        resId: templateInfo.resId ?? null,
+        defaultSize: clonePlain(templateInfo.defaultSize ?? null),
+        source: {
+            basepoint: clonePlain(item.basepoint ?? null),
+            footprint: clonePlain(item.footprint ?? []),
+            modelParams: clonePlain(item.modelParams ?? []),
+        },
+        transform: {
+            rotate: Number(item.rotate) || 0,
+            horizontalFlip: item.horizontalFlip === true,
+            verticalFlip: item.verticalFlip === true,
+        },
+        placement: {
+            rawSize: vectorToPlain(placement.rawSize),
+            baseScale: placement.baseScale,
+            modelOffset: vectorToPlain(placement.modelOffset),
+            worldPosition: vectorToPlain(placement.worldPosition),
+            worldBounds: {
+                min: vectorToPlain(placement.worldBox.min),
+                max: vectorToPlain(placement.worldBox.max),
+                size: vectorToPlain(worldSize),
+            },
+        },
+    };
+}
+
+
+
 //==============================================================================
 // 公开 API
 //==============================================================================
@@ -371,41 +465,26 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
         try {
             const rawModel = templateModel.clone(true);
 
-            // ── 模型居中 + 底部贴地 ─────────────────────────────────────
+            // 参数化 OBJ 使用 Y-up；户型场景使用 Z-up。必须先转换坐标轴，
+            // 再计算包围盒与贴地位置，否则模型高度会落在水平面里，看起来像倒在地上。
+            rawModel.applyMatrix4(createYUpToZUpTransform());
+
+
+            // ── 读取转换坐标轴后的模型尺寸 ───────────────────────────────
             rawModel.updateMatrixWorld();
             const rawBox = new THREE.Box3().setFromObject(rawModel);
-            const rawCenter = rawBox.getCenter(new THREE.Vector3());
             const rawSize = rawBox.getSize(new THREE.Vector3());
-            rawModel.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z + rawSize.z / 2);
 
             // ── 翻转（CAD BlockInnerInfo，2D 俯视空间 = 世界 XY 平面）───
             const vFlip = item.verticalFlip === true;
             const hFlip = item.horizontalFlip === true;
 
-            // ── 三层嵌套保证顺序：居中 → 旋转 → 翻转(世界XY) → 平移 ──
-            // matrix = T_pos * S_flip * R_rot * T_center
-            const flipWrapper = new THREE.Group();   // 外层：位置 + 世界XY翻转
-            const rotWrapper = new THREE.Group();    // 中层：CAD 旋转
-            // rawModel：内层，已居中 + 底部贴地
+            const flipWrapper = new THREE.Group();
+            const rotWrapper = new THREE.Group();
 
             const bp = item.basepoint;
             const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
-            const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
-
-            // 内层：模型居中贴地
-            // 中层：CAD 旋转（XY 平面）
-            rotWrapper.quaternion.setFromAxisAngle(
-                new THREE.Vector3(0, 0, 1), -cadRotateRad
-            );
             rotWrapper.add(rawModel);
-
-            // 外层：世界空间翻转（俯视：左右=X 上下=Y）+ 平移到 basepoint
-            flipWrapper.scale.set(
-                hFlip ? -1 : 1,   // 左右翻转：世界 X 轴镜像
-                vFlip ? -1 : 1,   // 上下翻转：世界 Y 轴镜像
-                1,
-            );
-            flipWrapper.position.set(bp?.x ?? 0, bp?.y ?? 0, bp?.z ?? 1);
             flipWrapper.add(rotWrapper);
 
             // ── 负 scale 反转面法线 → DoubleSide ───────────────────────
@@ -421,10 +500,18 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             // ── 最小保证缩放：模型若 <100 单位说明单位是米/厘米 ──────────
             const maxModelDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
             const baseScale = maxModelDim < 100 ? 1000 : 1;
-            rotWrapper.scale.setScalar(baseScale);
 
+            // 统一采用 2D 的 T * R * S 语义：翻转发生在模型局部 XY 平面，
+            // 再随对象旋转到户型的世界方向。
+            const planTransform = createPlanTransform(item);
+            rawModel.position.copy(computeModelPlacementOffset(item, rawBox, baseScale));
+            planTransform.decompose(
+                flipWrapper.position,
+                rotWrapper.quaternion,
+                rotWrapper.scale,
+            );
+            rotWrapper.scale.multiplyScalar(baseScale);
             flipWrapper.updateMatrixWorld();
-
             console.log(`${LOG_PREFIX}   ${tid} basepoint=(${bp?.x?.toFixed(0) ?? '?'},${bp?.y?.toFixed(0) ?? '?'}) ` +
                 `rotate=${cadRotateDeg.toFixed(1)}° ` +
                 (hFlip ? '左右翻转 ' : '') + (vFlip ? '上下翻转 ' : '') +
@@ -446,6 +533,19 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             });
 
             sceneGroup.add(flipWrapper);
+            flipWrapper.updateMatrixWorld(true);
+            const worldBox = new THREE.Box3().setFromObject(flipWrapper);
+            flipWrapper.userData.debugInfo = createParametricDebugInfo(
+                item,
+                templateModel.userData,
+                {
+                    rawSize,
+                    baseScale,
+                    modelOffset: rawModel.position,
+                    worldPosition: flipWrapper.getWorldPosition(new THREE.Vector3()),
+                    worldBox,
+                },
+            );
             resultGroups.push(flipWrapper);
             placedCount++;
         } catch (err) {
