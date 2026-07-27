@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const RENDER_PREVIEW_PATH =
-  'C:/Users/User/Desktop/cad_plugin/build_resource/PluginResource/html/renderer/render_preview.js';
+const RENDER_PREVIEW_PATH = process.env.CAD_RENDER_PREVIEW_PATH;
+const integrationSkip = RENDER_PREVIEW_PATH
+  ? false
+  : 'requires CAD_RENDER_PREVIEW_PATH to point to render_preview.js';
 
 class FakeElement {
   constructor() {
@@ -92,7 +94,7 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-test('render preview validates and forwards parametric native calls with parsed JSON results', async () => {
+test('render preview validates and forwards parametric native calls with parsed JSON results', { skip: integrationSkip }, async () => {
   const calls = [];
   const harness = createHarness({
     getRenderPreviewContext: () => '{}',
@@ -119,7 +121,7 @@ test('render preview validates and forwards parametric native calls with parsed 
   assert.deepEqual(plain(harness.posts.at(-1).payload), { obj: 'mesh' });
 });
 
-test('render preview rejects invalid parametric payloads and preserves native structured errors', async () => {
+test('render preview rejects invalid parametric payloads and preserves native structured errors', { skip: integrationSkip }, async () => {
   let invoked = false;
   const harness = createHarness({
     getRenderPreviewContext: () => '{}',
