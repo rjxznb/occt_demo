@@ -140,6 +140,14 @@ export default function ParseJson(json){
             // 解析出旋转系数；
             ShapeDXF.rotate = item.OutRotateRadian+item.BlockInnerInfo.旋转角度;
 
+            // 翻转标志（CAD BlockInnerInfo 中的字段，部分图例有）
+            if (item.BlockInnerInfo) {
+                if (item.BlockInnerInfo.上下翻转 !== undefined)
+                    ShapeDXF.verticalFlip = !!item.BlockInnerInfo.上下翻转;
+                if (item.BlockInnerInfo.左右翻转 !== undefined)
+                    ShapeDXF.horizontalFlip = !!item.BlockInnerInfo.左右翻转;
+            }
+
             // TypeId 与方块外接轮廓（世界坐标），供 3D 用 box 占位、模板按类别上色。
             // item.Points 是该图例方块的角点（已是绝对世界坐标，中心即 BasePoint），
             // 直接当 footprint 挤出即可，无需再变换。

@@ -351,62 +351,41 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
         try {
             const rawModel = templateModel.clone(true);
 
-            // ── 计算模型原始包围盒，把模型在 group 内居中 ─────────────────
+            // ── 模型居中 + 底部贴地 ─────────────────────────────────────
             rawModel.updateMatrixWorld();
             const rawBox = new THREE.Box3().setFromObject(rawModel);
             const rawCenter = rawBox.getCenter(new THREE.Vector3());
             const rawSize = rawBox.getSize(new THREE.Vector3());
+            rawModel.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z + rawSize.z / 2);
 
-            // 把模型偏移，使其几何中心与 group 原点重合
-            rawModel.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
-            // 底部抬到 z=0（模型底面贴在 group 原点的 XY 平面上）
-            rawModel.position.z += rawSize.z / 2;
+            // ── 翻转（CAD BlockInnerInfo）──────────────────────────────
+            const vFlip = item.verticalFlip === true;
+            const hFlip = item.horizontalFlip === true;
+            const flipScale = new THREE.Vector3(
+                hFlip ? -1 : 1,   // 左右翻转：镜象 X 轴
+                1,
+                vFlip ? -1 : 1,   // 上下翻转：镜象 Z 轴（upside down）
+            );
+            rawModel.scale.copy(flipScale);
 
-            // ── 用 wrapper group 隔离变换：居中模型不动，外面施加 S·R·T ─
+            // ── 用 wrapper group 隔离变换：内层模型居中，外层做 R·T ────
             const wrapper = new THREE.Group();
 
-            // 数据来源
             const bp = item.basepoint;
-            const posX = bp ? bp.x : computeFootprintCenter(item.footprint).x;
-            const posY = bp ? bp.y : computeFootprintCenter(item.footprint).y;
-            const rectSize = computeFootprintRectSize(item.footprint);
             const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
             const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
-            const cadScale = item.scale || { x: 1, y: 1, z: 1 };
-            const defaultSize = getDefaultSize(tid);
 
-            // ── 缩放 ─────────────────────────────────────────────────────
-            let scaleX = 1, scaleY = 1, scaleZ = 1;
-            if (defaultSize && defaultSize.x > 0 && defaultSize.y > 0) {
-                const defMM = { x: defaultSize.x * 10, y: defaultSize.y * 10 };
-                if (rectSize.x > 0) scaleX = (rectSize.x / defMM.x) * cadScale.x;
-                if (rectSize.y > 0) scaleY = (rectSize.y / defMM.y) * cadScale.y;
-                scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
-            } else if (rawSize.x > 0.001 && rawSize.y > 0.001) {
-                scaleX = (rectSize.x / rawSize.x) * cadScale.x;
-                scaleY = (rectSize.y / rawSize.y) * cadScale.y;
-                scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
-            }
-
-            // ── 组合变换：S·R·T（Three.js compose 顺序 = T * R * S）─────
-            // 等价于先缩放(模型原点)、再旋转(绕 wrapper 原点=模型中心)、再平移
             wrapper.add(rawModel);
-            wrapper.scale.set(
-                Math.max(scaleX, 0.01),
-                Math.max(scaleY, 0.01),
-                Math.max(scaleZ, 0.01),
-            );
             wrapper.quaternion.setFromAxisAngle(
                 new THREE.Vector3(0, 0, 1), -cadRotateRad
             );
-            wrapper.position.set(posX, posY, bp?.z ?? 1);
+            wrapper.position.set(bp?.x ?? 0, bp?.y ?? 0, bp?.z ?? 1);
             wrapper.updateMatrixWorld();
 
-            console.log(`${LOG_PREFIX}   ${tid} basepoint=(${posX.toFixed(0)},${posY.toFixed(0)}) ` +
-                `rectSize=(${rectSize.x.toFixed(0)},${rectSize.y.toFixed(0)})mm ` +
+            console.log(`${LOG_PREFIX}   ${tid} basepoint=(${bp?.x?.toFixed(0) ?? '?'},${bp?.y?.toFixed(0) ?? '?'}) ` +
                 `rotate=${cadRotateDeg.toFixed(1)}° ` +
-                `rawModel=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)}) ` +
-                `→ scale=(${scaleX.toFixed(3)},${scaleY.toFixed(3)},${scaleZ.toFixed(3)})`);
+                (hFlip ? '左右翻转 ' : '') + (vFlip ? '上下翻转 ' : '') +
+                `modelSize=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)})`);
 
             // 标记 userData
             wrapper.userData = {
