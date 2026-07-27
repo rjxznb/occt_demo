@@ -356,7 +356,7 @@ async function fetchModelForTypeId(typeId, modelParams, apiClient) {
             if (modelParams && modelParams.length > 0) {
                 console.log(`${LOG_PREFIX}   params:`, modelParams.map(p => `${p.name}=${p.value}`).join(', '));
             }
-            console.log(`${LOG_PREFIX}   参数化模型转换: ${url.substring(0, 80)}...`);
+            console.log(`${LOG_PREFIX}   参数化模型转换: TypeId=${tid} ResId=${resId} 参数数量=${modelParams?.length ?? 0}`);
             const result = await apiClient.convertModel(url, modelParams);
 
             // 提取 OBJ

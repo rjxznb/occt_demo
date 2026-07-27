@@ -11,6 +11,7 @@ const templateResponse = {
         { TypeId: '1002', TypeName: 'Fails conversion', ResList: [{ ResId: 'res-1002', X: 1, Y: 1, Z: 1 }] },
         { TypeId: '1003', TypeName: 'Continues conversion', ResList: [{ ResId: 'res-1003', X: 1, Y: 1, Z: 1 }] },
         { TypeId: '1004', TypeName: 'Fails URL lookup', ResList: [{ ResId: 'res-1004', X: 1, Y: 1, Z: 1 }] },
+        { TypeId: '1005', TypeName: 'Signed URL secrecy', ResList: [{ ResId: 'res-1005', X: 1, Y: 1, Z: 1 }] },
     ],
 };
 
@@ -145,6 +146,37 @@ test('URL resolution failures log type, resource, and structured client error de
         status: 503,
         message: 'goods lookup unavailable',
     });
+});
+
+test('model conversion keeps signed URLs out of console output', async () => {
+    const signedUrl = 'https://models.test/1005.json?signature=sentinel-secret-query';
+    const logs = [];
+    const originalLog = console.log;
+    console.log = (...args) => logs.push(args);
+    let convertedUrl;
+    try {
+        const groups = await loadParametricModels([
+            softlist('1005', 'signed-url-secrecy', [{ name: 'width', value: 300 }]),
+        ], new THREE.Group(), {
+            apiClient: {
+                async getGoodsDetail() {
+                    return { data: { modelDTO: { parameterizedJsonUrl: signedUrl } } };
+                },
+                async convertModel(url) {
+                    convertedUrl = url;
+                    return { obj: validObj };
+                },
+            },
+        });
+        assert.equal(groups.length, 1);
+    } finally {
+        console.log = originalLog;
+    }
+
+    assert.equal(convertedUrl, signedUrl);
+    const output = logs.flatMap(args => args.map(value => String(value))).join('\n');
+    assert.doesNotMatch(output, /https:\/\/models\.test\/1005\.json/);
+    assert.doesNotMatch(output, /sentinel-secret-query/);
 });
 
 function softlist(typeId, id, modelParams = []) {
