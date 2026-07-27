@@ -51,4 +51,6 @@ test('render preview drains queued WebView dispatches before bridge and WebView 
     assert.match(source, /webview_dispatch\(/);
     assert.match(source, /PeekMessageW\([^\n]*WM_APP[^\n]*WM_APP/);
     assert.match(source, /GetCurrentThreadId\(\)/);
+    assert.match(source, /for\s*\(\s*;\s*;\s*\)[\s\S]*?PeekMessageW[\s\S]*?if\s*\(barrier->completed\)\s*break/);
+    assert.match(source, /barrier completion[\s\S]{0,240}?WM_APP queue is empty/i);
 });
