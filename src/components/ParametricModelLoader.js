@@ -133,8 +133,7 @@ export async function loadTemplate(templatePath = '/data/template.json') {
 
     templatePromise = (async () => {
         console.log(`${LOG_PREFIX} 加载模板: ${templatePath}`);
-        const templateFetch = globalThis.fetch.bind(globalThis);
-        const res = await templateFetch(templatePath);
+        const res = await globalThis.fetch(templatePath);
         if (!res.ok) throw new Error(`模板加载失败: HTTP ${res.status}`);
         const data = await res.json();
 
@@ -309,7 +308,11 @@ async function resolveParametricUrl(typeId, apiClient) {
         }
         return url;
     } catch (err) {
-        console.warn(`${LOG_PREFIX} TypeId=${tid} 解析URL失败:`, err.message);
+        console.warn(`${LOG_PREFIX} TypeId=${tid} ResId=${entry.resId} 参数化URL解析失败`, {
+            code: err.code || 'UNKNOWN_ERROR',
+            status: err.status,
+            message: err.message,
+        });
         return null;
     }
 }
