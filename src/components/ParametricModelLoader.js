@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { parametricApiClient } from '../services/ParametricApiClient.js';
 
 /**
  * 参数化模型加载器
@@ -7,10 +8,9 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
  * 管线：TypeId → Template(ResId) → getGoodsDetail → parameterizedJsonUrl
  *       → modelUrlToObj → OBJ 字符串 → Three.js Group → 放入场景
  *
- * 依赖 parametric-lab 后端运行在 http://localhost:3100
+ * 参数化服务由 ParametricApiClient 提供。
  */
 
-const BACKEND_URL = 'http://localhost:3100';
 const LOG_PREFIX = '[ParamLoader]';
 
 //==============================================================================
@@ -133,7 +133,8 @@ export async function loadTemplate(templatePath = '/data/template.json') {
 
     templatePromise = (async () => {
         console.log(`${LOG_PREFIX} 加载模板: ${templatePath}`);
-        const res = await fetch(templatePath);
+        const templateFetch = globalThis.fetch.bind(globalThis);
+        const res = await templateFetch(templatePath);
         if (!res.ok) throw new Error(`模板加载失败: HTTP ${res.status}`);
         const data = await res.json();
 
@@ -176,13 +177,6 @@ export function getDefaultSize(typeId) {
 // 内部：API 调用
 //==============================================================================
 
-async function fetchGoodsDetail(resId) {
-    const url = `${BACKEND_URL}/api/getGoodsDetail?id=${encodeURIComponent(resId)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`getGoodsDetail HTTP ${res.status}`);
-    return res.json();
-}
-
 function findParameterizedJsonUrl(obj, depth = 0) {
     if (!obj || typeof obj !== 'object' || depth > 6) return null;
     if (typeof obj.parameterizedJsonUrl === 'string' && obj.parameterizedJsonUrl) {
@@ -193,25 +187,6 @@ function findParameterizedJsonUrl(obj, depth = 0) {
         if (found) return found;
     }
     return null;
-}
-
-async function fetchModelObj(parameterizedJsonUrl, modelParams) {
-    const body = { url: parameterizedJsonUrl };
-    if (modelParams && modelParams.length > 0) {
-        body.parameters = modelParams;
-        console.log(`${LOG_PREFIX}   params:`, modelParams.map(p => `${p.name}=${p.value}`).join(', '));
-    }
-    console.log(`${LOG_PREFIX}   POST modelUrlToObj: ${parameterizedJsonUrl.substring(0, 80)}...`);
-    const res = await fetch(`${BACKEND_URL}/api/modelUrlToObj`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`modelUrlToObj HTTP ${res.status}: ${text.substring(0, 200)}`);
-    }
-    return res.json();
 }
 
 function extractObjContent(data) {
@@ -317,7 +292,7 @@ function parseObjString(objContent, typeId) {
 const urlCache = new Map();  // TypeId → parameterizedJsonUrl
 
 /** 获取某个 TypeId 的 parameterizedJsonUrl（缓存） */
-async function resolveParametricUrl(typeId) {
+async function resolveParametricUrl(typeId, apiClient) {
     const tid = String(typeId);
     if (urlCache.has(tid)) return urlCache.get(tid);
 
@@ -325,7 +300,7 @@ async function resolveParametricUrl(typeId) {
     if (!entry) return null;
 
     try {
-        const detail = await fetchGoodsDetail(entry.resId);
+        const detail = await apiClient.getGoodsDetail(entry.resId);
         const url = findParameterizedJsonUrl(detail?.data?.modelDTO ?? {})
             ?? findParameterizedJsonUrl(detail);
         if (url) {
@@ -347,7 +322,7 @@ function cacheKey(typeId, modelParams) {
     return `${typeId}|${paramsStr}`;
 }
 
-async function fetchModelForTypeId(typeId, modelParams) {
+async function fetchModelForTypeId(typeId, modelParams, apiClient) {
     if (!templateMap) {
         console.warn(`${LOG_PREFIX} 模板未加载`);
         return null;
@@ -367,7 +342,7 @@ async function fetchModelForTypeId(typeId, modelParams) {
     }
 
     const promise = (async () => {
-        const url = await resolveParametricUrl(tid);
+        const url = await resolveParametricUrl(tid, apiClient);
         if (!url) return null;
 
         const entry = templateMap.get(tid);
@@ -375,8 +350,11 @@ async function fetchModelForTypeId(typeId, modelParams) {
         console.log(`${LOG_PREFIX} TypeId=${tid} → ResId=${resId} (${entry.typeName})`);
 
         try {
-            // modelUrlToObj（传入尺寸参数）
-            const result = await fetchModelObj(url, modelParams);
+            if (modelParams && modelParams.length > 0) {
+                console.log(`${LOG_PREFIX}   params:`, modelParams.map(p => `${p.name}=${p.value}`).join(', '));
+            }
+            console.log(`${LOG_PREFIX}   参数化模型转换: ${url.substring(0, 80)}...`);
+            const result = await apiClient.convertModel(url, modelParams);
 
             // 提取 OBJ
             const objContent = extractObjContent(result);
@@ -406,7 +384,11 @@ async function fetchModelForTypeId(typeId, modelParams) {
             return group;
 
         } catch (err) {
-            console.error(`${LOG_PREFIX} TypeId=${tid} 失败:`, err.message);
+            console.error(`${LOG_PREFIX} TypeId=${tid} ResId=${resId} 参数化失败`, {
+                code: err.code || 'UNKNOWN_ERROR',
+                status: err.status,
+                message: err.message,
+            });
             return null;
         }
     })();
@@ -421,7 +403,11 @@ async function fetchModelForTypeId(typeId, modelParams) {
 //==============================================================================
 
 export async function loadParametricModels(softlists, sceneGroup, options = {}) {
-    const { concurrency = 3, onProgress = null } = options;
+    const {
+        concurrency = 3,
+        onProgress = null,
+        apiClient = parametricApiClient,
+    } = options;
 
     await loadTemplate();
     if (!templateMap || templateMap.size === 0) {
@@ -447,7 +433,7 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
     let resolvedCount = 0;
     for (let i = 0; i < uniqueTypeIds.length; i += concurrency) {
         const batch = uniqueTypeIds.slice(i, i + concurrency);
-        await Promise.allSettled(batch.map(typeId => resolveParametricUrl(typeId)));
+        await Promise.allSettled(batch.map(typeId => resolveParametricUrl(typeId, apiClient)));
         resolvedCount += batch.length;
     }
     console.log(`${LOG_PREFIX} URL 解析完成: ${urlCache.size}/${uniqueTypeIds.length} 个`);
@@ -459,7 +445,7 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
     for (const item of softlistItems) {
         const tid = String(item.typeId);
         const modelParams = item.modelParams || [];
-        const templateModel = await fetchModelForTypeId(tid, modelParams);
+        const templateModel = await fetchModelForTypeId(tid, modelParams, apiClient);
         if (!templateModel) continue;
 
         try {
@@ -555,7 +541,7 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
 
     console.log(`${LOG_PREFIX} 完成: ${placedCount}/${softlistItems.length} 参数化模型已放入场景`);
     if (placedCount === 0 && modelCache.size === 0) {
-        console.warn(`${LOG_PREFIX} ⚠ 无任何参数化模型！请确认: 1) 后端已启动(localhost:3100) 2) 模板TypeId匹配 3) 网络可访问 beinuan.ke.com`);
+        console.warn(`${LOG_PREFIX} ⚠ 无任何参数化模型！请确认模板 TypeId 匹配且参数化服务可用`);
     } else if (placedCount === 0 && modelCache.size > 0) {
         console.warn(`${LOG_PREFIX} ⚠ 模型已加载但未放置！请检查 softlist 的 kind/typeId/footprint 字段`);
     }
