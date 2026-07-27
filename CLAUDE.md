@@ -243,3 +243,8 @@ Bash 工具跑的是 Git Bash，**不是 PowerShell**：
 - Git Bash 会做路径转换，`curl http://localhost:3000/data/x.json` 里的 `/data/...`
   可能被当成 Windows 路径。用 PowerShell 的 `Invoke-WebRequest` 更省事。
 - 本机有代理，`curl` 访问 localhost 可能返回 502，需要 `--noproxy '*'`。
+
+## 八、Git 操作规范
+
+**不要自动 push**——每次 commit 后必须等用户明确同意再执行 `git push`。
+可以先 commit（本地），但 push 前先问用户。
