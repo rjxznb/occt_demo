@@ -349,83 +349,82 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
         if (!templateModel) continue;
 
         try {
-            const instance = templateModel.clone(true);
+            const rawModel = templateModel.clone(true);
 
-            // ── 位置：用 CAD 的 basepoint（世界坐标中心点）─────────────────
+            // ── 计算模型原始包围盒，把模型在 group 内居中 ─────────────────
+            rawModel.updateMatrixWorld();
+            const rawBox = new THREE.Box3().setFromObject(rawModel);
+            const rawCenter = rawBox.getCenter(new THREE.Vector3());
+            const rawSize = rawBox.getSize(new THREE.Vector3());
+
+            // 把模型偏移，使其几何中心与 group 原点重合
+            rawModel.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
+            // 底部抬到 z=0（模型底面贴在 group 原点的 XY 平面上）
+            rawModel.position.z += rawSize.z / 2;
+
+            // ── 用 wrapper group 隔离变换：居中模型不动，外面施加 S·R·T ─
+            const wrapper = new THREE.Group();
+
+            // 数据来源
             const bp = item.basepoint;
             const posX = bp ? bp.x : computeFootprintCenter(item.footprint).x;
             const posY = bp ? bp.y : computeFootprintCenter(item.footprint).y;
-
-            // ── 真实尺寸：从 footprint 矩形边长推算（不受旋转影响）───────
             const rectSize = computeFootprintRectSize(item.footprint);
-
-            // ── 旋转：CAD 数据中的值是度（字段名 Radian 是误导）──────────
             const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
             const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
-
-            // ── CAD 缩放因子 ─────────────────────────────────────────────
             const cadScale = item.scale || { x: 1, y: 1, z: 1 };
-
-            // ── 坐标系：OBJ 模型已是 Z-up（被努恩坐标系），无需转换 ──────
-            // 只需绕 Z 轴转 CAD 朝向（顺时针为正 vs THREE 逆时针为正 → 取反）
-            const qHead = new THREE.Quaternion().setFromAxisAngle(
-                new THREE.Vector3(0, 0, 1), -cadRotateRad
-            );
-            instance.quaternion.copy(qHead);
-
-            instance.updateMatrixWorld();
-
-            // ── 计算模型缩放 ─────────────────────────────────────────────
-            const modelBox = new THREE.Box3().setFromObject(instance);
-            const modelSize = modelBox.getSize(new THREE.Vector3());
             const defaultSize = getDefaultSize(tid);
 
+            // ── 缩放 ─────────────────────────────────────────────────────
             let scaleX = 1, scaleY = 1, scaleZ = 1;
-
             if (defaultSize && defaultSize.x > 0 && defaultSize.y > 0) {
-                // 模板默认尺寸 (cm) → mm，与 CAD Size 比对
                 const defMM = { x: defaultSize.x * 10, y: defaultSize.y * 10 };
                 if (rectSize.x > 0) scaleX = (rectSize.x / defMM.x) * cadScale.x;
                 if (rectSize.y > 0) scaleY = (rectSize.y / defMM.y) * cadScale.y;
                 scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
-            } else {
-                // 用模型自身包围盒匹配 CAD 矩形尺寸
-                if (modelSize.x > 0.001 && modelSize.y > 0.001) {
-                    scaleX = (rectSize.x / modelSize.x) * cadScale.x;
-                    scaleY = (rectSize.y / modelSize.y) * cadScale.y;
-                    scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
-                }
+            } else if (rawSize.x > 0.001 && rawSize.y > 0.001) {
+                scaleX = (rectSize.x / rawSize.x) * cadScale.x;
+                scaleY = (rectSize.y / rawSize.y) * cadScale.y;
+                scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
             }
 
-            console.log(`${LOG_PREFIX}   ${tid} pos=(${posX.toFixed(0)},${posY.toFixed(0)}) ` +
-                `rectSize=(${rectSize.x.toFixed(0)},${rectSize.y.toFixed(0)})mm ` +
-                `rotate=${cadRotateDeg.toFixed(1)}° ` +
-                `model=(${modelSize.x.toFixed(1)},${modelSize.y.toFixed(1)},${modelSize.z.toFixed(1)}) ` +
-                `→ scale=(${scaleX.toFixed(3)},${scaleY.toFixed(3)},${scaleZ.toFixed(3)})`);
-
-            instance.position.set(posX, posY, bp?.z ?? 0);
-            instance.scale.set(
+            // ── 组合变换：S·R·T（Three.js compose 顺序 = T * R * S）─────
+            // 等价于先缩放(模型原点)、再旋转(绕 wrapper 原点=模型中心)、再平移
+            wrapper.add(rawModel);
+            wrapper.scale.set(
                 Math.max(scaleX, 0.01),
                 Math.max(scaleY, 0.01),
                 Math.max(scaleZ, 0.01),
             );
+            wrapper.quaternion.setFromAxisAngle(
+                new THREE.Vector3(0, 0, 1), -cadRotateRad
+            );
+            wrapper.position.set(posX, posY, bp?.z ?? 1);
+            wrapper.updateMatrixWorld();
 
-            // ── 更新包围盒，把模型底部抬到 z≥0 ───────────────────────────
-            instance.updateMatrixWorld();
-            const placedBox = new THREE.Box3().setFromObject(instance);
-            if (placedBox.min.z < 0) {
-                instance.position.z += -placedBox.min.z + 1;  // 底部贴地 +1mm 余量
-            }
+            console.log(`${LOG_PREFIX}   ${tid} basepoint=(${posX.toFixed(0)},${posY.toFixed(0)}) ` +
+                `rectSize=(${rectSize.x.toFixed(0)},${rectSize.y.toFixed(0)})mm ` +
+                `rotate=${cadRotateDeg.toFixed(1)}° ` +
+                `rawModel=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)}) ` +
+                `→ scale=(${scaleX.toFixed(3)},${scaleY.toFixed(3)},${scaleZ.toFixed(3)})`);
 
             // 标记 userData
-            instance.userData = {
+            wrapper.userData = {
                 type: 'parametric-softlist',
                 softlistId: item.id,
                 typeId: tid,
             };
+            // 递归标记子 mesh
+            wrapper.traverse(child => {
+                if (child.isMesh) {
+                    child.userData.type = child.userData.type || 'parametric-softlist';
+                    child.userData.softlistId = child.userData.softlistId || item.id;
+                    child.userData.typeId = child.userData.typeId || tid;
+                }
+            });
 
-            sceneGroup.add(instance);
-            resultGroups.push(instance);
+            sceneGroup.add(wrapper);
+            resultGroups.push(wrapper);
             placedCount++;
         } catch (err) {
             console.warn(`${LOG_PREFIX} 放置失败 ${item.id}:`, err.message);
