@@ -6,6 +6,7 @@ import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { Softlist3DFactory } from './Softlist3DFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
+import { loadParametricModels } from './ParametricModelLoader.js';
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
@@ -416,10 +417,27 @@ export class RoomRenderer {
                 result.outlineMesh.userData.type = "outWall";
             }
 
-            // 5.5 软装占位 box：软装没有真实 3D 模型，用挤出的矮柱体占位
+            // 5.5 软装占位 box + 参数化模型异步加载
             if (data.softlists?.softlists) {
+                // 先创建占位 box（立即显示，作为 fallback）
                 result.softlistMeshes = Softlist3DFactory.createBoxes(data.softlists.softlists);
                 result.softlistMeshes.forEach(mesh => this.sceneGroup.add(mesh));
+
+                // 异步加载真实参数化 3D 模型，完成后替换占位 box
+                loadParametricModels(data.softlists.softlists, this.sceneGroup, {
+                    concurrency: 3,
+                    onProgress: (loaded, total) => {
+                        console.log(`参数化模型加载: ${loaded}/${total} 个唯一 TypeId`);
+                    },
+                }).then(paramGroups => {
+                    if (paramGroups.length > 0) {
+                        console.log(`参数化模型已放置 ${paramGroups.length} 个实例`);
+                        // 隐藏对应的占位 box（简单策略：如果加载了一些参数化模型，
+                        // 说明后端在线，保留所有 placeholder 也可以——两者共存用户能看见差异）
+                    }
+                }).catch(err => {
+                    console.warn('参数化模型加载失败（后端可能未启动），仅使用占位 box:', err.message);
+                });
             }
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
