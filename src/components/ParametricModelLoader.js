@@ -333,7 +333,6 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
     }
 
     console.log(`${LOG_PREFIX} 模型缓存: ${modelCache.size}/${uniqueTypeIds.length} 个唯一 TypeId`);
-    // 列出缓存中的 TypeId
     for (const [tid, group] of modelCache) {
         const box = new THREE.Box3().setFromObject(group);
         const size = box.getSize(new THREE.Vector3());
@@ -352,46 +351,57 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
         try {
             const instance = templateModel.clone(true);
 
-            const footprintCenter = computeFootprintCenter(item.footprint);
-            const footprintSize = computeFootprintSize(item.footprint);
-            const defaultSize = getDefaultSize(tid);
-            const itemRotate = typeof item.rotate === 'number' ? item.rotate : 0;
+            // ── 位置：用 CAD 的 basepoint（世界坐标中心点）─────────────────
+            const bp = item.basepoint;
+            const posX = bp ? bp.x : computeFootprintCenter(item.footprint).x;
+            const posY = bp ? bp.y : computeFootprintCenter(item.footprint).y;
 
-            // OBJ 是 Y-up，场景是 Z-up
+            // ── 真实尺寸：从 footprint 矩形边长推算（不受旋转影响）───────
+            const rectSize = computeFootprintRectSize(item.footprint);
+
+            // ── 旋转：CAD 数据中的值是度（字段名 Radian 是误导）──────────
+            const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
+            const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
+
+            // ── CAD 缩放因子 ─────────────────────────────────────────────
+            const cadScale = item.scale || { x: 1, y: 1, z: 1 };
+
+            // ── 坐标系转换：OBJ Y-up → 场景 Z-up ─────────────────────────
+            // 先绕 X 轴 -90° 放倒模型，再加 CAD 朝向（绕 Z 轴）
             instance.rotation.set(-Math.PI / 2, 0, 0);
-            instance.rotation.z += itemRotate;
+            instance.rotation.z += cadRotateRad;
 
-            // 先更新矩阵以计算模型自身包围盒（含旋转）
             instance.updateMatrixWorld();
 
-            // 计算缩放：优先使用模板尺寸，否则用模型自身包围盒匹配 footprint
-            let scaleX = 1, scaleY = 1, scaleZ = 1;
-
+            // ── 计算模型缩放 ─────────────────────────────────────────────
             const modelBox = new THREE.Box3().setFromObject(instance);
             const modelSize = modelBox.getSize(new THREE.Vector3());
+            const defaultSize = getDefaultSize(tid);
+
+            let scaleX = 1, scaleY = 1, scaleZ = 1;
 
             if (defaultSize && defaultSize.x > 0 && defaultSize.y > 0) {
-                // 模板有尺寸：模板单位 cm → mm，与 footprint(mm) 计算比值
+                // 模板默认尺寸 (cm) → mm，与 CAD Size 比对
                 const defMM = { x: defaultSize.x * 10, y: defaultSize.y * 10 };
-                scaleX = footprintSize.x / defMM.x;
-                scaleY = footprintSize.y / defMM.y;
-                scaleZ = (scaleX + scaleY) / 2;
+                if (rectSize.x > 0) scaleX = (rectSize.x / defMM.x) * cadScale.x;
+                if (rectSize.y > 0) scaleY = (rectSize.y / defMM.y) * cadScale.y;
+                scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
             } else {
-                // 模板无尺寸：直接用模型包围盒匹配 footprint
-                // 模型单位通常是米，需要至少 ×1000 才能匹配 mm 场景
+                // 用模型自身包围盒匹配 CAD 矩形尺寸
                 if (modelSize.x > 0.001 && modelSize.y > 0.001) {
-                    scaleX = footprintSize.x / modelSize.x;
-                    scaleY = footprintSize.y / modelSize.y;
-                    scaleZ = (scaleX + scaleY) / 2;
+                    scaleX = (rectSize.x / modelSize.x) * cadScale.x;
+                    scaleY = (rectSize.y / modelSize.y) * cadScale.y;
+                    scaleZ = (scaleX + scaleY) / 2 * cadScale.z;
                 }
             }
 
-            console.log(`${LOG_PREFIX}   ${tid} pos=(${footprintCenter.x.toFixed(0)},${footprintCenter.y.toFixed(0)}) ` +
-                `footprint=(${footprintSize.x.toFixed(0)},${footprintSize.y.toFixed(0)})mm ` +
+            console.log(`${LOG_PREFIX}   ${tid} pos=(${posX.toFixed(0)},${posY.toFixed(0)}) ` +
+                `rectSize=(${rectSize.x.toFixed(0)},${rectSize.y.toFixed(0)})mm ` +
+                `rotate=${cadRotateDeg.toFixed(1)}° ` +
                 `model=(${modelSize.x.toFixed(1)},${modelSize.y.toFixed(1)},${modelSize.z.toFixed(1)}) ` +
                 `→ scale=(${scaleX.toFixed(3)},${scaleY.toFixed(3)},${scaleZ.toFixed(3)})`);
 
-            instance.position.set(footprintCenter.x, footprintCenter.y, 1);
+            instance.position.set(posX, posY, bp?.z ?? 1);
             instance.scale.set(
                 Math.max(scaleX, 0.01),
                 Math.max(scaleY, 0.01),
@@ -427,21 +437,31 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
 // 工具函数
 //==============================================================================
 
+/** 计算 footprint 矩形两条边的真实长度（mm），不受旋转影响 */
+function computeFootprintRectSize(footprint) {
+    if (footprint.length < 3) return { x: 100, y: 100 };
+
+    // 取第一个角点 → 第二个角点的距离作为 side1
+    const p0 = footprint[0];
+    const p1 = footprint[1];
+    const side1 = Math.sqrt((p1.x - p0.x) ** 2 + (p1.y - p0.y) ** 2);
+
+    // 取第二个角点 → 第三个角点的距离作为 side2
+    const p2 = footprint[2];
+    const side2 = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+
+    // 返回 {x: 长边, y: 短边}（对应模型的 X/Z 或 X/Y 基准方向）
+    return {
+        x: Math.max(side1, side2),
+        y: Math.min(side1, side2),
+    };
+}
+
+/** 计算 footprint 的中心点（fallback，优先用 basepoint） */
 function computeFootprintCenter(footprint) {
     let cx = 0, cy = 0;
     for (const p of footprint) { cx += p.x; cy += p.y; }
     return { x: cx / footprint.length, y: cy / footprint.length };
-}
-
-function computeFootprintSize(footprint) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of footprint) {
-        if (p.x < minX) minX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y > maxY) maxY = p.y;
-    }
-    return { x: maxX - minX || 1, y: maxY - minY || 1 };
 }
 
 export function getCacheStats() {
