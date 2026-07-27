@@ -366,17 +366,12 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             // ── CAD 缩放因子 ─────────────────────────────────────────────
             const cadScale = item.scale || { x: 1, y: 1, z: 1 };
 
-            // ── 坐标系转换：OBJ Y-up → 场景 Z-up ─────────────────────────
-            // 用四元数避免欧拉角 gimbal lock：
-            //   qYtoZ: 绕 X 轴 -90° 把 Y-up 转为 Z-up
-            //   qHead: 绕 Z 轴（场景竖直方向）转 CAD 朝向（负号：CAD 顺时针为正 vs THREE 逆时针为正）
-            const qYtoZ = new THREE.Quaternion().setFromAxisAngle(
-                new THREE.Vector3(1, 0, 0), -Math.PI / 2
-            );
+            // ── 坐标系：OBJ 模型已是 Z-up（被努恩坐标系），无需转换 ──────
+            // 只需绕 Z 轴转 CAD 朝向（顺时针为正 vs THREE 逆时针为正 → 取反）
             const qHead = new THREE.Quaternion().setFromAxisAngle(
                 new THREE.Vector3(0, 0, 1), -cadRotateRad
             );
-            instance.quaternion.copy(qYtoZ).multiply(qHead);
+            instance.quaternion.copy(qHead);
 
             instance.updateMatrixWorld();
 
@@ -408,12 +403,19 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                 `model=(${modelSize.x.toFixed(1)},${modelSize.y.toFixed(1)},${modelSize.z.toFixed(1)}) ` +
                 `→ scale=(${scaleX.toFixed(3)},${scaleY.toFixed(3)},${scaleZ.toFixed(3)})`);
 
-            instance.position.set(posX, posY, bp?.z ?? 1);
+            instance.position.set(posX, posY, bp?.z ?? 0);
             instance.scale.set(
                 Math.max(scaleX, 0.01),
                 Math.max(scaleY, 0.01),
                 Math.max(scaleZ, 0.01),
             );
+
+            // ── 更新包围盒，把模型底部抬到 z≥0 ───────────────────────────
+            instance.updateMatrixWorld();
+            const placedBox = new THREE.Box3().setFromObject(instance);
+            if (placedBox.min.z < 0) {
+                instance.position.z += -placedBox.min.z + 1;  // 底部贴地 +1mm 余量
+            }
 
             // 标记 userData
             instance.userData = {
