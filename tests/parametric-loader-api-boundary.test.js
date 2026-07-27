@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 
-import { loadParametricModels } from '../src/components/ParametricModelLoader.js';
+import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
 
 const templateResponse = {
     AllItemInfo: [
@@ -32,7 +32,7 @@ const validObj = [
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
-    assert.equal(url, '/data/template.json');
+    assert.equal(url, 'data/template.json');
     return { ok: true, json: async () => templateResponse };
 };
 
@@ -53,6 +53,11 @@ test('ParametricModelLoader keeps local template loading separate from parameter
     assert.doesNotMatch(source, /\/api\/(?:getGoodsDetail|modelUrlToObj)/);
     assert.doesNotMatch(source, /(?:globalThis\.)?fetch\s*\([^)]*(?:getGoodsDetail|modelUrlToObj)/);
     assert.doesNotMatch(source, /(?:fetchGoodsDetail|fetchModelObj)/);
+});
+
+test('loadTemplate fetches its default from the preview app data directory', async () => {
+    const template = await loadTemplate();
+    assert.equal(template.get('1001').resId, 'res-1001');
 });
 
 test('loadParametricModels uses the injected client for URL resolution and conversion', async () => {

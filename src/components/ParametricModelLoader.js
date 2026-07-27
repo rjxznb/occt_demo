@@ -128,7 +128,7 @@ export function createParametricDebugInfo(item, templateInfo, placement) {
 // 公开 API
 //==============================================================================
 
-export async function loadTemplate(templatePath = '/data/template.json') {
+export async function loadTemplate(templatePath = 'data/template.json') {
     if (templatePromise) return templatePromise;
 
     templatePromise = (async () => {
