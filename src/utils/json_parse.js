@@ -137,8 +137,11 @@ export default function ParseJson(json){
             ShapeDXF.scale.y = item.OutYScale;
             ShapeDXF.scale.z = item.OutZScale;
 
-            // 解析出旋转系数（BlockInnerInfo 内部旋转角度，OutRotateRadian 已作用在 footprint 上）
-            ShapeDXF.rotate = item.BlockInnerInfo?.旋转角度 || 0;
+
+            // OutRotateRadian 实际为角度制；3D 模型需要复现外层与块内部的完整旋转。
+            const outerRotate = Number(item.OutRotateRadian) || 0;
+            const innerRotate = Number(item.BlockInnerInfo?.旋转角度) || 0;
+            ShapeDXF.rotate = outerRotate + innerRotate;
 
             // 翻转标志（CAD BlockInnerInfo 中的字段，部分图例有）
             if (item.BlockInnerInfo) {
