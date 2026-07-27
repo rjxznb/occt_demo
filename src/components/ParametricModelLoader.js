@@ -363,8 +363,8 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             const hFlip = item.horizontalFlip === true;
             const flipScale = new THREE.Vector3(
                 hFlip ? -1 : 1,   // 左右翻转：镜象 X 轴
+                vFlip ? -1 : 1,   // 上下翻转：镜象 Y 轴（CAD 2D 上下=南北）
                 1,
-                vFlip ? -1 : 1,   // 上下翻转：镜象 Z 轴（upside down）
             );
             rawModel.scale.copy(flipScale);
             // 负 scale 会反转面法线 → 背面剔除吃掉正面 → DoubleSide 修复
