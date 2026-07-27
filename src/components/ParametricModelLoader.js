@@ -367,9 +367,16 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             const cadScale = item.scale || { x: 1, y: 1, z: 1 };
 
             // ── 坐标系转换：OBJ Y-up → 场景 Z-up ─────────────────────────
-            // 先绕 X 轴 -90° 放倒模型，再加 CAD 朝向（绕 Z 轴）
-            instance.rotation.set(-Math.PI / 2, 0, 0);
-            instance.rotation.z += cadRotateRad;
+            // 用四元数避免欧拉角 gimbal lock：
+            //   qYtoZ: 绕 X 轴 -90° 把 Y-up 转为 Z-up
+            //   qHead: 绕 Z 轴（场景竖直方向）转 CAD 朝向（负号：CAD 顺时针为正 vs THREE 逆时针为正）
+            const qYtoZ = new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(1, 0, 0), -Math.PI / 2
+            );
+            const qHead = new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(0, 0, 1), -cadRotateRad
+            );
+            instance.quaternion.copy(qYtoZ).multiply(qHead);
 
             instance.updateMatrixWorld();
 
