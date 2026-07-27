@@ -16,6 +16,20 @@ export function findParametricSoftlistRoot(object) {
     return null;
 }
 
+export function classifySceneClick(object) {
+    const modelRoot = findParametricSoftlistRoot(object);
+    if (modelRoot) return { kind: 'model', modelRoot };
+
+    if (object?.userData?.type === 'floor' || object?.userData?.type === 'roomLabel') {
+        return {
+            kind: 'room',
+            roomIndex: object.userData.roomIndex ?? null,
+            roomInfo: object.userData.roomInfo ?? null,
+        };
+    }
+    return { kind: 'none' };
+}
+
 export function isSceneDebugEnabled(hash) {
     return hash === '#debug';
 }

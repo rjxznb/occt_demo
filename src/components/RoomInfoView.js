@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+    classifySceneClick,
+    decideRoomPanelAction,
+    logParametricSoftlistDebug,
+} from './SceneClickInteraction.js';
 
 /**
  * 房间信息查看
@@ -19,6 +24,7 @@ export class RoomInfoView {
         this.pointer = new THREE.Vector2();
         this.panel = null;
         this.enabled = true;
+        this.activeRoomIndex = null;
 
         this._injectStyles();
         this._bind();
@@ -49,17 +55,48 @@ export class RoomInfoView {
 
         this.raycaster.setFromCamera(this.pointer, this.sceneManager.getCamera());
 
-        // 收集房间相关对象（地板 + 标注），取最近命中
+        // 房间与参数化软装共用一次射线检测，避免点击模型时穿透到底层地板。
         const targets = [];
-        this.sceneGroup.traverse(o => {
-            if (o.userData?.type === 'floor' || o.userData?.type === 'roomLabel') targets.push(o);
+        this.sceneGroup.traverse(object => {
+            const type = object.userData?.type;
+            if (!object.visible) return;
+            if (type === 'floor' || type === 'roomLabel' ||
+                (type === 'parametric-softlist' && object.isMesh)) {
+                targets.push(object);
+            }
         });
         const hits = this.raycaster.intersectObjects(targets, false);
         if (hits.length === 0) { this._hide(); return; }
 
-        const info = hits[0].object.userData.roomInfo;
-        if (info) this._show(info, event.clientX, event.clientY);
-        else this._hide();
+        const target = classifySceneClick(hits[0].object);
+        if (target.kind === 'model') {
+            logParametricSoftlistDebug(target.modelRoot, window.location.hash);
+            return;
+        }
+        if (target.kind !== 'room') {
+            this._hide();
+            return;
+        }
+        if (target.roomIndex == null || !target.roomInfo) {
+            if (window.location.hash === '#debug') {
+                console.warn('[房间信息] 命中对象缺少 roomIndex 或 roomInfo');
+            }
+            this._hide();
+            return;
+        }
+
+        const decision = decideRoomPanelAction(
+            this.activeRoomIndex,
+            this._isPanelVisible(),
+            target.roomIndex,
+        );
+        if (decision.action === 'hide') {
+            this._hide();
+            return;
+        }
+
+        this.activeRoomIndex = decision.roomIndex;
+        this._show(target.roomInfo, event.clientX, event.clientY);
     }
 
     _show(info, x, y) {
@@ -267,8 +304,13 @@ export class RoomInfoView {
         });
     }
 
+    _isPanelVisible() {
+        return this.panel?.style.display === 'block';
+    }
+
     _hide() {
         if (this.panel) this.panel.style.display = 'none';
+        this.activeRoomIndex = null;
     }
 
     /** 拖动标题栏移动面板（点关闭按钮不触发拖动） */

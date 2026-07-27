@@ -3,11 +3,31 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import {
+    classifySceneClick,
     decideRoomPanelAction,
     findParametricSoftlistRoot,
     isSceneDebugEnabled,
     logParametricSoftlistDebug,
 } from '../src/components/SceneClickInteraction.js';
+
+test('the nearest model hit is classified before an underlying room target', () => {
+    const modelRoot = new THREE.Group();
+    modelRoot.userData = {
+        type: 'parametric-softlist',
+        debugInfo: { typeId: '9', softlistId: 'soft-9' },
+    };
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    modelRoot.add(mesh);
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry());
+    floor.userData = { type: 'floor', roomIndex: 3, roomInfo: { name: '客厅' } };
+
+    assert.deepEqual(classifySceneClick(mesh), { kind: 'model', modelRoot });
+    assert.deepEqual(classifySceneClick(floor), {
+        kind: 'room', roomIndex: 3, roomInfo: floor.userData.roomInfo,
+    });
+    assert.deepEqual(classifySceneClick(new THREE.Object3D()), { kind: 'none' });
+});
 
 test('room panel opens, toggles off, and switches rooms', () => {
     assert.deepEqual(decideRoomPanelAction(null, false, 2), {
