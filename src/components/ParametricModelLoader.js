@@ -367,6 +367,15 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                 vFlip ? -1 : 1,   // 上下翻转：镜象 Z 轴（upside down）
             );
             rawModel.scale.copy(flipScale);
+            // 负 scale 会反转面法线 → 背面剔除吃掉正面 → DoubleSide 修复
+            if (hFlip || vFlip) {
+                rawModel.traverse(child => {
+                    if (child.material) {
+                        const mats = Array.isArray(child.material) ? child.material : [child.material];
+                        mats.forEach(m => { m.side = THREE.DoubleSide; });
+                    }
+                });
+            }
 
             // ── 用 wrapper group 隔离变换：内层模型居中，外层做 S·R·T ──
             const wrapper = new THREE.Group();
