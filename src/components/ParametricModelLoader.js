@@ -358,18 +358,39 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             const rawSize = rawBox.getSize(new THREE.Vector3());
             rawModel.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z + rawSize.z / 2);
 
-            // ── 翻转（CAD BlockInnerInfo）──────────────────────────────
+            // ── 翻转（CAD BlockInnerInfo，2D 俯视空间 = 世界 XY 平面）───
             const vFlip = item.verticalFlip === true;
             const hFlip = item.horizontalFlip === true;
-            const flipScale = new THREE.Vector3(
-                hFlip ? -1 : 1,   // 左右翻转：镜象 X 轴
-                vFlip ? -1 : 1,   // 上下翻转：镜象 Y 轴（CAD 2D 上下=南北）
+
+            // ── 三层嵌套保证顺序：居中 → 旋转 → 翻转(世界XY) → 平移 ──
+            // matrix = T_pos * S_flip * R_rot * T_center
+            const flipWrapper = new THREE.Group();   // 外层：位置 + 世界XY翻转
+            const rotWrapper = new THREE.Group();    // 中层：CAD 旋转
+            // rawModel：内层，已居中 + 底部贴地
+
+            const bp = item.basepoint;
+            const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
+            const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
+
+            // 内层：模型居中贴地
+            // 中层：CAD 旋转（XY 平面）
+            rotWrapper.quaternion.setFromAxisAngle(
+                new THREE.Vector3(0, 0, 1), -cadRotateRad
+            );
+            rotWrapper.add(rawModel);
+
+            // 外层：世界空间翻转（俯视：左右=X 上下=Y）+ 平移到 basepoint
+            flipWrapper.scale.set(
+                hFlip ? -1 : 1,   // 左右翻转：世界 X 轴镜像
+                vFlip ? -1 : 1,   // 上下翻转：世界 Y 轴镜像
                 1,
             );
-            rawModel.scale.copy(flipScale);
-            // 负 scale 会反转面法线 → 背面剔除吃掉正面 → DoubleSide 修复
+            flipWrapper.position.set(bp?.x ?? 0, bp?.y ?? 0, bp?.z ?? 1);
+            flipWrapper.add(rotWrapper);
+
+            // ── 负 scale 反转面法线 → DoubleSide ───────────────────────
             if (hFlip || vFlip) {
-                rawModel.traverse(child => {
+                flipWrapper.traverse(child => {
                     if (child.material) {
                         const mats = Array.isArray(child.material) ? child.material : [child.material];
                         mats.forEach(m => { m.side = THREE.DoubleSide; });
@@ -377,24 +398,12 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                 });
             }
 
-            // ── 用 wrapper group 隔离变换：内层模型居中，外层做 S·R·T ──
-            const wrapper = new THREE.Group();
-
-            const bp = item.basepoint;
-            const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
-            const cadRotateRad = THREE.MathUtils.degToRad(cadRotateDeg);
-
-            // ── 最小保证缩放：模型若 <100 单位说明单位是米/厘米，放大到可见 ─
+            // ── 最小保证缩放：模型若 <100 单位说明单位是米/厘米 ──────────
             const maxModelDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
             const baseScale = maxModelDim < 100 ? 1000 : 1;
+            rotWrapper.scale.setScalar(baseScale);
 
-            wrapper.add(rawModel);
-            wrapper.scale.setScalar(baseScale);
-            wrapper.quaternion.setFromAxisAngle(
-                new THREE.Vector3(0, 0, 1), -cadRotateRad
-            );
-            wrapper.position.set(bp?.x ?? 0, bp?.y ?? 0, bp?.z ?? 1);
-            wrapper.updateMatrixWorld();
+            flipWrapper.updateMatrixWorld();
 
             console.log(`${LOG_PREFIX}   ${tid} basepoint=(${bp?.x?.toFixed(0) ?? '?'},${bp?.y?.toFixed(0) ?? '?'}) ` +
                 `rotate=${cadRotateDeg.toFixed(1)}° ` +
@@ -403,13 +412,12 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                 `baseScale=${baseScale}`);
 
             // 标记 userData
-            wrapper.userData = {
+            flipWrapper.userData = {
                 type: 'parametric-softlist',
                 softlistId: item.id,
                 typeId: tid,
             };
-            // 递归标记子 mesh
-            wrapper.traverse(child => {
+            flipWrapper.traverse(child => {
                 if (child.isMesh) {
                     child.userData.type = child.userData.type || 'parametric-softlist';
                     child.userData.softlistId = child.userData.softlistId || item.id;
@@ -417,8 +425,8 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                 }
             });
 
-            sceneGroup.add(wrapper);
-            resultGroups.push(wrapper);
+            sceneGroup.add(flipWrapper);
+            resultGroups.push(flipWrapper);
             placedCount++;
         } catch (err) {
             console.warn(`${LOG_PREFIX} 放置失败 ${item.id}:`, err.message);
