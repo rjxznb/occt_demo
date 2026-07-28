@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
+import ParseJson from '../src/utils/json_parse.js';
 import {
     findParametricSoftlistRoot,
     isSceneRaycastTarget,
@@ -26,6 +27,36 @@ globalThis.fetch = async (url) => {
 
 test.after(() => {
     globalThis.fetch = originalFetch;
+});
+
+test('legacy SoftLists preserve transforms without producing conversion parameters', () => {
+    const drawing = {
+        final_room_list: [],
+        final_space_dim_list: [],
+        door_list: [],
+        window_list: [],
+        soft_list: [{
+            TypeId: '1001',
+            BasePoint: 'X=10 Y=20 Z=0',
+            Size: 'X=800 Y=600 Z=900',
+            OutRotateRadian: 30,
+            OutXScale: 1,
+            OutYScale: 1,
+            OutZScale: 1,
+            Points: [
+                'X=0 Y=0 Z=0', 'X=800 Y=0 Z=0',
+                'X=800 Y=600 Z=0', 'X=0 Y=600 Z=0',
+            ],
+            BlockInnerInfo: { 长: 800, 宽: 600, 高: 900, 旋转角度: 15 },
+        }],
+    };
+
+    const parsed = ParseJson(drawing);
+
+    assert.equal(parsed.SoftLists.length, 1);
+    assert.equal(parsed.SoftLists[0].rotate, 45);
+    assert.equal(Object.hasOwn(parsed.SoftLists[0], 'modelParams'), false);
+    assert.deepEqual(parsed.content_models[0].rawBlockInnerInfo, drawing.soft_list[0].BlockInnerInfo);
 });
 
 test('loadTemplate keeps the compatibility template API backed by the shared resolver', async () => {

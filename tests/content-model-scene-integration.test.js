@@ -10,7 +10,6 @@ import * as RoomRendererModule from '../src/components/RoomRenderer.js';
 
 const {
     createDoorWindowSceneBindings,
-    filterNonSoftContentModels,
     handlePlacedContentModel,
     hasIndexedFallback,
     hidePlacedFallback,
@@ -119,49 +118,41 @@ test('door scene bindings omit door Boxes from results, scene inputs, and fallba
     assert.equal(result.fallbackMap.get('window_list:0'), windowBox);
 });
 
-test('soft-list records never enter the unified content-model loader', () => {
-    const soft = { instanceId: 'soft_list:0', sourceList: 'soft_list' };
-    const door = { instanceId: 'door_list:0', sourceList: 'door_list' };
-    const radiator = { instanceId: 'radiator_list:0', sourceList: 'radiator_list' };
-
-    assert.deepEqual(filterNonSoftContentModels([soft, door, radiator]), [door, radiator]);
-    assert.deepEqual(filterNonSoftContentModels(null), []);
-});
-
-test('scene orchestration starts isolated legacy-soft and unified non-soft pipelines', async () => {
+test('scene orchestration routes soft and non-soft records through one content pipeline', async () => {
     const scene = new THREE.Group();
     const legacySoftlists = [{ id: 'legacy-soft', kind: 'softlist' }];
     const normalizedSoft = { instanceId: 'soft_list:0', sourceList: 'soft_list' };
     const door = { instanceId: 'door_list:0', sourceList: 'door_list' };
     const calls = [];
+    let legacySoftCalls = 0;
 
     const loads = startSceneContentModelLoads({
         softlists: { softlists: legacySoftlists },
         contentModels: { contentModels: [normalizedSoft, door] },
     }, scene, new Map(), {
-        async loadSoft(instances, sceneGroup) {
-            calls.push(['soft', instances, sceneGroup]);
-            throw Object.assign(new Error('controlled soft failure'), { code: 'SOFT_FAILED' });
+        async loadSoft() {
+            legacySoftCalls += 1;
+            return [];
         },
         async loadContent(instances, sceneGroup) {
             calls.push(['content', instances, sceneGroup]);
-            return { summary: { loaded: 1 }, failures: [] };
+            return { summary: { placed: 2 }, failures: [] };
         },
         diagnostic() {},
         logger: { log() {}, warn() {} },
     });
-    await Promise.all([loads.softLoad, loads.contentLoad]);
+    await loads.contentLoad;
 
     assert.deepEqual(calls, [
-        ['soft', legacySoftlists, scene],
-        ['content', [door], scene],
+        ['content', [normalizedSoft, door], scene],
     ]);
+    assert.equal(legacySoftCalls, 0);
+    assert.deepEqual(Object.keys(loads), ['contentLoad']);
 });
 
 test('scene failure logs contain only the checkpoint allowlist', async () => {
     const warnings = [];
     const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
-        async loadSoft() { return []; },
         async loadContent() {
             return { summary: {}, failures: [{
                 instanceId: 'door_list:4',
@@ -179,7 +170,7 @@ test('scene failure logs contain only the checkpoint allowlist', async () => {
             warn(...args) { warnings.push(args); },
         },
     });
-    await Promise.all([loads.softLoad, loads.contentLoad]);
+    await loads.contentLoad;
 
     const failureLog = warnings.find(([label]) => label === '[ContentLoader] scene failures');
     assert.deepEqual(Object.keys(failureLog[1][0]).sort(), [
@@ -190,7 +181,6 @@ test('scene failure logs contain only the checkpoint allowlist', async () => {
 test('scene pipeline failures expose a safe diagnostic message in the log label', async () => {
     const warnings = [];
     const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
-        async loadSoft() { return []; },
         async loadContent() {
             throw Object.assign(
                 new Error('Template load failed at https://secret.test/signed-template.json'),
@@ -203,7 +193,7 @@ test('scene pipeline failures expose a safe diagnostic message in the log label'
             warn(...args) { warnings.push(args); },
         },
     });
-    await Promise.all([loads.softLoad, loads.contentLoad]);
+    await loads.contentLoad;
 
     const pipelineLog = warnings.find(([label]) => label.startsWith(
         '[ContentLoader] scene pipeline failed',
@@ -214,24 +204,18 @@ test('scene pipeline failures expose a safe diagnostic message in the log label'
     );
 });
 
-test('throwing diagnostics cannot prevent either scene-model pipeline', async () => {
-    let softCalls = 0;
+test('throwing diagnostics cannot prevent the unified scene-model pipeline', async () => {
     let contentCalls = 0;
     const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
         diagnostic() { throw new Error('diagnostic sink failed'); },
-        async loadSoft() {
-            softCalls += 1;
-            return [];
-        },
         async loadContent() {
             contentCalls += 1;
             return { summary: {}, failures: [] };
         },
         logger: { log() {}, warn() {} },
     });
-    await Promise.all([loads.softLoad, loads.contentLoad]);
+    await loads.contentLoad;
 
-    assert.equal(softCalls, 1);
     assert.equal(contentCalls, 1);
 });
 
@@ -361,6 +345,16 @@ test('fallback visibility helper hides only the matching source identity', () =>
     }), true);
     assert.equal(door.visible, false);
     assert.equal(window.visible, true);
+});
+
+test('fallback lookup accepts any registered source list identity', () => {
+    const fallback = new THREE.Mesh();
+    const fallbackMap = new Map([['radiator_list:2', fallback]]);
+    const instance = { sourceList: 'radiator_list', sourceIndex: 2 };
+
+    assert.equal(hasIndexedFallback(fallbackMap, instance), true);
+    assert.equal(hidePlacedFallback(fallbackMap, instance), true);
+    assert.equal(fallback.visible, false);
 });
 
 test('a placed door model marks its root and hides only its matching visible fallback', () => {

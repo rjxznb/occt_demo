@@ -6,12 +6,9 @@ import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
 import { loadContentModels } from './ContentModelLoader.js';
-import { loadParametricModels } from './ParametricModelLoader.js';
-
-const FALLBACK_SOURCE_LISTS = new Set(['door_list', 'window_list']);
 
 function fallbackKey(sourceList, sourceIndex) {
-    if (!FALLBACK_SOURCE_LISTS.has(sourceList) || sourceIndex == null) return null;
+    if (!sourceList || sourceIndex == null) return null;
     return `${sourceList}:${sourceIndex}`;
 }
 
@@ -44,11 +41,6 @@ export function handlePlacedContentModel(fallbacks, instance, root) {
 
 export function createContentModelPlacementHandler(fallbacks) {
     return (instance, root) => handlePlacedContentModel(fallbacks, instance, root);
-}
-
-export function filterNonSoftContentModels(instances) {
-    return (Array.isArray(instances) ? instances : [])
-        .filter(instance => instance?.sourceList !== 'soft_list');
 }
 
 export function createDoorWindowRenderSets(visibleMeshes = {}, cutterMeshes = {}) {
@@ -108,35 +100,12 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
     const {
         diagnostic = globalThis.__renderPreviewDiagnostic,
         loadContent = loadContentModels,
-        loadSoft = loadParametricModels,
         logger = console,
     } = options;
 
-    emitDiagnostic(diagnostic, 'soft-load-start', 'OK');
-    const softLoad = Promise.resolve().then(() => loadSoft(
-        data?.softlists?.softlists || [],
-        sceneGroup,
-        {
-            concurrency: 3,
-            onProgress: (loaded, total) => {
-                logger.log?.(`[ParamLoader] scene progress ${loaded}/${total}`);
-            },
-        },
-    )).then(groups => {
-        emitDiagnostic(diagnostic, 'soft-load-summary', 'OK');
-        logger.log?.(`[ParamLoader] scene summary ${groups?.length ?? 0} models`);
-        return groups;
-    }).catch(error => {
-        emitDiagnostic(diagnostic, 'soft-load-error', 'PARAMETRIC_ERROR');
-        logger.warn?.('[ParamLoader] scene pipeline failed', {
-            code: error?.code || 'UNKNOWN_ERROR',
-        });
-        return [];
-    });
-
     emitDiagnostic(diagnostic, 'content-load-start', 'OK');
     const contentLoad = Promise.resolve().then(() => loadContent(
-        filterNonSoftContentModels(data?.contentModels?.contentModels),
+        data?.contentModels?.contentModels ?? [],
         sceneGroup,
         {
             concurrency: 3,
@@ -160,7 +129,7 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         return { summary: {}, failures: [] };
     });
 
-    return { softLoad, contentLoad };
+    return { contentLoad };
 }
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建

@@ -16,36 +16,29 @@ test('App3D reports only fixed boot and data-load diagnostic stages', async () =
     assert.doesNotMatch(source, /__renderPreviewDiagnostic\?\.\([^'\n]/);
 });
 
-test('RoomRenderer reports only fixed soft and content pipeline diagnostic stages', async () => {
+test('RoomRenderer reports only fixed unified content pipeline diagnostic stages', async () => {
     const diagnostics = [];
     const data = {
-        softlists: { softlists: [] },
         contentModels: { contentModels: [] },
     };
     const success = startSceneContentModelLoads(data, {}, new Map(), {
         diagnostic: (stage, code) => diagnostics.push([stage, code]),
-        async loadSoft() { return []; },
         async loadContent() { return { summary: {}, failures: [] }; },
         logger: { log() {}, warn() {} },
     });
-    await Promise.all([success.softLoad, success.contentLoad]);
+    await success.contentLoad;
 
     const failure = startSceneContentModelLoads(data, {}, new Map(), {
         diagnostic: (stage, code) => diagnostics.push([stage, code]),
-        async loadSoft() { throw new Error('soft failed'); },
         async loadContent() { throw new Error('content failed'); },
         logger: { log() {}, warn() {} },
     });
-    await Promise.all([failure.softLoad, failure.contentLoad]);
+    await failure.contentLoad;
 
     assert.deepEqual(diagnostics, [
-        ['soft-load-start', 'OK'],
         ['content-load-start', 'OK'],
-        ['soft-load-summary', 'OK'],
         ['content-load-summary', 'OK'],
-        ['soft-load-start', 'OK'],
         ['content-load-start', 'OK'],
-        ['soft-load-error', 'PARAMETRIC_ERROR'],
         ['content-load-error', 'CONTENT_ERROR'],
     ]);
 });
