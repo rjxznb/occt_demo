@@ -49,6 +49,7 @@ test('normalizes CAD plan transform, dimensions, and parameters', () => {
     assert.equal(item.typeId, '225903');
     assert.deepEqual(item.basePoint, { x: 1000, y: 2000, z: 30 });
     assert.deepEqual(item.size, { x: 200, y: 200, z: 800 });
+    assert.deepEqual(item.outScale, { x: 1, y: 1, z: 1 });
     assert.equal(item.rotationDegrees, 45);
     assert.equal(item.horizontalFlip, true);
     assert.equal(item.verticalFlip, false);
@@ -79,4 +80,27 @@ test('distinguishes an explicit zero ground height from an omitted value', () =>
 
     assert.equal(zeroHeight.groundHeight, 0);
     assert.equal(missingHeight.groundHeight, null);
+});
+
+test('derives dimensions from a valid footprint when CAD Size is unavailable', () => {
+    const [item] = collectContentModelInstances({
+        soft_list: [block('footprint-size', {
+            Size: 'invalid',
+            Points: [
+                'X=0 Y=0 Z=0', 'X=400 Y=0 Z=0',
+                'X=400 Y=200 Z=0', 'X=0 Y=200 Z=0',
+            ],
+            BlockInnerInfo: { 高: 800 },
+        })],
+    });
+
+    assert.deepEqual(item.size, { x: 400, y: 200, z: 800 });
+});
+
+test('skips records without valid dimensions or a usable footprint', () => {
+    const result = collectContentModelInstances({
+        soft_list: [block('no-dimensions', { Size: 'invalid', Points: [] })],
+    });
+
+    assert.deepEqual(result, []);
 });

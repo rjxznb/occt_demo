@@ -55,6 +55,32 @@ function readFlip(record, blockInnerInfo, innerKey, legacyKey) {
     return Boolean(record[legacyKey]);
 }
 
+function hasUsablePlanDimensions(size) {
+    return size && size.x > 0 && size.y > 0;
+}
+
+function deriveFootprintSize(footprint, blockInnerInfo) {
+    if (footprint.length < 3) return null;
+
+    const firstEdge = Math.hypot(
+        footprint[1].x - footprint[0].x,
+        footprint[1].y - footprint[0].y,
+    );
+    const secondEdge = Math.hypot(
+        footprint[2].x - footprint[1].x,
+        footprint[2].y - footprint[1].y,
+    );
+    if (!(firstEdge > 0) || !(secondEdge > 0)) return null;
+
+    const heightKey = ['高', '高度', '自身高度']
+        .find(key => Object.prototype.hasOwnProperty.call(blockInnerInfo, key));
+    return {
+        x: firstEdge,
+        y: secondEdge,
+        z: heightKey ? finiteNumber(blockInnerInfo[heightKey], 0) : 0,
+    };
+}
+
 function normalizeRecord(record, descriptor, sourceIndex) {
     if (!record || typeof record !== 'object') return null;
 
@@ -65,6 +91,13 @@ function normalizeRecord(record, descriptor, sourceIndex) {
     const blockInnerInfo = record.BlockInnerInfo && typeof record.BlockInnerInfo === 'object'
         ? record.BlockInnerInfo
         : {};
+    const footprint = parsePoints(record.Points);
+    const parsedSize = parseVector(record.Size);
+    const size = hasUsablePlanDimensions(parsedSize)
+        ? parsedSize
+        : deriveFootprintSize(footprint, blockInnerInfo);
+    if (!size) return null;
+
     const rawBlockInnerInfo = { ...blockInnerInfo };
     const groundHeight = Object.prototype.hasOwnProperty.call(blockInnerInfo, '离地高度')
         ? finiteNumber(blockInnerInfo.离地高度)
@@ -80,9 +113,9 @@ function normalizeRecord(record, descriptor, sourceIndex) {
         category: descriptor.category,
         typeId,
         basePoint,
-        footprint: parsePoints(record.Points),
-        size: parseVector(record.Size),
-        scale: {
+        footprint,
+        size,
+        outScale: {
             x: finiteNumber(record.OutXScale, 1),
             y: finiteNumber(record.OutYScale, 1),
             z: finiteNumber(record.OutZScale, 1),
