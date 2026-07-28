@@ -1,6 +1,7 @@
 import { Shape } from "three";
 import * as Render from "./colorplane.js";
 import { freestyle } from "../config/freestyle.js";
+import { collectContentModelInstances } from '../components/ContentModelRegistry.js';
 
 // 解析json字符串为对象，并且返回所有解析后的数据；
 export default function ParseJson(json){
@@ -438,6 +439,7 @@ export default function ParseJson(json){
         parse_data.Room_Points[index] = newitem; // 替换掉原来的数组；不能通过item直接修改，因为item是一个局部变量引用，改变他不会改变原数组的对象；
     });
 
+    parse_data.content_models = collectContentModelInstances(json);
     return parse_data;
 }
 
