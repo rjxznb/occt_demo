@@ -651,6 +651,88 @@ test('does not turn a placed model into a failure when the progress observer thr
     assert.deepEqual(result.failures, []);
 });
 
+test('inserts a placed model into its requested placement target', async () => {
+    const { loader } = makeHarness({
+        selections: new Map([['chair', selection('100', 'chair')]]),
+        details: [staticDetail('100')],
+    });
+    const scene = new THREE.Group();
+    const stage = new THREE.Group();
+
+    const result = await loader.load([instance('chair', 0)], scene, {
+        getPlacementTarget() { return stage; },
+    });
+
+    assert.equal(scene.children.length, 0);
+    assert.equal(stage.children.length, 1);
+    assert.equal(result.groups[0], stage.children[0]);
+    assert.equal(result.summary.placed, 1);
+});
+
+test('reports invalid or throwing placement targets as placement failures', async () => {
+    const targetFactories = [
+        () => null,
+        () => { throw new Error('controlled target failure'); },
+    ];
+    for (const getPlacementTarget of targetFactories) {
+        const { loader } = makeHarness({
+            selections: new Map([['chair', selection('100', 'chair')]]),
+            details: [staticDetail('100')],
+        });
+        const scene = new THREE.Group();
+        const result = await loader.load([instance('chair', 0)], scene, {
+            getPlacementTarget,
+        });
+
+        assert.equal(scene.children.length, 0);
+        assert.equal(result.groups.length, 0);
+        assert.equal(result.summary.failed, 1);
+        assert.equal(result.failures[0].errorCode, 'MODEL_SIZE_UNRESOLVED');
+    }
+});
+
+test('counts generated composite children as one discovered CAD source identity', async () => {
+    const { loader } = makeHarness({
+        selections: new Map([['chair', selection('100', 'chair')]]),
+        details: [staticDetail('100')],
+    });
+    const children = [0, 1].map(index => ({
+        ...instance('chair', index),
+        instanceId: `window_list:1#segment:${index}`,
+        sourceList: 'window_list',
+        sourceIndex: 1,
+        parentInstanceId: 'window_list:1',
+        compositeSegmentIndex: index,
+        compositeSegmentCount: 2,
+    }));
+
+    const result = await loader.load(children, new THREE.Group());
+
+    assert.equal(result.summary.discovered, 1);
+    assert.equal(result.summary.placed, 2);
+});
+
+test('can defer loader logs until scene orchestration has finalized composite state', async () => {
+    const logs = [];
+    const warnings = [];
+    const { loader } = makeHarness({
+        selections: new Map([['chair', selection('100', 'chair')]]),
+        details: [staticDetail('100')],
+        logger: {
+            log(...args) { logs.push(args); },
+            warn(...args) { warnings.push(args); },
+        },
+    });
+
+    const result = await loader.load([instance('chair', 0)], new THREE.Group(), {
+        logSummary: false,
+    });
+
+    assert.equal(result.summary.placed, 1);
+    assert.deepEqual(logs, []);
+    assert.deepEqual(warnings, []);
+});
+
 test('isolates synchronous and asynchronous onInstancePlaced observer failures', async () => {
     const observers = [
         () => { throw new Error('synchronous observer failed'); },

@@ -52,6 +52,20 @@ function doorInstance(sourceIndex = 1) {
     };
 }
 
+function compositeWindowChild(index, count = 2) {
+    return {
+        instanceId: `window_list:1#segment:${index}`,
+        sourceList: 'window_list',
+        sourceIndex: 1,
+        category: 'window',
+        typeId: index === 1 ? '140c' : '1401',
+        parentInstanceId: 'window_list:1',
+        compositeSegmentIndex: index,
+        compositeSegmentCount: count,
+        generatedFromTypeId: '140d02',
+    };
+}
+
 function controlledDoorLoader(failurePhase = null) {
     return new ContentModelLoader({
         templateResolver: {
@@ -191,6 +205,93 @@ test('scene orchestration receives free-window children once instead of the pare
     ]);
     assert.deepEqual(received.map(instance => instance.typeId), ['1401', '140c']);
     assert.equal(received.some(instance => instance.typeId === '140d02'), false);
+});
+
+test('scene orchestration commits a free-window stage only after all children place', async () => {
+    const scene = new THREE.Group();
+    const fallback = new THREE.Mesh();
+    fallback.visible = true;
+    const fallbackMap = new Map([['window_list:1', fallback]]);
+    const instances = [compositeWindowChild(0), compositeWindowChild(1)];
+    const loads = startSceneContentModelLoads({
+        contentModels: { contentModels: instances },
+    }, scene, fallbackMap, {
+        async loadContent(received, sceneGroup, options) {
+            const groups = [];
+            for (const current of received) {
+                const root = new THREE.Group();
+                root.userData.instanceId = current.instanceId;
+                options.getPlacementTarget(current).add(root);
+                groups.push(root);
+                await options.onInstancePlaced(current, root);
+                assert.equal(fallback.visible, true);
+            }
+            assert.equal(sceneGroup.children.length, 0);
+            return {
+                groups,
+                summary: {
+                    discovered: 1, localGeometry: 0, staticSelected: 0,
+                    parametricSelected: 2, placed: 2, fallbackVisible: 0,
+                    openingOnly: 0, failed: 0,
+                },
+                failures: [],
+            };
+        },
+        diagnostic() {},
+        logger: { log() {}, warn() {} },
+    });
+
+    const result = await loads.contentLoad;
+
+    assert.equal(scene.children.length, 1);
+    assert.equal(scene.children[0].userData.parentInstanceId, 'window_list:1');
+    assert.equal(scene.children[0].children.length, 2);
+    assert.equal(fallback.visible, false);
+    assert.equal(result.groups.length, 2);
+    assert.equal(result.summary.placed, 2);
+    assert.equal(result.summary.fallbackVisible, 0);
+});
+
+test('scene orchestration removes partial free-window roots and retains one fallback', async () => {
+    const scene = new THREE.Group();
+    const fallback = new THREE.Mesh();
+    fallback.visible = true;
+    const fallbackMap = new Map([['window_list:1', fallback]]);
+    const instances = [compositeWindowChild(0), compositeWindowChild(1)];
+    const loads = startSceneContentModelLoads({
+        contentModels: { contentModels: instances },
+    }, scene, fallbackMap, {
+        async loadContent(received, sceneGroup, options) {
+            const root = new THREE.Group();
+            root.userData.instanceId = received[0].instanceId;
+            (options.getPlacementTarget?.(received[0]) ?? sceneGroup).add(root);
+            await options.onInstancePlaced(received[0], root);
+            return {
+                groups: [root],
+                summary: {
+                    discovered: 1, localGeometry: 0, staticSelected: 0,
+                    parametricSelected: 2, placed: 1, fallbackVisible: 0,
+                    openingOnly: 0, failed: 1,
+                },
+                failures: [{
+                    sourceList: 'window_list', sourceIndex: 1, typeId: '140c',
+                    resId: '2423932', resourceKind: 'parametric-obj',
+                    errorCode: 'PARAMETRIC_CONVERSION_FAILED',
+                }],
+            };
+        },
+        diagnostic() {},
+        logger: { log() {}, warn() {} },
+    });
+
+    const result = await loads.contentLoad;
+
+    assert.equal(scene.children.length, 0);
+    assert.equal(fallback.visible, true);
+    assert.deepEqual(result.groups, []);
+    assert.equal(result.summary.placed, 0);
+    assert.equal(result.summary.fallbackVisible, 1);
+    assert.equal(result.failures.length, 1);
 });
 
 test('scene failure logs contain only the checkpoint allowlist', async () => {

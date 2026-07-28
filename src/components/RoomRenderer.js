@@ -6,6 +6,7 @@ import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
 import { loadContentModels } from './ContentModelLoader.js';
+import { createCompositeContentPlacement } from './CompositeContentPlacement.js';
 
 function fallbackKey(sourceList, sourceIndex) {
     if (!sourceList || sourceIndex == null) return null;
@@ -103,24 +104,34 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         logger = console,
     } = options;
 
+    const instances = data?.contentModels?.contentModels ?? [];
+    const compositePlacement = createCompositeContentPlacement(
+        instances,
+        sceneGroup,
+        fallbackMap,
+    );
     emitDiagnostic(diagnostic, 'content-load-start', 'OK');
     const contentLoad = Promise.resolve().then(() => loadContent(
-        data?.contentModels?.contentModels ?? [],
+        instances,
         sceneGroup,
         {
             concurrency: 3,
-            hasFallback: instance => hasIndexedFallback(fallbackMap, instance),
-            onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
+            logSummary: false,
+            getPlacementTarget: compositePlacement.getPlacementTarget,
+            hasFallback: compositePlacement.hasFallback,
+            onInstancePlaced: compositePlacement.onInstancePlaced,
         },
     )).then(result => {
-        const summary = result?.summary ?? {};
-        const failures = Array.isArray(result?.failures) ? result.failures : [];
+        const terminalResult = compositePlacement.finalize(result);
+        const summary = terminalResult?.summary ?? {};
+        const failures = Array.isArray(terminalResult?.failures)
+            ? terminalResult.failures : [];
         emitDiagnostic(diagnostic, 'content-load-summary', 'OK');
         logger.log?.('[ContentLoader] scene summary', summary);
         if (failures.length) {
             logger.warn?.('[ContentLoader] scene failures', allowlistedFailures(failures));
         }
-        return result;
+        return terminalResult;
     }).catch(error => {
         emitDiagnostic(diagnostic, 'content-load-error', 'CONTENT_ERROR');
         logger.warn?.(`[ContentLoader] scene pipeline failed ${safePipelineDiagnostic(error)}`, {

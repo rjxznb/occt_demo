@@ -226,6 +226,15 @@ function isValidInstance(instance) {
         && String(instance.typeId ?? '').trim());
 }
 
+function sourceIdentity(instance, inputIndex) {
+    if (instance?.parentInstanceId) return String(instance.parentInstanceId);
+    if (instance?.sourceList && instance?.sourceIndex != null) {
+        return `${instance.sourceList}:${instance.sourceIndex}`;
+    }
+    if (instance?.instanceId) return String(instance.instanceId);
+    return `input:${inputIndex}`;
+}
+
 async function mapWithConcurrency(values, concurrency, mapper) {
     const count = Math.max(1, Math.min(3, Number.isFinite(Number(concurrency))
         ? Math.floor(Number(concurrency)) : 3));
@@ -444,7 +453,16 @@ export class ContentModelLoader {
                 if (!root?.isObject3D) {
                     throw pipelineError('MODEL_SIZE_UNRESOLVED', 'Placed model root is invalid');
                 }
-                sceneGroup.add(root);
+                const placementTarget = typeof options.getPlacementTarget === 'function'
+                    ? options.getPlacementTarget(record.instance)
+                    : sceneGroup;
+                if (!placementTarget?.isObject3D) {
+                    throw pipelineError(
+                        'MODEL_SIZE_UNRESOLVED',
+                        'Content placement target is invalid',
+                    );
+                }
+                placementTarget.add(root);
                 groups.push(root);
                 if (typeof options.onInstancePlaced === 'function') {
                     try {
@@ -469,7 +487,7 @@ export class ContentModelLoader {
         });
 
         const summary = {
-            discovered: sourceInstances.length,
+            discovered: new Set(sourceInstances.map(sourceIdentity)).size,
             localGeometry: localGeometry.length,
             staticSelected,
             parametricSelected,
@@ -478,15 +496,17 @@ export class ContentModelLoader {
             openingOnly: openingOnly.length,
             failed: failures.length,
         };
-        this.logger.log(
-            `[ContentLoader] discovered=${summary.discovered} `
-            + `localGeometry=${summary.localGeometry} staticSelected=${summary.staticSelected} `
-            + `parametricSelected=${summary.parametricSelected} placed=${summary.placed} `
-            + `fallbackVisible=${summary.fallbackVisible} openingOnly=${summary.openingOnly} `
-            + `failed=${summary.failed}`,
-        );
-        if (failures.length > 0) {
-            this.logger.warn('[ContentLoader] failures', groupedFailureCounts(failures));
+        if (options.logSummary !== false) {
+            this.logger.log(
+                `[ContentLoader] discovered=${summary.discovered} `
+                + `localGeometry=${summary.localGeometry} staticSelected=${summary.staticSelected} `
+                + `parametricSelected=${summary.parametricSelected} placed=${summary.placed} `
+                + `fallbackVisible=${summary.fallbackVisible} openingOnly=${summary.openingOnly} `
+                + `failed=${summary.failed}`,
+            );
+            if (failures.length > 0) {
+                this.logger.warn('[ContentLoader] failures', groupedFailureCounts(failures));
+            }
         }
         return {
             groups,
