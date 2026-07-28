@@ -400,6 +400,87 @@ test('does not turn a placed model into a failure when the progress observer thr
     assert.deepEqual(result.failures, []);
 });
 
+test('isolates synchronous and asynchronous onInstancePlaced observer failures', async () => {
+    const observers = [
+        () => { throw new Error('synchronous observer failed'); },
+        async () => { throw new Error('asynchronous observer failed'); },
+    ];
+
+    for (const onInstancePlaced of observers) {
+        const { loader } = makeHarness({
+            selections: new Map([['chair', selection('100', 'chair')]]),
+            details: [staticDetail('100')],
+        });
+        const scene = new THREE.Group();
+        const result = await loader.load([instance('chair', 0)], scene, { onInstancePlaced });
+
+        assert.equal(scene.children.length, 1);
+        assert.equal(result.groups.length, 1);
+        assert.equal(result.summary.staticLoaded, 1);
+        assert.equal(result.summary.failed, 0);
+        assert.deepEqual(result.failures, []);
+    }
+});
+
+test('removes signed resource URLs from successful static and parametric object metadata', async () => {
+    const staticUrl = 'https://file.test/static.kb?signature=static-sentinel-secret';
+    const parametricUrl = 'https://file.test/param.json?signature=param-sentinel-secret';
+    const selections = new Map([
+        ['static-private', selection('901', 'static-private')],
+        ['parametric-private', selection('902', 'parametric-private')],
+    ]);
+    const makeSensitivePrototype = (url, field) => {
+        const root = prototype();
+        root.name = url;
+        root.userData = {
+            [field]: url,
+            nested: { download: url },
+            safeLabel: 'retained',
+        };
+        root.children[0].name = `mesh ${url}`;
+        root.children[0].userData = { assetUrl: url };
+        return root;
+    };
+    const loader = new ContentModelLoader({
+        templateResolver: {
+            async load() {},
+            select(currentInstance) { return selections.get(currentInstance.typeId); },
+        },
+        apiClient: {
+            async getGoodsDetails() {
+                return { items: [
+                    staticDetail('901', 'static-hash', staticUrl),
+                    parametricDetail('902', 'parametric-hash', parametricUrl),
+                ] };
+            },
+            async convertModel() { return { obj: validObj }; },
+        },
+        async loadGltf() {
+            return makeSensitivePrototype(staticUrl, 'webV2Url');
+        },
+        parseObj() {
+            return makeSensitivePrototype(parametricUrl, 'parameterizedJsonUrl');
+        },
+        logger: { log() {}, warn() {} },
+    });
+
+    const result = await loader.load([
+        instance('static-private', 0),
+        instance('parametric-private', 1, [{ name: 'width', value: 800 }]),
+    ], new THREE.Group());
+
+    assert.equal(result.groups.length, 2);
+    for (const root of result.groups) {
+        const metadata = [];
+        root.traverse(child => metadata.push({ name: child.name, userData: child.userData }));
+        const serialized = JSON.stringify(metadata);
+        assert.doesNotMatch(serialized, /https:\/\//);
+        assert.doesNotMatch(serialized, /static-sentinel-secret|param-sentinel-secret/);
+        assert.doesNotMatch(serialized, /sourceUrl|webV2Url|parameterizedJsonUrl/);
+        assert.match(serialized, /retained/);
+    }
+});
+
 test('emits exactly one safe summary and one grouped error count with allowlisted failure fields', async () => {
     const logs = [];
     const warnings = [];

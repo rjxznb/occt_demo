@@ -120,8 +120,45 @@ function usableMaterial(material) {
     return Boolean(material && material.isMaterial === true);
 }
 
+function sanitizeSensitiveText(value) {
+    return value
+        .replace(/https?:\/\/\S+/gi, '[redacted-url]')
+        .replace(/(?:sourceUrl|webV2Url|parameterizedJsonUrl)/gi, '[redacted-resource-field]');
+}
+
+function sanitizeMetadata(value, seen = new WeakSet()) {
+    if (typeof value === 'string') return sanitizeSensitiveText(value);
+    if (!value || typeof value !== 'object') return value;
+    if (seen.has(value)) return value;
+    seen.add(value);
+    if (Array.isArray(value)) {
+        value.forEach((item, index) => { value[index] = sanitizeMetadata(item, seen); });
+        return value;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return value;
+    for (const key of Object.keys(value)) {
+        if (/(?:sourceUrl|webV2Url|parameterizedJsonUrl)/i.test(key)) {
+            delete value[key];
+        } else {
+            value[key] = sanitizeMetadata(value[key], seen);
+        }
+    }
+    return value;
+}
+
+function sanitizePrototypeMetadata(root) {
+    root.traverse(child => {
+        if (typeof child.name === 'string') child.name = sanitizeSensitiveText(child.name);
+        if (child.userData && typeof child.userData === 'object') {
+            sanitizeMetadata(child.userData);
+        }
+    });
+}
+
 function preparePrototype(root, noMeshCode) {
     if (!root?.isObject3D) throw pipelineError(noMeshCode, 'Model prototype is missing');
+    sanitizePrototypeMetadata(root);
     let meshCount = 0;
     root.traverse(child => {
         if (!child.isMesh) return;
@@ -145,9 +182,7 @@ function sanitizedMessage(error, fallback) {
     const value = typeof error?.message === 'string' && error.message.trim()
         ? error.message.trim()
         : fallback;
-    return value
-        .replace(/https?:\/\/\S+/gi, '[redacted-url]')
-        .replace(/(?:sourceUrl|webV2Url|parameterizedJsonUrl)\s*[:=]\s*\S+/gi, '[redacted-resource]');
+    return sanitizeSensitiveText(value);
 }
 
 function failureCode(error, fallback) {

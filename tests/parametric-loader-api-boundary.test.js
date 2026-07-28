@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 
 import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
-import { findParametricSoftlistRoot } from '../src/components/SceneClickInteraction.js';
+import {
+    findParametricSoftlistRoot,
+    logParametricSoftlistDebug,
+} from '../src/components/SceneClickInteraction.js';
 
 const templateResponse = {
     AllItemInfo: [{
@@ -116,13 +119,17 @@ test('loadParametricModels is a thin adapter from legacy softlists to unified in
         groundHeight: 25,
         modelParams: [{ name: 'width', value: 100 }],
         rawBlockInnerInfo: { style: 'legacy' },
+        legacySoftlistId: 'legacy-7',
     }]);
 });
 
 test('legacy adapter preserves current parametric click metadata through unified placement', async () => {
     const scene = new THREE.Group();
+    let callbackCalls = 0;
+    let callbackDebugInfo;
     const groups = await loadParametricModels([{
         id: 'legacy-click',
+        instanceId: 'normalized-click',
         kind: 'softlist',
         typeId: '1001',
         basepoint: { x: 0, y: 0, z: 0 },
@@ -131,7 +138,7 @@ test('legacy adapter preserves current parametric click metadata through unified
             { x: 100, y: 100 }, { x: 0, y: 100 },
         ],
         size: { x: 100, y: 100, z: 100 },
-        rotate: 0,
+        rotate: 75,
         modelParams: [],
     }], scene, {
         templateResolver: {
@@ -146,20 +153,29 @@ test('legacy adapter preserves current parametric click metadata through unified
         apiClient: {
             async getGoodsDetails() {
                 return { items: [{
-                    id: '100', modelType: 1,
-                    resourceList: [{ type: 1, data: {
-                        webV2Url: 'https://file.test/static.kb', webV2Md5: 'hash',
+                    id: '100', modelType: 0,
+                    resourceList: [{ type: 8, data: {
+                        parameterizedJsonUrl: 'https://file.test/model.json',
+                        parameterizedJsonMd5: 'hash',
                     } }],
                 }] };
             },
+            async convertModel() { return { obj: 'parameterized model fixture' }; },
         },
-        async loadGltf() {
+        parseObj() {
             const root = new THREE.Group();
-            root.add(new THREE.Mesh(
+            const mesh = new THREE.Mesh(
                 new THREE.BoxGeometry(1, 1, 1),
                 new THREE.MeshBasicMaterial(),
-            ));
+            );
+            mesh.userData.type = 'source-mesh-type';
+            root.add(mesh);
             return root;
+        },
+        async onInstancePlaced(instance, root) {
+            callbackCalls += 1;
+            callbackDebugInfo = root.userData.debugInfo;
+            throw new Error('legacy observer failed');
         },
         logger: { log() {}, warn() {} },
     });
@@ -167,6 +183,31 @@ test('legacy adapter preserves current parametric click metadata through unified
     assert.equal(groups.length, 1);
     const mesh = groups[0].getObjectByProperty('isMesh', true);
     assert.equal(findParametricSoftlistRoot(mesh), groups[0]);
+    assert.equal(callbackCalls, 1);
     assert.equal(groups[0].userData.softlistId, 'legacy-click');
-    assert.equal(groups[0].userData.debugInfo.softlistId, 'legacy-click');
+    assert.equal(mesh.userData.softlistId, 'legacy-click');
+    assert.equal(mesh.userData.type, 'source-mesh-type');
+
+    const debugInfo = groups[0].userData.debugInfo;
+    assert.equal(debugInfo.softlistId, 'legacy-click');
+    assert.equal(debugInfo.typeName, 'Compatibility template');
+    assert.equal(debugInfo.resId, '100');
+    assert.deepEqual(debugInfo.defaultSize, { x: 10, y: 10, z: 10 });
+    assert.deepEqual(debugInfo.source.basepoint, { x: 0, y: 0, z: 0 });
+    assert.equal(debugInfo.transform.rotate, 75);
+    assert.equal(debugInfo.placement.baseScale, 10);
+    assert.equal(debugInfo.selection.typeName, 'Compatibility template');
+    assert.equal(debugInfo.transform.rotationDegrees, 75);
+    assert.equal(callbackDebugInfo, debugInfo);
+
+    const logged = [];
+    const didLog = logParametricSoftlistDebug(groups[0], '#debug', {
+        groupCollapsed(...args) { logged.push(['group', ...args]); },
+        log(...args) { logged.push(['log', ...args]); },
+        groupEnd() { logged.push(['end']); },
+    });
+    assert.equal(didLog, true);
+    assert.equal(logged[1][0], 'log');
+    assert.equal(logged[1][1], '模型信息');
+    assert.equal(logged[1][2], debugInfo);
 });

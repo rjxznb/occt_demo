@@ -110,25 +110,47 @@ function normalizeLegacySoftlist(item, sourceIndex) {
         groundHeight: item?.groundHeight,
         modelParams: Array.isArray(item?.modelParams) ? item.modelParams : [],
         rawBlockInnerInfo: item?.rawBlockInnerInfo,
+        legacySoftlistId: item?.id ?? item?.instanceId ?? `${sourceList}:${normalizedIndex}`,
     };
 }
 
 function markLegacyParametricModel(instance, root) {
-    const softlistId = instance.instanceId;
+    const softlistId = instance.legacySoftlistId;
+    const debugInfo = root.userData?.debugInfo ?? {};
+    const selection = debugInfo.selection ?? {};
+    const source = debugInfo.source ?? {};
+    const transform = debugInfo.transform ?? {};
+    const placement = debugInfo.placement ?? {};
+    const targetScaleX = Number(placement.targetScale?.x);
     root.userData = {
         ...root.userData,
         type: 'parametric-softlist',
         softlistId,
         debugInfo: {
-            ...root.userData?.debugInfo,
+            ...debugInfo,
             softlistId,
+            typeName: selection.typeName ?? null,
+            resId: selection.resId ?? null,
+            defaultSize: selection.referenceSize ?? null,
+            source: {
+                ...source,
+                basepoint: source.basePoint ?? null,
+            },
+            transform: {
+                ...transform,
+                rotate: transform.rotationDegrees ?? 0,
+            },
+            placement: {
+                ...placement,
+                baseScale: Number.isFinite(targetScaleX) ? targetScaleX : 1,
+            },
         },
     };
     root.traverse(child => {
         if (!child.isMesh) return;
         child.userData = {
             ...child.userData,
-            type: 'parametric-softlist',
+            type: child.userData?.type || 'parametric-softlist',
             softlistId,
         };
     });
