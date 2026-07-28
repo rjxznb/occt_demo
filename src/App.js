@@ -591,14 +591,15 @@ class OCCTApp {
 
             this.updateStatus('正在加载数据...');
 
-            const [outline, rooms, doorWindows, softlists] = await Promise.all([
+            const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
                 geometryService.getOutline(),
                 geometryService.getRooms(),
                 geometryService.getDoorsAndWindows(),
-                geometryService.getSoftlists()
+                geometryService.getSoftlists(),
+                geometryService.getContentModels()
             ]);
 
-            const data = { outline, rooms, doorWindows, softlists };
+            const data = { outline, rooms, doorWindows, softlists, contentModels };
             
             // 缓存共享数据
             this.sharedData = data;

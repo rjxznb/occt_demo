@@ -232,14 +232,15 @@ class OCCTApp3D {
             await geometryService.init();
 
             this.updateStatus('正在加载数据...');
-            const [outline, rooms, doorWindows, softlists] = await Promise.all([
+            const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
                 geometryService.getOutline(),
                 geometryService.getRooms(),
                 geometryService.getDoorsAndWindows(),
                 geometryService.getSoftlists(),
+                geometryService.getContentModels(),
             ]);
 
-            const data = { outline, rooms, doorWindows, softlists };
+            const data = { outline, rooms, doorWindows, softlists, contentModels };
             this.sharedData = data;
 
             this.updateStatus('正在渲染几何体...');

@@ -5,7 +5,47 @@ import { WallFactory } from './WallFactory.js';
 import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
-import { loadParametricModels } from './ParametricModelLoader.js';
+import { loadContentModels } from './ContentModelLoader.js';
+
+const FALLBACK_SOURCE_LISTS = new Set(['door_list', 'window_list']);
+
+function fallbackKey(sourceList, sourceIndex) {
+    if (!FALLBACK_SOURCE_LISTS.has(sourceList) || sourceIndex == null) return null;
+    return `${sourceList}:${sourceIndex}`;
+}
+
+export function indexDoorWindowFallbacks({ doors = [], windows = [] } = {}) {
+    const fallbacks = new Map();
+    for (const mesh of [...doors, ...windows]) {
+        const key = fallbackKey(mesh?.userData?.sourceList, mesh?.userData?.sourceIndex);
+        if (key) fallbacks.set(key, mesh);
+    }
+    return fallbacks;
+}
+
+export function hidePlacedFallback(fallbacks, instance) {
+    const key = fallbackKey(instance?.sourceList, instance?.sourceIndex);
+    const fallback = key ? fallbacks?.get(key) : null;
+    if (!fallback) return false;
+    fallback.visible = false;
+    return true;
+}
+
+export function handlePlacedContentModel(fallbacks, instance, root) {
+    if (root?.isObject3D) root.userData.contentModelRoot = true;
+    return hidePlacedFallback(fallbacks, instance);
+}
+
+function allowlistedFailures(failures) {
+    return failures.map(failure => ({
+        instanceId: failure?.instanceId ?? null,
+        sourceList: failure?.sourceList ?? null,
+        sourceIndex: failure?.sourceIndex ?? null,
+        typeId: failure?.typeId ?? null,
+        resId: failure?.resId ?? null,
+        errorCode: failure?.errorCode ?? 'UNKNOWN_ERROR',
+    }));
+}
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
@@ -416,21 +456,23 @@ export class RoomRenderer {
                 result.outlineMesh.userData.type = "outWall";
             }
 
-            // 5.5 软装：异步加载参数化 3D 模型
-            if (data.softlists?.softlists) {
-                loadParametricModels(data.softlists.softlists, this.sceneGroup, {
-                    concurrency: 3,
-                    onProgress: (loaded, total) => {
-                        console.log(`参数化模型加载: ${loaded}/${total} 个唯一 TypeId`);
-                    },
-                }).then(paramGroups => {
-                    if (paramGroups.length > 0) {
-                        console.log(`参数化模型已放置 ${paramGroups.length} 个实例`);
-                    }
-                }).catch(err => {
-                    console.warn('参数化模型加载失败（后端可能未启动）:', err.message);
+            // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
+            const fallbackMap = indexDoorWindowFallbacks(doorWindowMeshes);
+            loadContentModels(data.contentModels?.contentModels || [], this.sceneGroup, {
+                concurrency: 3,
+                onInstancePlaced: (instance, root) => {
+                    handlePlacedContentModel(fallbackMap, instance, root);
+                },
+            }).then(({ summary, failures }) => {
+                console.log('[ContentLoader] scene summary', summary);
+                if (failures.length) {
+                    console.warn('[ContentLoader] scene failures', allowlistedFailures(failures));
+                }
+            }).catch(error => {
+                console.warn('[ContentLoader] scene pipeline failed', {
+                    code: error?.code || 'UNKNOWN_ERROR',
                 });
-            }
+            });
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
             if (data.rooms?.roomInfo) {

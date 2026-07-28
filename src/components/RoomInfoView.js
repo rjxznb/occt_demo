@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import {
     classifySceneClick,
     decideRoomPanelAction,
-    logParametricSoftlistDebug,
+    isSceneRaycastTarget,
+    logContentModelDebug,
 } from './SceneClickInteraction.js';
 
 /**
@@ -58,19 +59,14 @@ export class RoomInfoView {
         // 房间与参数化软装共用一次射线检测，避免点击模型时穿透到底层地板。
         const targets = [];
         this.sceneGroup.traverse(object => {
-            const type = object.userData?.type;
-            if (!object.visible) return;
-            if (type === 'floor' || type === 'roomLabel' ||
-                (type === 'parametric-softlist' && object.isMesh)) {
-                targets.push(object);
-            }
+            if (isSceneRaycastTarget(object)) targets.push(object);
         });
         const hits = this.raycaster.intersectObjects(targets, false);
         if (hits.length === 0) { this._hide(); return; }
 
         const target = classifySceneClick(hits[0].object);
         if (target.kind === 'model') {
-            logParametricSoftlistDebug(target.modelRoot, window.location.hash);
+            logContentModelDebug(target.modelRoot, window.location.hash);
             return;
         }
         if (target.kind !== 'room') {
