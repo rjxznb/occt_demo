@@ -6,6 +6,7 @@ import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
 import { loadContentModels } from './ContentModelLoader.js';
+import { loadParametricModels } from './ParametricModelLoader.js';
 
 const FALLBACK_SOURCE_LISTS = new Set(['door_list', 'window_list']);
 
@@ -38,6 +39,11 @@ export function handlePlacedContentModel(fallbacks, instance, root) {
 
 export function createContentModelPlacementHandler(fallbacks) {
     return (instance, root) => handlePlacedContentModel(fallbacks, instance, root);
+}
+
+export function filterNonSoftContentModels(instances) {
+    return (Array.isArray(instances) ? instances : [])
+        .filter(instance => instance?.sourceList !== 'soft_list');
 }
 
 function allowlistedFailures(failures) {
@@ -462,11 +468,31 @@ export class RoomRenderer {
 
             // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
             const fallbackMap = indexDoorWindowFallbacks(doorWindowMeshes);
-            globalThis.__renderPreviewDiagnostic?.('content-load-start', 'OK');
-            loadContentModels(data.contentModels?.contentModels || [], this.sceneGroup, {
+            globalThis.__renderPreviewDiagnostic?.('soft-load-start', 'OK');
+            loadParametricModels(data.softlists?.softlists || [], this.sceneGroup, {
                 concurrency: 3,
-                onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
-            }).then(({ summary, failures }) => {
+                onProgress: (loaded, total) => {
+                    console.log(`[ParamLoader] scene progress ${loaded}/${total}`);
+                },
+            }).then(groups => {
+                globalThis.__renderPreviewDiagnostic?.('soft-load-summary', 'OK');
+                console.log(`[ParamLoader] scene summary ${groups.length} models`);
+            }).catch(error => {
+                globalThis.__renderPreviewDiagnostic?.('soft-load-error', 'PARAMETRIC_ERROR');
+                console.warn('[ParamLoader] scene pipeline failed', {
+                    code: error?.code || 'UNKNOWN_ERROR',
+                });
+            });
+
+            globalThis.__renderPreviewDiagnostic?.('content-load-start', 'OK');
+            loadContentModels(
+                filterNonSoftContentModels(data.contentModels?.contentModels),
+                this.sceneGroup,
+                {
+                    concurrency: 3,
+                    onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
+                },
+            ).then(({ summary, failures }) => {
                 globalThis.__renderPreviewDiagnostic?.('content-load-summary', 'OK');
                 console.log('[ContentLoader] scene summary', summary);
                 if (failures.length) {

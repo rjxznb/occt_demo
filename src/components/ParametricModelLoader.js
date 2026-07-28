@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
+import { parametricApiClient } from '../services/ParametricApiClient.js';
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
-import { loadContentModels } from './ContentModelLoader.js';
-import { createContentDebugInfo } from './ContentModelPlacement.js';
+import { createContentDebugInfo, placeContentModel } from './ContentModelPlacement.js';
 
 export {
     createPlanTransform,
@@ -15,6 +16,7 @@ const compatibilityTemplateResolver = new ContentTemplateResolver(
 );
 let compatibilityTemplateMap = null;
 let compatibilityTemplatePromise = null;
+const clientCaches = new WeakMap();
 
 /** Create the legacy plain-data debug snapshot without retaining Three.js objects. */
 export function createParametricDebugInfo(item, templateInfo, placement) {
@@ -156,19 +158,165 @@ function markLegacyParametricModel(instance, root) {
     });
 }
 
-/** Delegate legacy soft-list records to the unified content-model loader. */
+function findStringField(value, fieldName, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 6) return null;
+    if (typeof value[fieldName] === 'string' && value[fieldName]) return value[fieldName];
+    for (const child of Object.values(value)) {
+        const found = findStringField(child, fieldName, depth + 1);
+        if (found) return found;
+    }
+    return null;
+}
+
+function extractObjContent(value, depth = 0) {
+    if (!value || depth > 6) return null;
+    if (typeof value === 'string') return null;
+    if (typeof value !== 'object') return null;
+    if (typeof value.obj === 'string' && value.obj) return value.obj;
+    if (value.files && typeof value.files === 'object') {
+        for (const [name, content] of Object.entries(value.files)) {
+            if (name.toLowerCase().endsWith('.obj') && typeof content === 'string' && content) {
+                return content;
+            }
+        }
+    }
+    for (const [name, child] of Object.entries(value)) {
+        if (name.toLowerCase().endsWith('.obj') && typeof child === 'string' && child) {
+            return child;
+        }
+        const found = extractObjContent(child, depth + 1);
+        if (found) return found;
+    }
+    return null;
+}
+
+function cachesFor(apiClient) {
+    let caches = clientCaches.get(apiClient);
+    if (!caches) {
+        caches = { urls: new Map(), prototypes: new Map(), pending: new Map() };
+        clientCaches.set(apiClient, caches);
+    }
+    return caches;
+}
+
+async function resolveParametricUrl(selection, apiClient, caches) {
+    if (caches.urls.has(selection.resId)) return caches.urls.get(selection.resId);
+    const detail = await apiClient.getGoodsDetail(selection.resId);
+    const url = findStringField(detail?.data?.modelDTO, 'parameterizedJsonUrl')
+        ?? findStringField(detail, 'parameterizedJsonUrl');
+    if (!url) throw Object.assign(new Error('Parameterized model URL is missing'), {
+        code: 'PARAMETRIC_URL_MISSING',
+    });
+    caches.urls.set(selection.resId, url);
+    return url;
+}
+
+async function loadLegacyPrototype(instance, selection, {
+    apiClient,
+    parseObj,
+}) {
+    const caches = cachesFor(apiClient);
+    const parameters = Array.isArray(instance.modelParams) ? instance.modelParams : [];
+    const key = `${selection.resId}|${JSON.stringify(parameters)}`;
+    if (caches.prototypes.has(key)) return caches.prototypes.get(key);
+    if (caches.pending.has(key)) return caches.pending.get(key);
+
+    const pending = (async () => {
+        const url = await resolveParametricUrl(selection, apiClient, caches);
+        const converted = await apiClient.convertModel(url, parameters);
+        const content = extractObjContent(converted);
+        if (!content) throw Object.assign(new Error('Converted response contains no OBJ model'), {
+            code: 'PARAMETRIC_OBJ_MISSING',
+        });
+        const prototype = parseObj
+            ? parseObj(content, instance.typeId)
+            : new OBJLoader().parse(content);
+        if (!prototype?.isObject3D) {
+            throw Object.assign(new Error('Parsed OBJ model is invalid'), {
+                code: 'PARAMETRIC_OBJ_INVALID',
+            });
+        }
+        prototype.name ||= `parametric-${instance.typeId}`;
+        caches.prototypes.set(key, prototype);
+        return prototype;
+    })();
+    caches.pending.set(key, pending);
+    try {
+        return await pending;
+    } finally {
+        caches.pending.delete(key);
+    }
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+    const results = new Array(values.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, Number(concurrency) || 1), values.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex++;
+            results[index] = await mapper(values[index], index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
+/** Load legacy soft-list records through the independent per-resource bridge. */
 export async function loadParametricModels(softlists, sceneGroup, options = {}) {
     const instances = (Array.isArray(softlists) ? softlists : [])
         .map((item, index) => ({ item, index }))
-        .filter(({ item }) => item?.kind === 'softlist')
+        .filter(({ item }) => item?.kind === 'softlist' && item?.typeId
+            && Array.isArray(item?.footprint) && item.footprint.length >= 3)
         .map(({ item, index }) => normalizeLegacySoftlist(item, index));
-    const previousOnInstancePlaced = options.onInstancePlaced;
-    const result = await loadContentModels(instances, sceneGroup, {
-        ...options,
-        onInstancePlaced(instance, root) {
+    if (instances.length === 0) return [];
+
+    const {
+        apiClient = parametricApiClient,
+        concurrency = 3,
+        logger = console,
+        onInstancePlaced,
+        onProgress,
+        parseObj,
+        templateResolver = compatibilityTemplateResolver,
+    } = options;
+    await templateResolver.load('data/template.json');
+
+    let completed = 0;
+    const placed = await mapWithConcurrency(instances, concurrency, async instance => {
+        try {
+            const selection = templateResolver.select(instance);
+            if (!selection || selection.errorCode) {
+                throw Object.assign(new Error('Template resource could not be selected'), {
+                    code: selection?.errorCode || 'TEMPLATE_SELECTION_FAILED',
+                });
+            }
+            const prototype = await loadLegacyPrototype(instance, selection, { apiClient, parseObj });
+            const root = placeContentModel(prototype, instance, selection, {
+                kind: 'parametric-obj',
+            });
             markLegacyParametricModel(instance, root);
-            return previousOnInstancePlaced?.(instance, root);
-        },
+            sceneGroup.add(root);
+            try {
+                await onInstancePlaced?.(instance, root);
+            } catch (error) {
+                logger.warn?.('[ParamLoader] placement observer failed', {
+                    instanceId: instance.instanceId,
+                    code: error?.code || 'OBSERVER_ERROR',
+                });
+            }
+            return root;
+        } catch (error) {
+            logger.warn?.('[ParamLoader] model failed', {
+                instanceId: instance.instanceId,
+                typeId: instance.typeId,
+                code: error?.code || 'UNKNOWN_ERROR',
+            });
+            return null;
+        } finally {
+            completed += 1;
+            onProgress?.(completed, instances.length);
+        }
     });
-    return result.groups;
+    return placed.filter(Boolean);
 }

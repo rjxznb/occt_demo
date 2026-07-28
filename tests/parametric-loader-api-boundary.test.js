@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 
 import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
@@ -28,31 +27,6 @@ test.after(() => {
     globalThis.fetch = originalFetch;
 });
 
-test('unified loader owns resource dispatch while the compatibility loader has no transport or prototype pipeline', async () => {
-    const [contentSource, compatibilitySource] = await Promise.all([
-        readFile(new URL('../src/components/ContentModelLoader.js', import.meta.url), 'utf8'),
-        readFile(new URL('../src/components/ParametricModelLoader.js', import.meta.url), 'utf8'),
-    ]);
-
-    assert.match(contentSource, /GLTFLoader/);
-    assert.match(contentSource, /OBJLoader/);
-    assert.match(contentSource, /apiClient\.getGoodsDetails/);
-    assert.match(contentSource, /apiClient\.convertModel/);
-    assert.match(contentSource, /resolveModelResource/);
-    assert.match(contentSource, /placeContentModel/);
-
-    assert.match(compatibilitySource, /loadContentModels/);
-    assert.doesNotMatch(compatibilitySource, /OBJLoader|GLTFLoader/);
-    assert.doesNotMatch(compatibilitySource, /getGoodsDetail|convertModel|resolveModelResource/);
-    assert.doesNotMatch(compatibilitySource, /modelCache|pendingRequests|urlCache|parseObj/);
-
-    for (const source of [contentSource, compatibilitySource]) {
-        assert.doesNotMatch(source, /biz-gateway\.home\.ke\.com|localhost:3100/);
-        assert.doesNotMatch(source, /getParametricGoodsDetail|getContentGoodsDetails|convertParametricModel/);
-        assert.doesNotMatch(source, /\/api\/(?:getGoodsDetail|modelUrlToObj)/);
-    }
-});
-
 test('loadTemplate keeps the compatibility template API backed by the shared resolver', async () => {
     const template = await loadTemplate();
     assert.deepEqual(template.get('1001'), {
@@ -62,17 +36,31 @@ test('loadTemplate keeps the compatibility template API backed by the shared res
     });
 });
 
-test('loadParametricModels is a thin adapter from legacy softlists to unified instances', async () => {
+test('loadParametricModels uses the independent per-resource detail and conversion path', async () => {
     const scene = new THREE.Group();
-    const groups = [new THREE.Group()];
-    let received;
-    const loader = {
-        async load(instances, sceneGroup, options) {
-            received = { instances, sceneGroup, options };
-            return { groups, summary: {}, failures: [], selections: [] };
+    const calls = [];
+    const templateResolver = {
+        async load() {},
+        select() {
+            return {
+                typeId: '1001', typeName: 'Compatibility template', resId: 'res-1001',
+                referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+            };
         },
     };
-    const onProgress = () => {};
+    const apiClient = {
+        async getGoodsDetail(resId) {
+            calls.push(['detail', resId]);
+            return { data: { modelDTO: {
+                parameterizedJsonUrl: 'https://file.test/model.json',
+            } } };
+        },
+        async convertModel(url, parameters) {
+            calls.push(['convert', url, parameters]);
+            return { obj: 'parameterized model fixture' };
+        },
+    };
+    const modelParams = [{ name: 'width', value: 100 }];
 
     const result = await loadParametricModels([
         {
@@ -89,41 +77,36 @@ test('loadParametricModels is a thin adapter from legacy softlists to unified in
             horizontalFlip: true,
             verticalFlip: false,
             groundHeight: 25,
-            modelParams: [{ name: 'width', value: 100 }],
+            modelParams,
             rawBlockInnerInfo: { style: 'legacy' },
         },
         { id: 'not-softlist', kind: 'door', typeId: '1001' },
-    ], scene, { loader, concurrency: 2, onProgress });
+    ], scene, {
+        templateResolver,
+        apiClient,
+        parseObj(content) {
+            assert.equal(content, 'parameterized model fixture');
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(
+                new THREE.BoxGeometry(1, 1, 1),
+                new THREE.MeshBasicMaterial(),
+            ));
+            return root;
+        },
+        logger: { log() {}, warn() {} },
+    });
 
-    assert.equal(result, groups);
-    assert.equal(received.sceneGroup, scene);
-    assert.equal(received.options.loader, loader);
-    assert.equal(received.options.concurrency, 2);
-    assert.equal(received.options.onProgress, onProgress);
-    assert.deepEqual(received.instances, [{
-        instanceId: 'legacy-7',
-        sourceList: 'soft_list',
-        sourceIndex: 0,
-        category: 'soft',
-        typeId: '1001',
-        basePoint: { x: 10, y: 20, z: 30 },
-        footprint: [
-            { x: 0, y: 0 }, { x: 100, y: 0 },
-            { x: 100, y: 200 }, { x: 0, y: 200 },
-        ],
-        size: { x: 100, y: 200, z: 300 },
-        rotationDegrees: 75,
-        horizontalFlip: true,
-        verticalFlip: false,
-        outScale: undefined,
-        groundHeight: 25,
-        modelParams: [{ name: 'width', value: 100 }],
-        rawBlockInnerInfo: { style: 'legacy' },
-        legacySoftlistId: 'legacy-7',
-    }]);
+    assert.equal(result.length, 1);
+    assert.equal(scene.children.includes(result[0]), true);
+    assert.deepEqual(calls, [
+        ['detail', 'res-1001'],
+        ['convert', 'https://file.test/model.json', modelParams],
+    ]);
+    assert.equal(result[0].userData.type, 'parametric-softlist');
+    assert.equal(result[0].userData.softlistId, 'legacy-7');
 });
 
-test('legacy adapter preserves current parametric click metadata through unified placement', async () => {
+test('independent legacy loader preserves current parametric click metadata', async () => {
     const scene = new THREE.Group();
     let callbackCalls = 0;
     let callbackDebugInfo;
@@ -151,14 +134,11 @@ test('legacy adapter preserves current parametric click metadata through unified
             },
         },
         apiClient: {
-            async getGoodsDetails() {
-                return { items: [{
-                    id: '100', modelType: 0,
-                    resourceList: [{ type: 8, data: {
-                        parameterizedJsonUrl: 'https://file.test/model.json',
-                        parameterizedJsonMd5: 'hash',
-                    } }],
-                }] };
+            async getGoodsDetail() {
+                return { data: { modelDTO: {
+                    id: '100',
+                    parameterizedJsonUrl: 'https://file.test/model.json',
+                } } };
             },
             async convertModel() { return { obj: 'parameterized model fixture' }; },
         },

@@ -9,6 +9,7 @@ import { ContentModelLoader } from '../src/components/ContentModelLoader.js';
 import * as RoomRendererModule from '../src/components/RoomRenderer.js';
 
 const {
+    filterNonSoftContentModels,
     handlePlacedContentModel,
     hidePlacedFallback,
     indexDoorWindowFallbacks,
@@ -92,6 +93,15 @@ function controlledDoorLoader(failurePhase = null) {
         logger: { log() {}, warn() {} },
     });
 }
+
+test('soft-list records never enter the unified content-model loader', () => {
+    const soft = { instanceId: 'soft_list:0', sourceList: 'soft_list' };
+    const door = { instanceId: 'door_list:0', sourceList: 'door_list' };
+    const radiator = { instanceId: 'radiator_list:0', sourceList: 'radiator_list' };
+
+    assert.deepEqual(filterNonSoftContentModels([soft, door, radiator]), [door, radiator]);
+    assert.deepEqual(filterNonSoftContentModels(null), []);
+});
 
 test('GeometryService exposes every normalized content model without removing legacy softlists', async () => {
     const previousParseData = geometryService.parseData;
