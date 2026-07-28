@@ -1,10 +1,3 @@
-export const CONTENT_MODEL_LISTS = Object.freeze([
-    Object.freeze({ sourceList: 'soft_list', category: 'soft' }),
-    Object.freeze({ sourceList: 'door_list', category: 'door' }),
-    Object.freeze({ sourceList: 'window_list', category: 'window' }),
-    Object.freeze({ sourceList: 'radiator_list', category: 'radiator' }),
-]);
-
 const PARAMETER_NAMES = Object.freeze({
     长: '长度', 宽: '宽度', 高: '高度', 自身高度: '自身高度',
     离地高度: '离地高度', 挡水条高度: '挡水条高度',
@@ -12,9 +5,13 @@ const PARAMETER_NAMES = Object.freeze({
 
 export function collectContentModelInstances(json) {
     const result = [];
-    for (const descriptor of CONTENT_MODEL_LISTS) {
-        const records = Array.isArray(json?.[descriptor.sourceList])
-            ? json[descriptor.sourceList] : [];
+    for (const [sourceList, records] of Object.entries(json ?? {})) {
+        if (!sourceList.endsWith('_list') || !Array.isArray(records)) continue;
+
+        const descriptor = {
+            sourceList,
+            category: sourceList.slice(0, -'_list'.length),
+        };
         records.forEach((record, sourceIndex) => {
             const item = normalizeRecord(record, descriptor, sourceIndex);
             if (item) result.push(item);
@@ -67,7 +64,7 @@ function readHeight(blockInnerInfo) {
 }
 
 function deriveFootprintSize(footprint, blockInnerInfo) {
-    if (footprint.length < 3) return null;
+    if (footprint.length !== 4) return null;
 
     const firstEdge = Math.hypot(
         footprint[1].x - footprint[0].x,
@@ -91,7 +88,7 @@ function normalizeRecord(record, descriptor, sourceIndex) {
 
     const typeId = record.TypeId == null ? '' : String(record.TypeId).trim();
     const basePoint = parseVector(record.BasePoint);
-    if (!typeId || !basePoint) return null;
+    if (!typeId) return null;
 
     const blockInnerInfo = record.BlockInnerInfo && typeof record.BlockInnerInfo === 'object'
         ? record.BlockInnerInfo
@@ -102,7 +99,6 @@ function normalizeRecord(record, descriptor, sourceIndex) {
     const size = hasUsablePlanDimensions(parsedSize)
         ? parsedSize
         : deriveFootprintSize(footprint, blockInnerInfo);
-    if (!size) return null;
 
     const rawBlockInnerInfo = { ...blockInnerInfo };
     const groundHeight = Object.prototype.hasOwnProperty.call(blockInnerInfo, '离地高度')

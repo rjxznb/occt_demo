@@ -13,14 +13,32 @@ async function loadDrawing2Coverage() {
         readFile(new URL('../public/data/Drawing2.json', import.meta.url), 'utf8'),
         readFile(new URL('../public/data/template.json', import.meta.url), 'utf8'),
     ]);
-    const instances = collectContentModelInstances(JSON.parse(drawingText));
+    const drawing = JSON.parse(drawingText);
+    const instances = collectContentModelInstances(drawing);
     const catalog = createTemplateCatalog(JSON.parse(templateText));
     const selections = instances.map(instance => ({
         instance,
         selection: selectTemplateResource(instance, catalog),
     }));
-    return { instances, selections };
+    return { drawing, instances, selections };
 }
+
+test('Drawing2 discovers every TypeId-bearing record from every array-valued *_list', async () => {
+    const { drawing, instances } = await loadDrawing2Coverage();
+    const expectedIdentities = Object.entries(drawing).flatMap(([sourceList, records]) => {
+        if (!sourceList.endsWith('_list') || !Array.isArray(records)) return [];
+        return records.flatMap((record, sourceIndex) => {
+            const typeId = String(record?.TypeId ?? '').trim();
+            return typeId ? [`${sourceList}:${sourceIndex}`] : [];
+        });
+    });
+
+    assert.deepEqual(instances.map(instance => instance.instanceId), expectedIdentities);
+    const freeWindows = instances.filter(instance =>
+        instance.sourceList === 'window_list' && instance.typeId === '140d02');
+    assert.equal(freeWindows.length, 2);
+    assert.ok(freeWindows.every(instance => instance.size === null));
+});
 
 test('Drawing2 keeps audited soft-content and template-selection coverage', async () => {
     const { instances, selections } = await loadDrawing2Coverage();

@@ -26,21 +26,38 @@ const block = (TypeId, extra = {}) => ({
     ...extra,
 });
 
-test('collects only UE model-bearing lists', () => {
+test('discovers every array-valued *_list record with a TypeId', () => {
     const result = collectContentModelInstances({
         soft_list: [block('soft')],
         door_list: [block('door')],
-        window_list: [block('window')],
-        radiator_list: [block('radiator')],
-        pillar_list: [block('must-not-load')],
-        room_list: [block('must-not-load-either')],
+        pillar_list: [block('pillar')],
+        final_room_list: [block('room')],
+        malformed_list: null,
+        metadata: [block('not-a-list')],
+        ignored_list: [{ BasePoint: 'X=0 Y=0 Z=0' }],
     });
-    assert.deepEqual(result.map(item => item.sourceList), [
-        'soft_list', 'door_list', 'window_list', 'radiator_list',
+    assert.deepEqual(result.map(item => item.instanceId), [
+        'soft_list:0', 'door_list:0', 'pillar_list:0', 'final_room_list:0',
     ]);
     assert.deepEqual(result.map(item => item.category), [
-        'soft', 'door', 'window', 'radiator',
+        'soft', 'door', 'pillar', 'final_room',
     ]);
+});
+
+test('retains zero-size irregular candidates for later local-geometry classification', () => {
+    const [item] = collectContentModelInstances({
+        window_list: [block('140d02', {
+            Size: 'X=0 Y=0',
+            Points: [
+                'X=0 Y=0 Z=0', 'X=0 Y=1000 Z=0', 'X=900 Y=1400 Z=0',
+                'X=1100 Y=1350 Z=0', 'X=-240 Y=900 Z=0', 'X=-240 Y=0 Z=0',
+            ],
+        })],
+    });
+
+    assert.equal(item.typeId, '140d02');
+    assert.equal(item.size, null);
+    assert.equal(item.footprint.length, 6);
 });
 
 test('normalizes CAD plan transform, dimensions, and parameters', () => {
@@ -112,10 +129,12 @@ test('keeps two-axis CAD Size when its footprint starts on the opposite axis', (
     assert.deepEqual(item.size, { x: 420, y: 730, z: 800 });
 });
 
-test('skips records without valid dimensions or a usable footprint', () => {
-    const result = collectContentModelInstances({
+test('retains typed records without dimensions for later classification', () => {
+    const [item] = collectContentModelInstances({
         soft_list: [block('no-dimensions', { Size: 'invalid', Points: [] })],
     });
 
-    assert.deepEqual(result, []);
+    assert.equal(item.typeId, 'no-dimensions');
+    assert.equal(item.size, null);
+    assert.deepEqual(item.footprint, []);
 });

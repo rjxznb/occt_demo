@@ -271,7 +271,7 @@ test('visible door and window fallbacks retain their source identity', () => {
     assert.equal(windows[0].userData.sourceIndex, 0);
 });
 
-test('parser and factory retain original source indexes after filtered door and window records', async () => {
+test('parser retains source-list order and factory retains indexes after filtered records', async () => {
     const drawing = {
         final_room_list: [],
         final_space_dim_list: [],
@@ -307,8 +307,8 @@ test('parser and factory retain original source indexes after filtered door and 
 
     try {
         assert.deepEqual(parsed.content_models.map(model => [model.sourceList, model.sourceIndex]), [
-            ['door_list', 0], ['door_list', 1],
             ['window_list', 0], ['window_list', 1],
+            ['door_list', 0], ['door_list', 1],
         ]);
         assert.equal(parsed.door_list.length, 1);
         assert.equal(parsed.door_list[0].sourceIndex, 1);
