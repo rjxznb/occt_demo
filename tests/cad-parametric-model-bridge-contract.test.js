@@ -15,10 +15,13 @@ test('native parametric model bridge validates inputs and suppresses callbacks a
     const source = await readFile(BRIDGE_PATH, 'utf8');
 
     assert.match(source, /BindAsync\(\s*"getParametricGoodsDetail"/);
+    assert.match(source, /BindAsync\(\s*"getContentGoodsDetails"/);
     assert.match(source, /BindAsync\(\s*"convertParametricModel"/);
     assert.match(source, /args\.size\(\)\s*!=\s*1/);
     assert.match(source, /args\.front\(\)\.size\(\)\s*>\s*kMaxSerializedRequestBytes[\s\S]*?nlohmann::json::parse/);
     assert.match(source, /kMaxGoodsDetailResIdLength\s*=\s*128/);
+    assert.match(source, /kMaxGoodsDetailsCount\s*=\s*50/);
+    assert.match(source, /kMaxGoodsDetailsSerializedBytes\s*=\s*8192/);
     assert.match(source, /kMaxModelUrlBytes\s*=\s*8192/);
     assert.match(source, /kMaxParameterCount\s*=\s*64/);
     assert.match(source, /kMaxSerializedRequestBytes\s*=\s*65536/);

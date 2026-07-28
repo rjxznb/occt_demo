@@ -33,6 +33,7 @@ class FakeElement {
 function createHarness(nativeMethods) {
   const listeners = new Map();
   const posts = [];
+  const calls = [];
   const elements = new Map();
   const document = {
     hidden: false,
@@ -54,7 +55,6 @@ function createHarness(nativeMethods) {
     addEventListener() {}
   };
   const window = {
-    ...nativeMethods,
     addEventListener(type, listener) {
       listeners.set(type, listener);
     },
@@ -62,6 +62,12 @@ function createHarness(nativeMethods) {
       if (listeners.get(type) === listener) listeners.delete(type);
     }
   };
+  Object.entries(nativeMethods).forEach(([name, method]) => {
+    window[name] = function (...args) {
+      calls.push({ name, args });
+      return method(...args);
+    };
+  });
 
   vm.runInNewContext(fs.readFileSync(RENDER_PREVIEW_PATH, 'utf8'), {
     window,
@@ -78,6 +84,7 @@ function createHarness(nativeMethods) {
   const iframe = document.getElementById('preview-stage').children[0].children[0];
   return {
     posts,
+    calls,
     invoke(message) {
       listeners.get('message')({ source: iframe.contentWindow, data: {
         channel: 'renderer-preview', version: 1, tabId: 'page-1', type: 'invoke', ...message
@@ -95,29 +102,33 @@ function plain(value) {
 }
 
 test('render preview validates and forwards parametric native calls with parsed JSON results', { skip: integrationSkip }, async () => {
-  const calls = [];
   const harness = createHarness({
     getRenderPreviewContext: () => '{}',
-    getParametricGoodsDetail(resId) {
-      calls.push(['goods', resId]);
-      return '{"id":"42"}';
-    },
-    convertParametricModel(requestJson) {
-      calls.push(['convert', requestJson]);
-      return '{"obj":"mesh"}';
-    }
+    getParametricGoodsDetail: () => '{"id":"42"}',
+    getContentGoodsDetails: () => '[{"id":"1961100"},{"id":"2406734"}]',
+    convertParametricModel: () => '{"obj":"mesh"}'
   });
 
   harness.invoke({ requestId: 'goods', method: 'getParametricGoodsDetail', payload: { resId: ' 42 ' } });
   await flush();
-  assert.deepEqual(calls[0], ['goods', '42']);
+  assert.deepEqual(harness.calls[1], { name: 'getParametricGoodsDetail', args: ['42'] });
   assert.deepEqual(plain(harness.posts.at(-1).payload), { id: '42' });
+
+  harness.invoke({
+    requestId: 'batch-goods', method: 'getContentGoodsDetails',
+    payload: { resIds: ['1961100', '2406734'] },
+  });
+  await flush();
+  assert.deepEqual(harness.calls.at(-1), {
+    name: 'getContentGoodsDetails',
+    args: ['{"resIds":["1961100","2406734"]}'],
+  });
 
   harness.invoke({ requestId: 'convert', method: 'convertParametricModel', payload: {
     url: 'https://example.test/model', parameters: []
   } });
   await flush();
-  assert.deepEqual(JSON.parse(calls[1][1]), { url: 'https://example.test/model', parameters: [] });
+  assert.deepEqual(JSON.parse(harness.calls.at(-1).args[0]), { url: 'https://example.test/model', parameters: [] });
   assert.deepEqual(plain(harness.posts.at(-1).payload), { obj: 'mesh' });
 });
 
@@ -143,4 +154,31 @@ test('render preview rejects invalid parametric payloads and preserves native st
   assert.deepEqual(plain(harness.posts.at(-1).error), {
     code: 'HTTP_ERROR', message: 'upstream failed', status: 502
   });
+});
+
+test('render preview rejects invalid batch goods payloads before calling native code', { skip: integrationSkip }, async () => {
+  const harness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getContentGoodsDetails: () => '[]'
+  });
+  const invalidPayloads = [
+    { resIds: [] },
+    { resIds: Array.from({ length: 51 }, (_, index) => String(index + 1)) },
+    { resIds: ['1961100', 'not-numeric'] },
+    { resIds: ['1961100'], extra: true }
+  ];
+
+  for (const [index, payload] of invalidPayloads.entries()) {
+    const callsBefore = harness.calls.length;
+    harness.invoke({
+      requestId: `invalid-batch-${index}`,
+      method: 'getContentGoodsDetails',
+      payload
+    });
+    await flush();
+    assert.equal(harness.calls.length, callsBefore);
+    assert.deepEqual(plain(harness.posts.at(-1).error), {
+      code: 'INVALID_ARGUMENT', message: 'resIds 鍙傛暟鏃犳晥'
+    });
+  }
 });
