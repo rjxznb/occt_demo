@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
@@ -35,6 +36,7 @@ const DEPENDENCY_OPTIONS = [
     'loadGltf', 'parseObj', 'templateResolver', 'apiClient',
     'placeModel', 'resolveResource', 'logger',
 ];
+const DEFAULT_PROTOTYPE_CACHE_LIMIT = 96;
 
 function finiteNumericString(value) {
     if (typeof value !== 'string' || value.trim() === '') return null;
@@ -259,8 +261,13 @@ export class ContentModelLoader {
         placeModel = placeContentModel,
         resolveResource = resolveModelResource,
         logger = console,
+        prototypeCacheLimit = DEFAULT_PROTOTYPE_CACHE_LIMIT,
     } = {}) {
         const gltfLoader = loadGltf ? null : new GLTFLoader();
+        const dracoLoader = loadGltf ? null : new DRACOLoader()
+            .setDecoderPath('data/draco/gltf/')
+            .setWorkerLimit(3);
+        if (gltfLoader) gltfLoader.setDRACOLoader(dracoLoader);
         const objLoader = parseObj ? null : new OBJLoader();
         this.loadGltf = loadGltf ?? (async url => (await gltfLoader.loadAsync(url)).scene);
         this.parseObj = parseObj ?? (content => objLoader.parse(content));
@@ -270,6 +277,7 @@ export class ContentModelLoader {
         this.resolveResource = resolveResource;
         this.logger = logger;
         this.prototypeCache = new Map();
+        this.prototypeCacheLimit = Math.max(1, Math.floor(Number(prototypeCacheLimit)) || 1);
         this.prototypeFlights = new Map();
         this.runPrototypeLoad = createLimiter(3);
     }
@@ -278,7 +286,12 @@ export class ContentModelLoader {
         const key = resource.kind === 'static-glb'
             ? staticCacheKey(resource)
             : parametricCacheKey(resource, parameters);
-        if (this.prototypeCache.has(key)) return this.prototypeCache.get(key);
+        if (this.prototypeCache.has(key)) {
+            const cached = this.prototypeCache.get(key);
+            this.prototypeCache.delete(key);
+            this.prototypeCache.set(key, cached);
+            return cached;
+        }
         if (this.prototypeFlights.has(key)) return this.prototypeFlights.get(key);
 
         const flight = this.runPrototypeLoad(() => resource.kind === 'static-glb'
@@ -288,6 +301,9 @@ export class ContentModelLoader {
         try {
             const prototypeRoot = await flight;
             this.prototypeCache.set(key, prototypeRoot);
+            while (this.prototypeCache.size > this.prototypeCacheLimit) {
+                this.prototypeCache.delete(this.prototypeCache.keys().next().value);
+            }
             return prototypeRoot;
         } finally {
             if (this.prototypeFlights.get(key) === flight) this.prototypeFlights.delete(key);

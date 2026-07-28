@@ -2,7 +2,8 @@ export function resolveModelResource(resId, detail) {
     const normalizedResId = String(resId ?? '').trim();
     const model = detail?.modelDTO ?? detail?.data?.modelDTO ?? detail ?? {};
     const candidates = Array.isArray(model?.resourceList) ? model.resourceList : [];
-    const resources = candidates.map(candidate => ({
+    const sourceCandidates = candidates.length > 0 ? candidates : legacyFlatCandidates(model);
+    const resources = sourceCandidates.map(candidate => ({
         type: candidate?.type,
         data: candidate?.data ?? candidate ?? {},
     }));
@@ -30,6 +31,17 @@ export function resolveModelResource(resId, detail) {
         errorCode: hasSupportedResource ? 'RESOURCE_URL_MISSING' : 'UNSUPPORTED_RESOURCE_TYPE',
         resId: normalizedResId,
     };
+}
+
+function legacyFlatCandidates(model) {
+    const resources = [];
+    if (hasValue(model?.parameterizedJsonUrl) || hasValue(model?.parameterizedJsonMd5)) {
+        resources.push({ type: 8, data: model });
+    }
+    if (hasValue(model?.webV2Url) || hasValue(model?.webV2Md5)) {
+        resources.push({ type: 1, data: model });
+    }
+    return resources;
 }
 
 function resolvedResource(resId, kind, sourceUrl, contentHash, modelType, resourceType, rawSummary) {

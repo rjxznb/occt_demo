@@ -5,6 +5,7 @@ const DEFAULT_BACKEND_URL = 'http://localhost:3100';
 const GOODS_TIMEOUT_MS = 35_000;
 const MODEL_TIMEOUT_MS = 130_000;
 const MAX_DECOMPRESSED_BYTES = 128 * 1024 * 1024;
+const GOODS_CONCURRENCY = 3;
 
 export class ParametricApiClient {
     constructor({
@@ -44,12 +45,31 @@ export class ParametricApiClient {
         for (let index = 0; index < ids.length; index += 50) {
             batches.push(ids.slice(index, index + 50));
         }
-        const responses = this.transport === 'cad'
-            ? await Promise.all(batches.map(batch => this.hostClient.invoke(
-                'getContentGoodsDetails', { resIds: batch }, { timeoutMs: GOODS_TIMEOUT_MS },
-            )))
-            : await Promise.all(ids.map(id => this.getGoodsDetail(id)));
-        const detailById = indexGoodsDetails({ items: responses.flatMap(normalizeGoodsItems) });
+        const requests = this.transport === 'cad' ? batches : ids;
+        const responses = await mapSettledWithConcurrency(
+            requests,
+            GOODS_CONCURRENCY,
+            request => this.transport === 'cad'
+                ? this.hostClient.invoke(
+                    'getContentGoodsDetails', { resIds: request }, { timeoutMs: GOODS_TIMEOUT_MS },
+                )
+                : this.getGoodsDetail(request),
+        );
+        const errors = responses.filter(result => result.status === 'rejected')
+            .map(result => result.reason);
+        const items = [];
+        let validResponseCount = 0;
+        for (const response of responses) {
+            if (response.status !== 'fulfilled') continue;
+            try {
+                items.push(...normalizeGoodsItems(response.value));
+                validResponseCount += 1;
+            } catch (error) {
+                errors.push(error);
+            }
+        }
+        if (validResponseCount === 0 && errors.length > 0) throw errors[0];
+        const detailById = indexGoodsDetails({ items });
         return { items: ids.flatMap(id => detailById.has(id) ? [detailById.get(id)] : []) };
     }
 
@@ -99,6 +119,24 @@ export class ParametricApiClient {
         }
         return response;
     }
+}
+
+async function mapSettledWithConcurrency(values, concurrency, mapper) {
+    const results = new Array(values.length);
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            try {
+                results[index] = { status: 'fulfilled', value: await mapper(values[index], index) };
+            } catch (reason) {
+                results[index] = { status: 'rejected', reason };
+            }
+        }
+    });
+    await Promise.all(workers);
+    return results;
 }
 
 export const parametricApiClient = new ParametricApiClient();

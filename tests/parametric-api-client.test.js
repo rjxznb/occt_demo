@@ -172,6 +172,46 @@ test('Demo batch transport reuses the existing per-ID Node endpoint', async () =
     assert.deepEqual(result.items.map(item => item.id), ['7', '8']);
 });
 
+test('Demo goods transport caps per-ID requests at concurrency three', async () => {
+    let active = 0;
+    let maximum = 0;
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async url => {
+            active += 1;
+            maximum = Math.max(maximum, active);
+            await new Promise(resolve => setTimeout(resolve, 5));
+            active -= 1;
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({ data: { id: url.split('=').at(-1) } }),
+            };
+        },
+    });
+
+    const result = await client.getGoodsDetails(['1', '2', '3', '4', '5', '6', '7']);
+
+    assert.equal(maximum, 3);
+    assert.deepEqual(result.items.map(item => item.id), ['1', '2', '3', '4', '5', '6', '7']);
+});
+
+test('one failed Demo goods request does not discard successful details', async () => {
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async url => {
+            const id = url.split('=').at(-1);
+            return id === '8'
+                ? { ok: false, status: 503 }
+                : { ok: true, status: 200, json: async () => ({ data: { id } }) };
+        },
+    });
+
+    const result = await client.getGoodsDetails(['7', '8', '9']);
+
+    assert.deepEqual(result.items.map(item => item.id), ['7', '9']);
+});
+
 test('goods item normalization accepts supported batch and single payload shapes', () => {
     assert.deepEqual(normalizeGoodsItems({ code: 1, data: { list: [{ id: 1 }] } }), [{ id: 1 }]);
     assert.deepEqual(normalizeGoodsItems({ code: 2000, data: [{ id: 2 }] }), [{ id: 2 }]);

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 import {
     ContentModelLoader,
@@ -83,6 +85,7 @@ function placeClone(model, currentInstance) {
 
 function makeHarness({
     selections, details, loadGltf, parseObj, convertModel, getGoodsDetails, logger,
+    prototypeCacheLimit,
 } = {}) {
     const calls = { sequence: [], goods: [], gltf: [], convert: [], place: [] };
     const templateResolver = {
@@ -121,9 +124,33 @@ function makeHarness({
             return placeClone(model, currentInstance);
         },
         logger: logger ?? { log() {}, warn() {} },
+        prototypeCacheLimit,
     });
     return { loader, calls };
 }
+
+test('default GLTF loading configures the bundled Draco decoder', () => {
+    const configured = [];
+    const original = GLTFLoader.prototype.setDRACOLoader;
+    GLTFLoader.prototype.setDRACOLoader = function setDRACOLoader(loader) {
+        configured.push(loader);
+        return original.call(this, loader);
+    };
+    try {
+        new ContentModelLoader({
+            templateResolver: { async load() {}, select() {} },
+            apiClient: {},
+            logger: { log() {}, warn() {} },
+        });
+    } finally {
+        GLTFLoader.prototype.setDRACOLoader = original;
+    }
+
+    assert.equal(configured.length, 1);
+    assert.ok(configured[0] instanceof DRACOLoader);
+    assert.equal(configured[0].decoderPath, 'data/draco/gltf/');
+    assert.equal(configured[0].workerLimit, 3);
+});
 
 test('loads the template first, batches unique details, and dispatches type 1 and type 8 resources', async () => {
     const selections = new Map([
@@ -179,6 +206,34 @@ test('deduplicates static prototypes in flight and in cache while returning inde
     assert.notEqual(first.groups[0], first.groups[1]);
     assert.notEqual(first.groups[0], second.groups[0]);
     assert.equal(scene.children.length, 3);
+});
+
+test('bounds the shared prototype cache and refreshes recently used entries', async () => {
+    const selections = new Map([
+        ['zero', selection('100', 'zero')],
+        ['one', selection('101', 'one')],
+        ['two', selection('102', 'two')],
+    ]);
+    const { loader, calls } = makeHarness({
+        selections,
+        details: [staticDetail('100'), staticDetail('101'), staticDetail('102')],
+        prototypeCacheLimit: 2,
+    });
+    const scene = new THREE.Group();
+
+    await loader.load([instance('zero', 0)], scene);
+    await loader.load([instance('one', 1)], scene);
+    await loader.load([instance('zero', 2)], scene);
+    await loader.load([instance('two', 3)], scene);
+    await loader.load([instance('one', 4)], scene);
+
+    assert.deepEqual(calls.gltf, [
+        'https://file.test/100.kb',
+        'https://file.test/101.kb',
+        'https://file.test/102.kb',
+        'https://file.test/101.kb',
+    ]);
+    assert.equal(loader.prototypeCache.size, 2);
 });
 
 test('normalizes parameter object order, parameter order, and numeric values for cache deduplication', async () => {

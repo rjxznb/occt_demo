@@ -35,6 +35,28 @@ test('type 8 chooses parameterizedJsonUrl and never treats it as static', () => 
     assert.equal(resource.contentHash, 'parameter-md5');
 });
 
+test('standalone Node flat modelDTO fields resolve to the same resource kinds', () => {
+    const staticResource = resolveModelResource('1961100', {
+        resGoodsId: 1961100,
+        modelType: 1,
+        webV2Url: 'https://file.test/static.kb',
+        webV2Md5: 'static-flat-md5',
+    });
+    const parametricResource = resolveModelResource('2406734', {
+        resGoodsId: 2406734,
+        modelType: 0,
+        parameterizedJsonUrl: 'https://file.test/parametric.json',
+        parameterizedJsonMd5: 'parametric-flat-md5',
+    });
+
+    assert.equal(staticResource.kind, 'static-glb');
+    assert.equal(staticResource.resourceType, 1);
+    assert.equal(staticResource.contentHash, 'static-flat-md5');
+    assert.equal(parametricResource.kind, 'parametric-obj');
+    assert.equal(parametricResource.resourceType, 8);
+    assert.equal(parametricResource.contentHash, 'parametric-flat-md5');
+});
+
 test('unknown and incomplete resources return stable error codes', () => {
     assert.equal(resolveModelResource('1', { resourceList: [{ type: 1, data: {} }] }).errorCode,
         'RESOURCE_URL_MISSING');

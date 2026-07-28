@@ -11,6 +11,7 @@ const RANGE_TYPES = new Set([
     STYLE_ITEM.CABINET, STYLE_ITEM.CUPBOARD, STYLE_ITEM.TABLE, STYLE_ITEM.WINDOW,
 ]);
 const RANGE_TOLERANCE_CM = 0.01;
+const DEFAULT_SELECTION_CACHE_LIMIT = 512;
 
 const CABINET_STYLE_TYPE_IDS = new Map([
     ['\u7384\u5173\u67dc', '203c'],
@@ -166,13 +167,18 @@ export function selectTemplateResource(instance, catalog) {
         return { errorCode: 'TEMPLATE_RESOURCE_MISSING', typeId: mappedTypeId, templateEntry };
     }
     const sampleMetadata = templateEntry.SizeSampleModelMap?.[resource.ResId];
+    const selectedReferenceSize = referenceSize(resource);
+    if (!selectedReferenceSize.z) {
+        const templateHeightMillimeters = finiteNumber(templateEntry.Height);
+        if (templateHeightMillimeters > 0) selectedReferenceSize.z = templateHeightMillimeters / 10;
+    }
 
     return {
         typeId: mappedTypeId,
         typeName: templateEntry.TypeName,
         styleItemType: templateEntry.StyleItemType,
         resId: String(resource.ResId),
-        referenceSize: referenceSize(resource),
+        referenceSize: selectedReferenceSize,
         selection,
         xMirror: Boolean(resource.XMirror ?? sampleMetadata?.XMirror),
         groundDist: finiteNumber(templateEntry.GroundDist),
@@ -181,11 +187,14 @@ export function selectTemplateResource(instance, catalog) {
 }
 
 export class ContentTemplateResolver {
-    constructor(fetchImpl = globalThis.fetch) {
+    constructor(fetchImpl = globalThis.fetch, {
+        selectionCacheLimit = DEFAULT_SELECTION_CACHE_LIMIT,
+    } = {}) {
         this.fetchImpl = fetchImpl;
         this.catalog = null;
         this.loadPromise = null;
         this.selectionCache = new Map();
+        this.selectionCacheLimit = Math.max(1, Math.floor(Number(selectionCacheLimit)) || 1);
     }
 
     async load(templatePath = 'data/template.json') {
@@ -205,9 +214,15 @@ export class ContentTemplateResolver {
         const sizeCm = derivePlanSize(instance?.size, instance?.footprint);
         const key = `${mappedTypeId}|${sizeCm.x}|${sizeCm.y}`;
         let selected = this.selectionCache.get(key);
-        if (!selected) {
+        if (selected) {
+            this.selectionCache.delete(key);
+            this.selectionCache.set(key, selected);
+        } else {
             selected = selectTemplateResource(instance, this.catalog);
             this.selectionCache.set(key, selected);
+            while (this.selectionCache.size > this.selectionCacheLimit) {
+                this.selectionCache.delete(this.selectionCache.keys().next().value);
+            }
         }
         return selected;
     }

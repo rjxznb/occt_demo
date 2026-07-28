@@ -119,6 +119,18 @@ test('returns selected resource mirror and template ground distance rather than 
     assert.equal(selected.groundDist, 31);
 });
 
+test('uses template millimeter height when a parametric resource has zero sample dimensions', () => {
+    const local = createTemplateCatalog({ AllItemInfo: [{
+        TypeId: 'shower', TypeName: 'shower', StyleItemType: 1, Height: 2100,
+        ResList: [{ ResId: 'parametric', X: 0, Y: 0, Z: 0 }],
+    }] });
+    const selected = selectTemplateResource({
+        typeId: 'shower', size: { x: 930, y: 990, z: 2100 }, footprint: [],
+    }, local);
+
+    assert.deepEqual(selected.referenceSize, { x: 0, y: 0, z: 210 });
+});
+
 test('returns explicit errors when a mapped template or resource is unavailable', () => {
     assert.equal(selectTemplateResource({ typeId: 'missing', size: { x: 1, y: 1 }, footprint: [] }, catalog).errorCode,
         'TEMPLATE_TYPE_NOT_FOUND');
@@ -152,6 +164,33 @@ test('caches the template fetch and per-size selection while retaining instance 
     assert.equal(mirrored.resId, 'large');
     assert.equal(mirrored.xMirror, true);
     assert.equal(mirrored.groundDist, 31);
+});
+
+test('bounds template selections and evicts the least recently used size', async () => {
+    const resolver = new ContentTemplateResolver(async () => ({
+        ok: true,
+        json: async () => ({ AllItemInfo: [
+            entry('a', 0, [{ ResId: 'a-old', X: 10, Y: 10, Z: 10 }]),
+            entry('b', 0, [{ ResId: 'b-old', X: 10, Y: 10, Z: 10 }]),
+            entry('c', 0, [{ ResId: 'c-old', X: 10, Y: 10, Z: 10 }]),
+        ] }),
+    }), { selectionCacheLimit: 2 });
+    await resolver.load();
+    const instanceFor = typeId => ({
+        typeId,
+        size: { x: 100, y: 100, z: 100 },
+        footprint: [],
+        rawBlockInnerInfo: {},
+    });
+
+    assert.equal(resolver.select(instanceFor('a')).resId, 'a-old');
+    assert.equal(resolver.select(instanceFor('b')).resId, 'b-old');
+    assert.equal(resolver.select(instanceFor('a')).resId, 'a-old');
+    assert.equal(resolver.select(instanceFor('c')).resId, 'c-old');
+    resolver.catalog.get('b').ResList = [{ ResId: 'b-new', X: 10, Y: 10, Z: 10 }];
+
+    assert.equal(resolver.select(instanceFor('b')).resId, 'b-new');
+    assert.equal(resolver.selectionCache.size, 2);
 });
 
 test('Drawing2 selects the audited non-first nearest resources', async () => {
