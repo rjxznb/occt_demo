@@ -4,32 +4,16 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 
 import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
+import { findParametricSoftlistRoot } from '../src/components/SceneClickInteraction.js';
 
 const templateResponse = {
-    AllItemInfo: [
-        { TypeId: '1001', TypeName: 'Client seam', ResList: [{ ResId: 'res-1001', X: 1, Y: 1, Z: 1 }] },
-        { TypeId: '1002', TypeName: 'Fails conversion', ResList: [{ ResId: 'res-1002', X: 1, Y: 1, Z: 1 }] },
-        { TypeId: '1003', TypeName: 'Continues conversion', ResList: [{ ResId: 'res-1003', X: 1, Y: 1, Z: 1 }] },
-        { TypeId: '1004', TypeName: 'Fails URL lookup', ResList: [{ ResId: 'res-1004', X: 1, Y: 1, Z: 1 }] },
-        { TypeId: '1005', TypeName: 'Signed URL secrecy', ResList: [{ ResId: 'res-1005', X: 1, Y: 1, Z: 1 }] },
-    ],
+    AllItemInfo: [{
+        TypeId: '1001',
+        TypeName: 'Compatibility template',
+        StyleItemType: 0,
+        ResList: [{ ResId: 'res-1001', X: 1, Y: 2, Z: 3 }],
+    }],
 };
-
-const validObj = [
-    'o parametric-model',
-    'v 0 0 0',
-    'v 1 0 0',
-    'v 0 1 0',
-    'v 0 0 1',
-    'v 1 1 0',
-    'v 1 0 1',
-    'v 0 1 1',
-    'f 1 2 3',
-    'f 1 4 2',
-    'f 1 3 4',
-    'f 2 4 3',
-    '# parameterized model fixture',
-].join('\n');
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
@@ -41,156 +25,148 @@ test.after(() => {
     globalThis.fetch = originalFetch;
 });
 
-test('ParametricModelLoader keeps local template loading separate from parameter-service transport', async () => {
-    const source = await readFile(
-        new URL('../src/components/ParametricModelLoader.js', import.meta.url),
-        'utf8',
-    );
-    assert.match(source, /parametricApiClient/);
-    assert.match(source, /apiClient\.getGoodsDetail/);
-    assert.match(source, /apiClient\.convertModel/);
-    assert.match(source, /globalThis\.fetch\(templatePath\)/);
-    assert.doesNotMatch(source, /localhost:3100/);
-    assert.doesNotMatch(source, /\/api\/(?:getGoodsDetail|modelUrlToObj)/);
-    assert.doesNotMatch(source, /(?:globalThis\.)?fetch\s*\([^)]*(?:getGoodsDetail|modelUrlToObj)/);
-    assert.doesNotMatch(source, /(?:fetchGoodsDetail|fetchModelObj)/);
-});
-
-test('loadTemplate fetches its default from the preview app data directory', async () => {
-    const template = await loadTemplate();
-    assert.equal(template.get('1001').resId, 'res-1001');
-});
-
-test('loadParametricModels uses the injected client for URL resolution and conversion', async () => {
-    const goodsCalls = [];
-    const conversionCalls = [];
-    const apiClient = {
-        async getGoodsDetail(resId) {
-            goodsCalls.push(resId);
-            return { data: { modelDTO: { parameterizedJsonUrl: 'https://models.test/1001.json' } } };
-        },
-        async convertModel(url, parameters) {
-            conversionCalls.push({ url, parameters });
-            return { obj: validObj };
-        },
-    };
-
-    const groups = await loadParametricModels([
-        softlist('1001', 'client-seam', [{ name: 'width', value: 300 }]),
-    ], new THREE.Group(), { apiClient });
-
-    assert.equal(groups.length, 1);
-    assert.deepEqual(goodsCalls, ['res-1001']);
-    assert.deepEqual(conversionCalls, [{
-        url: 'https://models.test/1001.json',
-        parameters: [{ name: 'width', value: 300 }],
-    }]);
-});
-
-test('a failed model conversion does not prevent subsequent injected-client work', async () => {
-    const conversionCalls = [];
-    const apiClient = {
-        async getGoodsDetail(resId) {
-            return { data: { modelDTO: { parameterizedJsonUrl: `https://models.test/${resId}.json` } } };
-        },
-        async convertModel(url) {
-            conversionCalls.push(url);
-            if (url.endsWith('res-1002.json')) {
-                throw Object.assign(new Error('conversion unavailable'), { code: 'HTTP_ERROR', status: 502 });
-            }
-            return { obj: validObj };
-        },
-    };
-
-    const groups = await loadParametricModels([
-        softlist('1002', 'bad-model'),
-        softlist('1003', 'good-model'),
-    ], new THREE.Group(), { apiClient });
-
-    assert.equal(groups.length, 1);
-    assert.deepEqual(conversionCalls, [
-        'https://models.test/res-1002.json',
-        'https://models.test/res-1003.json',
+test('unified loader owns resource dispatch while the compatibility loader has no transport or prototype pipeline', async () => {
+    const [contentSource, compatibilitySource] = await Promise.all([
+        readFile(new URL('../src/components/ContentModelLoader.js', import.meta.url), 'utf8'),
+        readFile(new URL('../src/components/ParametricModelLoader.js', import.meta.url), 'utf8'),
     ]);
+
+    assert.match(contentSource, /GLTFLoader/);
+    assert.match(contentSource, /OBJLoader/);
+    assert.match(contentSource, /apiClient\.getGoodsDetails/);
+    assert.match(contentSource, /apiClient\.convertModel/);
+    assert.match(contentSource, /resolveModelResource/);
+    assert.match(contentSource, /placeContentModel/);
+
+    assert.match(compatibilitySource, /loadContentModels/);
+    assert.doesNotMatch(compatibilitySource, /OBJLoader|GLTFLoader/);
+    assert.doesNotMatch(compatibilitySource, /getGoodsDetail|convertModel|resolveModelResource/);
+    assert.doesNotMatch(compatibilitySource, /modelCache|pendingRequests|urlCache|parseObj/);
+
+    for (const source of [contentSource, compatibilitySource]) {
+        assert.doesNotMatch(source, /biz-gateway\.home\.ke\.com|localhost:3100/);
+        assert.doesNotMatch(source, /getParametricGoodsDetail|getContentGoodsDetails|convertParametricModel/);
+        assert.doesNotMatch(source, /\/api\/(?:getGoodsDetail|modelUrlToObj)/);
+    }
 });
 
-test('URL resolution failures log type, resource, and structured client error details', async () => {
-    const originalWarn = console.warn;
-    const warnings = [];
-    console.warn = (...args) => warnings.push(args);
-    try {
-        await loadParametricModels([
-            softlist('1004', 'lookup-failure'),
-        ], new THREE.Group(), {
-            apiClient: {
-                async getGoodsDetail() {
-                    throw Object.assign(new Error('goods lookup unavailable'), {
-                        code: 'UPSTREAM_UNAVAILABLE',
-                        status: 503,
-                    });
-                },
-                async convertModel() {
-                    throw new Error('convertModel must not run when URL resolution fails');
-                },
-            },
-        });
-    } finally {
-        console.warn = originalWarn;
-    }
-
-    const failure = warnings.find(([message]) => message.includes('TypeId=1004'));
-    assert.ok(failure);
-    assert.match(failure[0], /ResId=res-1004/);
-    assert.deepEqual(failure[1], {
-        code: 'UPSTREAM_UNAVAILABLE',
-        status: 503,
-        message: 'goods lookup unavailable',
+test('loadTemplate keeps the compatibility template API backed by the shared resolver', async () => {
+    const template = await loadTemplate();
+    assert.deepEqual(template.get('1001'), {
+        resId: 'res-1001',
+        defaultSize: { x: 1, y: 2, z: 3 },
+        typeName: 'Compatibility template',
     });
 });
 
-test('model conversion keeps signed URLs out of console output', async () => {
-    const signedUrl = 'https://models.test/1005.json?signature=sentinel-secret-query';
-    const logs = [];
-    const originalLog = console.log;
-    console.log = (...args) => logs.push(args);
-    let convertedUrl;
-    try {
-        const groups = await loadParametricModels([
-            softlist('1005', 'signed-url-secrecy', [{ name: 'width', value: 300 }]),
-        ], new THREE.Group(), {
-            apiClient: {
-                async getGoodsDetail() {
-                    return { data: { modelDTO: { parameterizedJsonUrl: signedUrl } } };
-                },
-                async convertModel(url) {
-                    convertedUrl = url;
-                    return { obj: validObj };
-                },
-            },
-        });
-        assert.equal(groups.length, 1);
-    } finally {
-        console.log = originalLog;
-    }
+test('loadParametricModels is a thin adapter from legacy softlists to unified instances', async () => {
+    const scene = new THREE.Group();
+    const groups = [new THREE.Group()];
+    let received;
+    const loader = {
+        async load(instances, sceneGroup, options) {
+            received = { instances, sceneGroup, options };
+            return { groups, summary: {}, failures: [], selections: [] };
+        },
+    };
+    const onProgress = () => {};
 
-    assert.equal(convertedUrl, signedUrl);
-    const output = logs.flatMap(args => args.map(value => String(value))).join('\n');
-    assert.doesNotMatch(output, /https:\/\/models\.test\/1005\.json/);
-    assert.doesNotMatch(output, /sentinel-secret-query/);
+    const result = await loadParametricModels([
+        {
+            id: 'legacy-7',
+            kind: 'softlist',
+            typeId: 1001,
+            basepoint: { x: 10, y: 20, z: 30 },
+            footprint: [
+                { x: 0, y: 0 }, { x: 100, y: 0 },
+                { x: 100, y: 200 }, { x: 0, y: 200 },
+            ],
+            size: { x: 100, y: 200, z: 300 },
+            rotate: 75,
+            horizontalFlip: true,
+            verticalFlip: false,
+            groundHeight: 25,
+            modelParams: [{ name: 'width', value: 100 }],
+            rawBlockInnerInfo: { style: 'legacy' },
+        },
+        { id: 'not-softlist', kind: 'door', typeId: '1001' },
+    ], scene, { loader, concurrency: 2, onProgress });
+
+    assert.equal(result, groups);
+    assert.equal(received.sceneGroup, scene);
+    assert.equal(received.options.loader, loader);
+    assert.equal(received.options.concurrency, 2);
+    assert.equal(received.options.onProgress, onProgress);
+    assert.deepEqual(received.instances, [{
+        instanceId: 'legacy-7',
+        sourceList: 'soft_list',
+        sourceIndex: 0,
+        category: 'soft',
+        typeId: '1001',
+        basePoint: { x: 10, y: 20, z: 30 },
+        footprint: [
+            { x: 0, y: 0 }, { x: 100, y: 0 },
+            { x: 100, y: 200 }, { x: 0, y: 200 },
+        ],
+        size: { x: 100, y: 200, z: 300 },
+        rotationDegrees: 75,
+        horizontalFlip: true,
+        verticalFlip: false,
+        outScale: undefined,
+        groundHeight: 25,
+        modelParams: [{ name: 'width', value: 100 }],
+        rawBlockInnerInfo: { style: 'legacy' },
+    }]);
 });
 
-function softlist(typeId, id, modelParams = []) {
-    return {
-        id,
+test('legacy adapter preserves current parametric click metadata through unified placement', async () => {
+    const scene = new THREE.Group();
+    const groups = await loadParametricModels([{
+        id: 'legacy-click',
         kind: 'softlist',
-        typeId,
+        typeId: '1001',
         basepoint: { x: 0, y: 0, z: 0 },
         footprint: [
-            { x: 0, y: 0 },
-            { x: 100, y: 0 },
-            { x: 100, y: 100 },
-            { x: 0, y: 100 },
+            { x: 0, y: 0 }, { x: 100, y: 0 },
+            { x: 100, y: 100 }, { x: 0, y: 100 },
         ],
-        modelParams,
-    };
-}
+        size: { x: 100, y: 100, z: 100 },
+        rotate: 0,
+        modelParams: [],
+    }], scene, {
+        templateResolver: {
+            async load() {},
+            select() {
+                return {
+                    typeId: '1001', typeName: 'Compatibility template', resId: '100',
+                    referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+                };
+            },
+        },
+        apiClient: {
+            async getGoodsDetails() {
+                return { items: [{
+                    id: '100', modelType: 1,
+                    resourceList: [{ type: 1, data: {
+                        webV2Url: 'https://file.test/static.kb', webV2Md5: 'hash',
+                    } }],
+                }] };
+            },
+        },
+        async loadGltf() {
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(
+                new THREE.BoxGeometry(1, 1, 1),
+                new THREE.MeshBasicMaterial(),
+            ));
+            return root;
+        },
+        logger: { log() {}, warn() {} },
+    });
+
+    assert.equal(groups.length, 1);
+    const mesh = groups[0].getObjectByProperty('isMesh', true);
+    assert.equal(findParametricSoftlistRoot(mesh), groups[0]);
+    assert.equal(groups[0].userData.softlistId, 'legacy-click');
+    assert.equal(groups[0].userData.debugInfo.softlistId, 'legacy-click');
+});
