@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 const SIZE_EPSILON = 1e-9;
+const FOOTPRINT_AREA_RATIO_EPSILON = 1e-8;
 
 function modelSizeError(message = 'Content model size could not be resolved') {
     const error = new Error(message);
@@ -63,11 +64,13 @@ function footprintMetrics(footprint, rotationDegrees = 0, basePoint = {}) {
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
+    const localPoints = [];
     for (const point of points) {
         const worldX = finiteNumber(point.x) - originX;
         const worldY = finiteNumber(point.y) - originY;
         const localX = worldX * cosine - worldY * sine;
         const localY = worldX * sine + worldY * cosine;
+        localPoints.push({ x: localX, y: localY });
         minX = Math.min(minX, localX);
         minY = Math.min(minY, localY);
         maxX = Math.max(maxX, localX);
@@ -76,6 +79,16 @@ function footprintMetrics(footprint, rotationDegrees = 0, basePoint = {}) {
     const spanX = maxX - minX;
     const spanY = maxY - minY;
     if (!(spanX > SIZE_EPSILON) || !(spanY > SIZE_EPSILON)) return null;
+
+    let twiceArea = 0;
+    for (let index = 0; index < localPoints.length; index++) {
+        const current = localPoints[index];
+        const next = localPoints[(index + 1) % localPoints.length];
+        twiceArea += current.x * next.y - next.x * current.y;
+    }
+    const area = Math.abs(twiceArea) / 2;
+    const footprintScaleSquared = Math.max(spanX, spanY) ** 2;
+    if (!(area > footprintScaleSquared * FOOTPRINT_AREA_RATIO_EPSILON)) return null;
     return { x: spanX, y: spanY, center };
 }
 

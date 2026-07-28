@@ -107,6 +107,45 @@ test('a non-square footprint starting along local Y preserves world span and dir
     assertNear(size.z, 800, 'footprint-backed height without repeated outScale');
 });
 
+test('diagonal collinear footprint falls back to local CAD size and absolute outScale', () => {
+    const scale = computeTargetScale({
+        ...instance,
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 },
+            { x: 100, y: 100 },
+            { x: 200, y: 200 },
+        ],
+        size: { x: 300, y: 400, z: 800 },
+        outScale: { x: -2, y: 3, z: 0.5 },
+        rotationDegrees: 0,
+    }, selection,
+    new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(30, 40, 80)),
+    'static-glb');
+
+    assert.deepEqual(scale.toArray(), [20, 30, 5]);
+});
+
+test('scale-relative near-collinear footprint falls back instead of creating a thin target', () => {
+    const scale = computeTargetScale({
+        ...instance,
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 },
+            { x: 1000, y: 1000 },
+            { x: 1000, y: 1000.000001 },
+            { x: 0, y: 0.000001 },
+        ],
+        size: { x: 300, y: 400, z: 800 },
+        outScale: { x: 2, y: -3, z: 0.5 },
+        rotationDegrees: 0,
+    }, selection,
+    new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(30, 40, 80)),
+    'static-glb');
+
+    assert.deepEqual(scale.toArray(), [20, 30, 5]);
+});
+
 test('local CAD size uses absolute outScale only when footprint dimensions are unavailable', () => {
     const scale = computeTargetScale({
         ...instance,
