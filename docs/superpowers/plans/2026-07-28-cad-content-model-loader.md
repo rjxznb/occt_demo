@@ -717,7 +717,7 @@ Expected: test changes are committed in OCCT. CAD C++/JS changes remain unstaged
 - Produces: `createYUpToZUpTransform(): THREE.Matrix4`.
 - Produces: `createPlanTransform(instance): THREE.Matrix4`.
 - Produces: `computeTargetScale(instance, selection, modelBox, resourceKind): THREE.Vector3`.
-- Produces: `computeModelPlacementOffset(instance, modelBox, scale): THREE.Vector3`.
+- Produces: `computeModelPlacementOffset(instance, modelBox, scale: number | THREE.Vector3): THREE.Vector3`; numeric scale remains supported for the existing compatibility tests.
 - Produces: `placeContentModel(prototype, instance, selection, resource): THREE.Group`.
 - Produces: `createContentDebugInfo(...)` containing no resource URLs.
 
@@ -1177,6 +1177,7 @@ Expected: OCCT worktree is clean after the commit, excluding ignored build outpu
 - Build: `C:\Users\User\Desktop\cad_plugin\KeCADPlugin.sln`
 - Replace without commit: `C:\Users\User\Desktop\cad_plugin\build_resource\PluginResource\html\renderer\preview3d/**`
 - Replace without commit: `C:\Users\User\Desktop\cad_plugin\build_resource\PluginResource\html\renderer\preview-vr/**`
+- Copy without commit: updated CAD `render_preview.js` to `C:\Users\User\AppData\Local\ke_arx_cache\2021\PluginResource\html\renderer\render_preview.js`.
 - Replace runtime cache: `C:\Users\User\AppData\Local\ke_arx_cache\2021\PluginResource\html\renderer\preview3d/**`
 - Replace runtime cache: `C:\Users\User\AppData\Local\ke_arx_cache\2021\PluginResource\html\renderer\preview-vr/**`
 
@@ -1238,6 +1239,7 @@ Copy-Item -LiteralPath (Join-Path $buildRoot 'index-3d.html') -Destination (Join
 Copy-Item -LiteralPath (Join-Path $buildRoot 'index-vr.html') -Destination (Join-Path $cadRenderer 'preview-vr\index.html') -Force
 Copy-Item -LiteralPath (Join-Path $buildRoot 'index-3d.html') -Destination (Join-Path $cacheRenderer 'preview3d\index.html') -Force
 Copy-Item -LiteralPath (Join-Path $buildRoot 'index-vr.html') -Destination (Join-Path $cacheRenderer 'preview-vr\index.html') -Force
+Copy-Item -LiteralPath (Join-Path $cadRenderer 'render_preview.js') -Destination (Join-Path $cacheRenderer 'render_preview.js') -Force
 ```
 
 - [ ] **Step 3: Build Debug and Release x64**
@@ -1257,7 +1259,7 @@ Expected: both builds succeed with zero compiler/linker errors.
 
 - [ ] **Step 4: Verify deployed file hashes**
 
-Compare SHA-256 for each current hashed asset and index file across `dist-3d`, CAD renderer, and runtime cache. Compare the newly built Debug ARX with:
+Compare SHA-256 for each current hashed asset and index file across `dist-3d`, CAD renderer, and runtime cache. Also compare the CAD and runtime-cache copies of `render_preview.js`. Because Release is built after Debug in Step 3, compare the newly built Release ARX with:
 
 ```text
 C:\Users\User\AppData\Roaming\Autodesk\AutoCAD 2021\R24.0\chs\Support\ADSKKeCADPlugin.arx
