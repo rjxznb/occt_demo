@@ -94,7 +94,9 @@ generic registry normalization.
 Resolution priority is:
 
 1. Type-specific semantic adapter.
-2. `ModelParamterMap` from the selected template entry when populated.
+2. Finite numeric defaults from `ModelParamterMap` on the selected template
+   entry when populated. In the current catalog this field is a parameter-name
+   to default-value map, not a CAD-field alias map.
 3. Generic compatibility aliases for ordinary content models.
 4. No overrides, allowing the resource's defaults, when no reliable mapping is
    available.
