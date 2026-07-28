@@ -419,7 +419,7 @@ test('real loader hides the visible fallback only after scene insertion and neve
     assert.equal(cutter.visible, true);
 });
 
-test('selection, resource, load, and placement failures retain matching fallbacks and cutters', async () => {
+test('local geometry and resource, load, or placement failures retain matching fallbacks and cutters', async () => {
     assert.equal(typeof RoomRendererModule.createContentModelPlacementHandler, 'function');
     for (const failurePhase of ['selection', 'resource', 'load', 'placement']) {
         const scene = new THREE.Group();
@@ -434,7 +434,8 @@ test('selection, resource, load, and placement failures retain matching fallback
         });
 
         assert.equal(result.groups.length, 0, failurePhase);
-        assert.equal(result.failures.length, 1, failurePhase);
+        assert.equal(result.failures.length, failurePhase === 'selection' ? 0 : 1, failurePhase);
+        assert.equal(result.summary.localGeometry, failurePhase === 'selection' ? 1 : 0, failurePhase);
         assert.equal(fallback.visible, true, failurePhase);
         assert.equal(cutter.visible, true, failurePhase);
     }

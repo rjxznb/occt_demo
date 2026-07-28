@@ -214,6 +214,8 @@ test('loads the template first, batches unique details, and dispatches type 1 an
         staticLoaded: 1,
         parametricLoaded: 1,
         fallbackVisible: 0,
+        localGeometry: 0,
+        openingOnly: 0,
         skipped: 0,
         failed: 0,
     });
@@ -466,7 +468,7 @@ test('rejects prototypes without Mesh and applies shadows and fallback material 
     assert.equal(existingMesh.material, existingMaterial);
 });
 
-test('aggregates selection and detail errors without requesting invalid selections', async () => {
+test('keeps selection misses as local geometry without requesting them', async () => {
     const selections = new Map([
         ['missing-template', { errorCode: 'TEMPLATE_TYPE_NOT_FOUND' }],
         ['missing-resource', { errorCode: 'TEMPLATE_RESOURCE_MISSING' }],
@@ -482,7 +484,7 @@ test('aggregates selection and detail errors without requesting invalid selectio
 
     assert.deepEqual(calls.goods, [['300']]);
     assert.deepEqual(result.failures.map(failure => failure.errorCode), [
-        'TEMPLATE_TYPE_NOT_FOUND', 'TEMPLATE_RESOURCE_MISSING', 'RESOURCE_DETAIL_MISSING',
+        'RESOURCE_DETAIL_MISSING',
     ]);
     assert.deepEqual(result.summary, {
         instances: 3,
@@ -491,9 +493,44 @@ test('aggregates selection and detail errors without requesting invalid selectio
         staticLoaded: 0,
         parametricLoaded: 0,
         fallbackVisible: 0,
+        localGeometry: 2,
+        openingOnly: 0,
         skipped: 3,
         failed: 0,
     });
+});
+
+test('requests goods details only for classified model-resource selections', async () => {
+    const selections = new Map([
+        ['static-type', selection('100', 'static-type')],
+        ['parametric-type', selection('200', 'parametric-type')],
+        ['no-template', { errorCode: 'TEMPLATE_TYPE_NOT_FOUND' }],
+        ['no-resource', { errorCode: 'TEMPLATE_RESOURCE_MISSING' }],
+        ['1307', selection('must-not-request', '1307')],
+    ]);
+    const { loader, calls } = makeHarness({
+        selections,
+        details: [staticDetail('100'), parametricDetail('200')],
+    });
+    const from = (sourceList, typeId, id) => ({
+        ...instance(typeId, id),
+        instanceId: `${sourceList}:${id}`,
+        sourceList,
+        category: sourceList.slice(0, -'_list'.length),
+    });
+
+    const result = await loader.load([
+        from('mixed_list', 'static-type', 0),
+        from('mixed_list', 'parametric-type', 1),
+        from('pillar_list', 'no-template', 0),
+        from('window_list', 'no-resource', 0),
+        from('door_list', '1307', 0),
+    ], new THREE.Group());
+
+    assert.deepEqual(calls.goods, [['100', '200']]);
+    assert.equal(result.summary.localGeometry, 2);
+    assert.equal(result.summary.openingOnly, 1);
+    assert.deepEqual(result.failures, []);
 });
 
 test('retains selected counts and selections when the single detail batch fails', async () => {

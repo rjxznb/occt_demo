@@ -4,6 +4,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
+import { classifyContentCandidates } from './ContentModelClassifier.js';
 import { placeContentModel } from './ContentModelPlacement.js';
 import {
     indexGoodsDetails,
@@ -351,7 +352,7 @@ export class ContentModelLoader {
     async load(instances, sceneGroup, options = {}) {
         const sourceInstances = Array.isArray(instances) ? instances : [];
         const failures = [];
-        const selectedRecords = [];
+        const validInstances = [];
         const groups = [];
         let skipped = 0;
         let failed = 0;
@@ -370,33 +371,13 @@ export class ContentModelLoader {
                 if (isFallbackInstance(currentInstance)) fallbackVisible += 1;
                 continue;
             }
-            let selected;
-            try {
-                selected = this.templateResolver.select(currentInstance);
-            } catch (error) {
-                failures.push(failureFor(
-                    currentInstance,
-                    null,
-                    failureCode(error, 'TEMPLATE_TYPE_NOT_FOUND'),
-                    sanitizedMessage(error, 'Template selection failed'),
-                ));
-                skipped += 1;
-                if (isFallbackInstance(currentInstance)) fallbackVisible += 1;
-                continue;
-            }
-            if (selected?.errorCode) {
-                failures.push(failureFor(
-                    currentInstance,
-                    selected,
-                    selected.errorCode,
-                    selected.message ?? 'Template resource selection failed',
-                ));
-                skipped += 1;
-                if (isFallbackInstance(currentInstance)) fallbackVisible += 1;
-                continue;
-            }
-            selectedRecords.push({ instance: currentInstance, selection: selected });
+            validInstances.push(currentInstance);
         }
+
+        const classification = classifyContentCandidates(validInstances, this.templateResolver);
+        const { selectedRecords, localGeometry, openingOnly } = classification;
+        skipped += localGeometry.length + openingOnly.length;
+        fallbackVisible += localGeometry.filter(item => isFallbackInstance(item.instance)).length;
 
         const uniqueResIds = [...new Set(selectedRecords.map(record => String(record.selection.resId)))];
         let details = new Map();
@@ -511,6 +492,8 @@ export class ContentModelLoader {
             staticLoaded,
             parametricLoaded,
             fallbackVisible,
+            localGeometry: localGeometry.length,
+            openingOnly: openingOnly.length,
             skipped,
             failed,
         };
