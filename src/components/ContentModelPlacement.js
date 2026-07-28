@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { describeBulgeArc } from './ArcWindowGeometry.js';
 
 const SIZE_EPSILON = 1e-9;
 const FOOTPRINT_AREA_RATIO_EPSILON = 1e-8;
@@ -26,6 +27,41 @@ function basePointOf(instance) {
 
 function rotationDegreesOf(instance) {
     return finiteNumber(instance?.rotationDegrees ?? instance?.rotate);
+}
+
+function resolvePlacementPlan(instance, selection) {
+    if (String(instance?.typeId ?? '').trim() === '140c') {
+        const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
+        const arc = path.length === 4 ? describeBulgeArc(path[3], path[0]) : null;
+        if (!arc) throw modelSizeError('Arc-window placement geometry is invalid');
+        const sourceBasePoint = basePointOf(instance);
+        return {
+            instance: {
+                ...instance,
+                basePoint: {
+                    x: arc.apex.x,
+                    y: arc.apex.y,
+                    z: finiteNumber(sourceBasePoint.z),
+                },
+                footprint: [],
+                rotationDegrees: arc.headingDegrees,
+                horizontalFlip: false,
+                verticalFlip: false,
+            },
+            effectiveHorizontalFlip: false,
+            anchor: 'model-origin',
+            arc,
+        };
+    }
+
+    const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip)
+        !== Boolean(selection?.xMirror);
+    return {
+        instance: { ...instance, horizontalFlip: effectiveHorizontalFlip },
+        effectiveHorizontalFlip,
+        anchor: 'bounds-center',
+        arc: null,
+    };
 }
 
 function clonePlain(value) {
@@ -273,12 +309,21 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
     const effectiveHorizontalFlip = typeof placement.effectiveHorizontalFlip === 'boolean'
         ? placement.effectiveHorizontalFlip
         : Boolean(instance?.horizontalFlip) !== Boolean(selection?.xMirror);
+    const arc = placement.arc;
     return {
         instanceId: instance?.instanceId ?? null,
         sourceList: instance?.sourceList ?? null,
         sourceIndex: instance?.sourceIndex ?? null,
         category: instance?.category ?? null,
         typeId: String(instance?.typeId ?? ''),
+        composite: {
+            parentInstanceId: instance?.parentInstanceId ?? null,
+            segmentIndex: instance?.compositeSegmentIndex ?? null,
+            segmentCount: instance?.compositeSegmentCount ?? null,
+            generatedFromTypeId: instance?.generatedFromTypeId ?? null,
+            generatedTypeId: instance?.generatedFromTypeId
+                ? String(instance?.typeId ?? '') : null,
+        },
         selection: {
             typeId: selection?.typeId == null ? null : String(selection.typeId),
             typeName: selection?.typeName ?? null,
@@ -303,7 +348,10 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
             modelParams: clonePlain(instance?.modelParams ?? []),
         },
         transform: {
-            rotationDegrees: rotationDegreesOf(instance),
+            rotationDegrees: finiteNumber(
+                placement.rotationDegrees,
+                rotationDegreesOf(instance),
+            ),
             horizontalFlip: effectiveHorizontalFlip,
             verticalFlip: instance?.verticalFlip === true,
             templateXMirror: selection?.xMirror === true,
@@ -318,6 +366,14 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
                 max: vectorToPlain(worldBox?.max),
                 size: vectorToPlain(worldSize),
             },
+            arc: arc ? {
+                chordLength: finiteNumber(arc.chordLength),
+                sagitta: finiteNumber(arc.sagitta),
+                arcLength: finiteNumber(arc.arcLength),
+                center: clonePlain(arc.center),
+                apex: clonePlain(arc.apex),
+                headingDegrees: finiteNumber(arc.headingDegrees),
+            } : null,
         },
     };
 }
@@ -325,8 +381,9 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
 export function placeContentModel(prototype, instance, selection = {}, resource = {}) {
     if (!prototype?.isObject3D) throw modelSizeError('Content model prototype is missing');
 
-    const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip) !== Boolean(selection?.xMirror);
-    const effectiveInstance = { ...instance, horizontalFlip: effectiveHorizontalFlip };
+    const placementPlan = resolvePlacementPlan(instance, selection);
+    const effectiveInstance = placementPlan.instance;
+    const effectiveHorizontalFlip = placementPlan.effectiveHorizontalFlip;
     const clonedPrototype = clonePrototype(prototype);
     const axisConvertedPrototype = new THREE.Group();
     axisConvertedPrototype.name = 'axisConvertedPrototype';
@@ -336,8 +393,15 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
 
     const modelBox = new THREE.Box3().setFromObject(axisConvertedPrototype);
     const rawSize = validatedBoxSize(modelBox);
-    const targetScale = computeTargetScale(instance, selection, modelBox, resource?.kind);
-    const modelOffset = computeModelPlacementOffset(effectiveInstance, modelBox, targetScale);
+    const targetScale = computeTargetScale(
+        effectiveInstance,
+        selection,
+        modelBox,
+        resource?.kind,
+    );
+    const modelOffset = placementPlan.anchor === 'model-origin'
+        ? new THREE.Vector3(0, 0, -modelBox.min.z)
+        : computeModelPlacementOffset(effectiveInstance, modelBox, targetScale);
     axisConvertedPrototype.position.add(modelOffset);
 
     const sizeScale = new THREE.Group();
@@ -349,17 +413,17 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     planFlip.name = 'planFlip';
     planFlip.scale.set(
         effectiveHorizontalFlip ? -1 : 1,
-        instance?.verticalFlip === true ? -1 : 1,
+        effectiveInstance?.verticalFlip === true ? -1 : 1,
         1,
     );
     planFlip.add(sizeScale);
 
     const planRotation = new THREE.Group();
     planRotation.name = 'planRotation';
-    planRotation.rotation.z = THREE.MathUtils.degToRad(rotationDegreesOf(instance));
+    planRotation.rotation.z = THREE.MathUtils.degToRad(rotationDegreesOf(effectiveInstance));
     planRotation.add(planFlip);
 
-    const basePoint = basePointOf(instance);
+    const basePoint = basePointOf(effectiveInstance);
     const hasCadGroundHeight = instance?.groundHeight != null
         && Number.isFinite(Number(instance.groundHeight));
     const groundHeight = hasCadGroundHeight
@@ -374,7 +438,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     );
     contentRoot.add(planRotation);
 
-    if (effectiveHorizontalFlip || instance?.verticalFlip === true) {
+    if (effectiveHorizontalFlip || effectiveInstance?.verticalFlip === true) {
         markDoubleSide(clonedPrototype);
     }
 
@@ -403,6 +467,8 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
         worldPosition: contentRoot.getWorldPosition(new THREE.Vector3()),
         worldBox: new THREE.Box3().setFromObject(contentRoot),
         effectiveHorizontalFlip,
+        rotationDegrees: rotationDegreesOf(effectiveInstance),
+        arc: placementPlan.arc,
     };
     contentRoot.userData.debugInfo = createContentDebugInfo(
         instance, selection, resource, placement,

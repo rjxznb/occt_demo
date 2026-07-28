@@ -218,6 +218,157 @@ test('a generated 1401 window stays upright without applying CAD dimensions twic
     assertNear(box.min.z, 890, 'generated window sill height');
 });
 
+test('generated 140c windows anchor at the arc apex and point local X at the circle center', () => {
+    const fixtures = [
+        {
+            innerStart: { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
+            innerEnd: { x: -3828.686478, y: 6031.954413, z: 0, bulge: 0 },
+            center: { x: -5500.624914148718, y: 5876.592296840282 },
+            apex: { x: -6245.125784192925, y: 7381.661722452424 },
+            heading: -63.68014011039734,
+        },
+        {
+            innerStart: { x: 5591.314060, y: -4748.045378, z: 0, bulge: 0.224261 },
+            innerEnd: { x: 5591.313296, y: -378.045377, z: 0, bulge: 0 },
+            center: { x: 964.7629091403505, y: -2563.0461863523533 },
+            apex: { x: 6081.3239631121305, y: -2563.045291832298 },
+            heading: -179.99998998307197,
+        },
+    ];
+
+    for (const [index, fixture] of fixtures.entries()) {
+        const prototype = new THREE.Group();
+        prototype.add(new THREE.Mesh(
+            new THREE.BoxGeometry(100, 150, 20),
+            new THREE.MeshBasicMaterial(),
+        ));
+        const originMarker = new THREE.Object3D();
+        originMarker.name = 'arcOrigin';
+        prototype.add(originMarker);
+        const directionMarker = new THREE.Object3D();
+        directionMarker.name = 'arcPositiveX';
+        directionMarker.position.x = 100;
+        prototype.add(directionMarker);
+
+        const arcInstance = {
+            ...instance,
+            instanceId: `window_list:${index + 1}#segment:1`,
+            sourceList: 'window_list',
+            sourceIndex: index + 1,
+            category: 'window',
+            typeId: '140c',
+            parentInstanceId: `window_list:${index + 1}`,
+            compositeSegmentIndex: 1,
+            compositeSegmentCount: index === 0 ? 2 : 4,
+            generatedFromTypeId: '140d02',
+            basePoint: { x: -10203, y: -8656, z: 0 },
+            cadPath: [
+                fixture.innerEnd,
+                { x: 0, y: 0, z: 0, bulge: 0 },
+                { x: 0, y: 0, z: 0, bulge: 0 },
+                fixture.innerStart,
+            ],
+            footprint: [
+                { x: -50000, y: -50000 }, { x: 50000, y: -50000 },
+                { x: 50000, y: 50000 }, { x: -50000, y: 50000 },
+            ],
+            size: { x: 100000, y: 100000, z: 1500 },
+            outScale: { x: -7, y: -8, z: -9 },
+            rotationDegrees: 77,
+            horizontalFlip: true,
+            verticalFlip: true,
+            groundHeight: 900,
+            rawBlockInnerInfo: { 高度: 1500, 离地高度: 900 },
+        };
+        const root = placeContentModel(prototype, arcInstance, {
+            ...selection,
+            typeId: '140c',
+            resId: '2423932',
+            referenceSize: { x: 10, y: 2, z: 15 },
+            xMirror: false,
+        }, {
+            kind: 'parametric-obj', resourceType: 8, modelType: 0,
+            contentHash: `arc-window-${index}`,
+        });
+
+        root.updateMatrixWorld(true);
+        const origin = root.getObjectByName('arcOrigin').getWorldPosition(new THREE.Vector3());
+        const positiveX = root.getObjectByName('arcPositiveX')
+            .getWorldPosition(new THREE.Vector3());
+        const actualDirection = positiveX.sub(origin).normalize();
+        const expectedDirection = new THREE.Vector3(
+            fixture.center.x - fixture.apex.x,
+            fixture.center.y - fixture.apex.y,
+            0,
+        ).normalize();
+        const box = worldBox(root);
+
+        assertNear(root.position.x, fixture.apex.x, 'arc root apex x');
+        assertNear(root.position.y, fixture.apex.y, 'arc root apex y');
+        assertNear(root.rotation.z, 0, 'rotation remains in the plan wrapper');
+        assertNear(actualDirection.x, expectedDirection.x, 'arc local X direction x');
+        assertNear(actualDirection.y, expectedDirection.y, 'arc local X direction y');
+        assertNear(actualDirection.z, 0, 'arc local X remains horizontal');
+        assertNear(box.min.z, 900, 'arc sill height');
+        assertNear(box.getSize(new THREE.Vector3()).z, 150, 'arc model stays upright');
+        assert.deepEqual(root.userData.debugInfo.placement.targetScale, { x: 1, y: 1, z: 1 });
+        assertNear(root.userData.debugInfo.transform.rotationDegrees,
+            fixture.heading, 'debug heading');
+    }
+});
+
+test('generated 140c debug data exposes bounded parent, segment, and arc facts', () => {
+    const arcInstance = {
+        ...instance,
+        instanceId: 'window_list:1#segment:1',
+        sourceList: 'window_list',
+        sourceIndex: 1,
+        typeId: '140c',
+        parentInstanceId: 'window_list:1',
+        compositeSegmentIndex: 1,
+        compositeSegmentCount: 2,
+        generatedFromTypeId: '140d02',
+        cadPath: [
+            { x: -3828.686478, y: 6031.954413, z: 0, bulge: 0 },
+            { x: 0, y: 0, z: 0, bulge: 0 },
+            { x: 0, y: 0, z: 0, bulge: 0 },
+            { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
+        ],
+        groundHeight: 900,
+    };
+    const root = placeContentModel(makePrototype(), arcInstance, {
+        ...selection,
+        typeId: '140c',
+        resId: '2423932',
+    }, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0,
+        contentHash: 'arc-debug',
+    });
+    const debug = root.userData.debugInfo;
+
+    assert.deepEqual(debug.composite, {
+        parentInstanceId: 'window_list:1',
+        segmentIndex: 1,
+        segmentCount: 2,
+        generatedFromTypeId: '140d02',
+        generatedTypeId: '140c',
+    });
+    assertNear(debug.placement.arc.chordLength, 3134.9960184026254, 'debug chord');
+    assertNear(debug.placement.arc.sagitta, 2281.192392774744, 'debug sagitta');
+    assert.equal(JSON.stringify(debug).includes('cadPath'), false);
+    assert.equal(JSON.stringify(debug).includes('sourceUrl'), false);
+});
+
+test('generated 140c placement rejects missing inner-arc geometry', () => {
+    assert.throws(() => placeContentModel(makePrototype(), {
+        ...instance,
+        typeId: '140c',
+        cadPath: [],
+    }, selection, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0,
+    }), error => error?.code === 'MODEL_SIZE_UNRESOLVED');
+});
+
 test('template XMirror composes with CAD horizontal flip using XOR', () => {
     const prototype = makePrototype();
     const root = placeContentModel(prototype, instance, {
