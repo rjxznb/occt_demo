@@ -27,6 +27,8 @@ test('native parametric API client keeps fixed endpoints and bounded secure curl
     assert.match(source, /http:\/\/i\.bim-zeus\.home\.ke\.com\/api\/resGoods\/getGoodsDetailById\?id=/);
     assert.match(source, /biz-gateway\.home\.ke\.com\/utopia-render-platform\/bim\/pc\/render\/getResGoodsDetail/);
     assert.match(source, /resGoodsIdList=/);
+    assert.match(source, /std::unordered_set<std::string>\s+seen_res_ids/);
+    assert.match(source, /!seen_res_ids\.insert\(res_id\)\.second/);
     assert.match(source, /CURLSSLOPT_NATIVE_CA/);
     assert.match(source, /https:\/\/beinuan\.ke\.com\/mortise-api\/parameter\/modelUrlToObj/);
     assert.match(source, /materialIdDedup/);

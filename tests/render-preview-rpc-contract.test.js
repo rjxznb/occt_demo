@@ -165,6 +165,7 @@ test('render preview rejects invalid batch goods payloads before calling native 
     { resIds: [] },
     { resIds: Array.from({ length: 51 }, (_, index) => String(index + 1)) },
     { resIds: ['1961100', 'not-numeric'] },
+    { resIds: ['1961100', '1961100'] },
     { resIds: ['1961100'], extra: true }
   ];
 

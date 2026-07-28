@@ -22,6 +22,8 @@ test('native parametric model bridge validates inputs and suppresses callbacks a
     assert.match(source, /kMaxGoodsDetailResIdLength\s*=\s*128/);
     assert.match(source, /kMaxGoodsDetailsCount\s*=\s*50/);
     assert.match(source, /kMaxGoodsDetailsSerializedBytes\s*=\s*8192/);
+    assert.match(source, /std::unordered_set<std::string>\s+seen_res_ids/);
+    assert.match(source, /!seen_res_ids\.insert\(res_id\)\.second/);
     assert.match(source, /kMaxModelUrlBytes\s*=\s*8192/);
     assert.match(source, /kMaxParameterCount\s*=\s*64/);
     assert.match(source, /kMaxSerializedRequestBytes\s*=\s*65536/);
