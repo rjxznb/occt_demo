@@ -84,6 +84,27 @@ test('normalizes CAD plan facts and preserves raw parameter sources', () => {
     assert.equal(item.footprint.length, 4);
 });
 
+test('preserves finite CAD path points with normalized Z and bulge values', () => {
+    const [item] = collectContentModelInstances({
+        window_list: [block('140d02', {
+            Points: [
+                'X=10 Y=20 Z=30 B=-1.455308',
+                'X=40 Y=50',
+                'X=invalid Y=70 Z=0 B=0.25',
+            ],
+        })],
+    });
+
+    assert.deepEqual(item.cadPath, [
+        { x: 10, y: 20, z: 30, bulge: -1.455308 },
+        { x: 40, y: 50, z: 0, bulge: 0 },
+    ]);
+    assert.deepEqual(item.footprint, [
+        { x: 10, y: 20 },
+        { x: 40, y: 50 },
+    ]);
+});
+
 test('keeps invalid objects out of the request set', () => {
     const result = collectContentModelInstances({
         soft_list: [{ TypeId: '', BasePoint: 'bad' }, null],

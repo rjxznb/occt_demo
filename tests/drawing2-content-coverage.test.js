@@ -40,6 +40,20 @@ test('Drawing2 discovers every TypeId-bearing record from every array-valued *_l
     assert.ok(freeWindows.every(instance => instance.size === null));
 });
 
+test('Drawing2 preserves authoritative finite CAD paths for both free windows', async () => {
+    const { instances } = await loadDrawing2Coverage();
+    const freeWindows = instances.filter(instance =>
+        instance.sourceList === 'window_list' && instance.typeId === '140d02');
+
+    assert.deepEqual(freeWindows.map(instance => instance.cadPath.length), [6, 10]);
+    assert.deepEqual(freeWindows.map(instance => {
+        const front = instance.cadPath.slice(0, instance.cadPath.length / 2);
+        return front.filter(point => Math.abs(point.bulge) > 1e-6).length;
+    }), [1, 1]);
+    assert.ok(freeWindows.every(instance => instance.cadPath.every(point =>
+        [point.x, point.y, point.z, point.bulge].every(Number.isFinite))));
+});
+
 test('Drawing2 keeps audited soft-content and template-selection coverage', async () => {
     const { instances, selections } = await loadDrawing2Coverage();
     const softInstances = instances.filter(item => item.sourceList === 'soft_list');

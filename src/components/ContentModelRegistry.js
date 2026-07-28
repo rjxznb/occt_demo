@@ -17,23 +17,36 @@ export function collectContentModelInstances(json) {
 
 function parseVector(value, requiredAxes = ['X', 'Y', 'Z']) {
     if (typeof value !== 'string') return null;
-    const coordinate = (axis) => {
-        const match = value.match(new RegExp(`${axis}=([+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)`));
-        return match ? finiteNumber(match[1]) : null;
-    };
-    const x = coordinate('X');
-    const y = coordinate('Y');
-    const z = coordinate('Z');
+    const x = parseCoordinate(value, 'X');
+    const y = parseCoordinate(value, 'Y');
+    const z = parseCoordinate(value, 'Z');
     const coordinateByAxis = { X: x, Y: y, Z: z };
     return requiredAxes.some(axis => coordinateByAxis[axis] === null) ? null : { x, y, z };
 }
 
-function parsePoints(points) {
+function parseCoordinate(value, axis) {
+    const match = value.match(new RegExp(
+        `${axis}=([+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)`,
+    ));
+    return match ? finiteNumber(match[1]) : null;
+}
+
+function parseCadPath(points) {
     if (!Array.isArray(points)) return [];
     return points
-        .map(value => parseVector(value))
-        .filter(Boolean)
-        .map(({ x, y }) => ({ x, y }));
+        .map(value => {
+            if (typeof value !== 'string') return null;
+            const x = parseCoordinate(value, 'X');
+            const y = parseCoordinate(value, 'Y');
+            if (x === null || y === null) return null;
+            return {
+                x,
+                y,
+                z: parseCoordinate(value, 'Z') ?? 0,
+                bulge: parseCoordinate(value, 'B') ?? 0,
+            };
+        })
+        .filter(Boolean);
 }
 
 function finiteNumber(value, fallback = null) {
@@ -88,7 +101,8 @@ function normalizeRecord(record, descriptor, sourceIndex) {
     const blockInnerInfo = record.BlockInnerInfo && typeof record.BlockInnerInfo === 'object'
         ? record.BlockInnerInfo
         : {};
-    const footprint = parsePoints(record.Points);
+    const cadPath = parseCadPath(record.Points);
+    const footprint = cadPath.map(({ x, y }) => ({ x, y }));
     const parsedSize = parseVector(record.Size, ['X', 'Y']);
     if (parsedSize && parsedSize.z === null) parsedSize.z = readHeight(blockInnerInfo);
     const size = hasUsablePlanDimensions(parsedSize)
@@ -107,6 +121,7 @@ function normalizeRecord(record, descriptor, sourceIndex) {
         category: descriptor.category,
         typeId,
         basePoint,
+        cadPath,
         footprint,
         size,
         outScale: {
