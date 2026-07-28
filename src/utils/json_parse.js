@@ -273,6 +273,7 @@ export default function ParseJson(json){
                     size: { x: sizeX, y: sizeY },
                     typeid: item.TypeId,
                     height: height,
+                    sourceIndex: index,
                 });
 
                 // 对应一个图例对象；
@@ -373,6 +374,7 @@ export default function ParseJson(json){
                     typeid: item.TypeId,
                     groundHeight: groundHeight,
                     height: height,
+                    sourceIndex: index,
                 });
 
                 // 对应一个图例对象；

@@ -184,7 +184,7 @@ export class DoorWindowFactory {
                     doorMesh.userData.doorIndex = index;
                     doorMesh.userData.typeId = door.typeId;
                     doorMesh.userData.sourceList = 'door_list';
-                    doorMesh.userData.sourceIndex = index;
+                    doorMesh.userData.sourceIndex = door.sourceIndex ?? index;
                     doors.push(doorMesh);
                 }
             } catch (error) {
@@ -208,7 +208,7 @@ export class DoorWindowFactory {
                     windowMesh.userData.windowIndex = index;
                     windowMesh.userData.typeId = window.typeId;
                     windowMesh.userData.sourceList = 'window_list';
-                    windowMesh.userData.sourceIndex = index;
+                    windowMesh.userData.sourceIndex = window.sourceIndex ?? index;
                     windows.push(windowMesh);
                 }
             } catch (error) {

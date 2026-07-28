@@ -36,6 +36,10 @@ export function handlePlacedContentModel(fallbacks, instance, root) {
     return hidePlacedFallback(fallbacks, instance);
 }
 
+export function createContentModelPlacementHandler(fallbacks) {
+    return (instance, root) => handlePlacedContentModel(fallbacks, instance, root);
+}
+
 function allowlistedFailures(failures) {
     return failures.map(failure => ({
         instanceId: failure?.instanceId ?? null,
@@ -460,9 +464,7 @@ export class RoomRenderer {
             const fallbackMap = indexDoorWindowFallbacks(doorWindowMeshes);
             loadContentModels(data.contentModels?.contentModels || [], this.sceneGroup, {
                 concurrency: 3,
-                onInstancePlaced: (instance, root) => {
-                    handlePlacedContentModel(fallbackMap, instance, root);
-                },
+                onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
             }).then(({ summary, failures }) => {
                 console.log('[ContentLoader] scene summary', summary);
                 if (failures.length) {
