@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const SIZE_EPSILON = 1e-9;
 const FOOTPRINT_AREA_RATIO_EPSILON = 1e-8;
@@ -159,7 +160,7 @@ function inferParametricUnitScale(modelSize, referenceSize) {
 }
 
 function clonePrototype(prototype) {
-    const clone = prototype.clone(true);
+    const clone = cloneSkeleton(prototype);
     clone.traverse(child => {
         if (!child.isMesh) return;
         if (child.geometry?.clone) child.geometry = child.geometry.clone();

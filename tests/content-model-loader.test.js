@@ -76,6 +76,35 @@ function prototype(material = new THREE.MeshBasicMaterial({ color: 0x123456 })) 
     return group;
 }
 
+function skinnedPrototype() {
+    const geometry = new THREE.BoxGeometry(20, 80, 20);
+    const vertexCount = geometry.getAttribute('position').count;
+    const skinIndices = new Uint16Array(vertexCount * 4);
+    const skinWeights = new Float32Array(vertexCount * 4);
+    for (let index = 0; index < vertexCount; index += 1) skinWeights[index * 4] = 1;
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndices, 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4));
+
+    const rootBone = new THREE.Bone();
+    rootBone.name = 'rootBone';
+    const tipBone = new THREE.Bone();
+    tipBone.name = 'tipBone';
+    tipBone.position.y = 80;
+    rootBone.add(tipBone);
+
+    const mesh = new THREE.SkinnedMesh(
+        geometry,
+        new THREE.MeshBasicMaterial({ color: 0x123456 }),
+    );
+    mesh.name = 'skinnedMesh';
+    mesh.add(rootBone);
+    mesh.bind(new THREE.Skeleton([rootBone, tipBone]));
+
+    const group = new THREE.Group();
+    group.add(mesh);
+    return group;
+}
+
 function placeClone(model, currentInstance) {
     const root = model.clone(true);
     root.name = `placed-${currentInstance.instanceId}`;
@@ -206,6 +235,62 @@ test('deduplicates static prototypes in flight and in cache while returning inde
     assert.notEqual(first.groups[0], first.groups[1]);
     assert.notEqual(first.groups[0], second.groups[0]);
     assert.equal(scene.children.length, 3);
+});
+
+test('cached skinned prototypes place independent skeletons, bones, geometry, and materials', async () => {
+    const cachedPrototype = skinnedPrototype();
+    let prototypeLoads = 0;
+    const selected = selection('100', 'chair');
+    const loader = new ContentModelLoader({
+        templateResolver: {
+            async load() {},
+            select() { return selected; },
+        },
+        apiClient: {
+            async getGoodsDetails() { return { items: [staticDetail('100')] }; },
+        },
+        async loadGltf() {
+            prototypeLoads += 1;
+            return cachedPrototype;
+        },
+        logger: { log() {}, warn() {} },
+    });
+    const firstInstance = { ...instance('chair', 0), horizontalFlip: true };
+    const secondInstance = instance('chair', 1);
+
+    const result = await loader.load([firstInstance, secondInstance], new THREE.Group());
+    const firstRoot = result.groups.find(root => root.userData.instanceId === firstInstance.instanceId);
+    const secondRoot = result.groups.find(root => root.userData.instanceId === secondInstance.instanceId);
+    const firstMesh = firstRoot.getObjectByName('skinnedMesh');
+    const secondMesh = secondRoot.getObjectByName('skinnedMesh');
+    const prototypeMesh = cachedPrototype.getObjectByName('skinnedMesh');
+    const firstHierarchy = new Set();
+    const secondHierarchy = new Set();
+    firstRoot.traverse(node => firstHierarchy.add(node));
+    secondRoot.traverse(node => secondHierarchy.add(node));
+
+    assert.equal(prototypeLoads, 1);
+    assert.notEqual(firstRoot, secondRoot);
+    assert.notEqual(firstMesh.geometry, secondMesh.geometry);
+    assert.notEqual(firstMesh.geometry, prototypeMesh.geometry);
+    assert.notEqual(secondMesh.geometry, prototypeMesh.geometry);
+    assert.notEqual(firstMesh.material, secondMesh.material);
+    assert.notEqual(firstMesh.material, prototypeMesh.material);
+    assert.notEqual(secondMesh.material, prototypeMesh.material);
+    assert.notEqual(firstMesh.skeleton, secondMesh.skeleton);
+    assert.notEqual(firstMesh.skeleton, prototypeMesh.skeleton);
+    assert.notEqual(secondMesh.skeleton, prototypeMesh.skeleton);
+    assert.equal(firstMesh.skeleton.bones.length, 2);
+    assert.equal(secondMesh.skeleton.bones.length, 2);
+    firstMesh.skeleton.bones.forEach(bone => assert.equal(firstHierarchy.has(bone), true));
+    secondMesh.skeleton.bones.forEach(bone => assert.equal(secondHierarchy.has(bone), true));
+    assert.notEqual(firstMesh.skeleton.bones[0], secondMesh.skeleton.bones[0]);
+    assert.notEqual(firstMesh.skeleton.bones[1], secondMesh.skeleton.bones[1]);
+    assert.equal(firstRoot.children[0].children[0].scale.x, -1);
+    assert.equal(secondRoot.children[0].children[0].scale.x, 1);
+    assert.equal(firstMesh.material.side, THREE.DoubleSide);
+    assert.equal(secondMesh.material.side, THREE.FrontSide);
+    assert.equal(prototypeMesh.material.side, THREE.FrontSide);
 });
 
 test('bounds the shared prototype cache and refreshes recently used entries', async () => {

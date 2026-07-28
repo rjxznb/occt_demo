@@ -29,4 +29,10 @@ Further [documentation on GitHub](https://github.com/google/draco/tree/master/ja
 
 ## License
 
-[Apache License 2.0](https://github.com/google/draco/blob/master/LICENSE)
+These decoder files are copied byte-for-byte from the installed
+`three@0.178.0` npm package directory:
+
+`node_modules/three/examples/jsm/libs/draco/gltf`
+
+They are distributed under the [local Apache-2.0 license](./LICENSE), copied
+from the official Draco license referenced by that package's Draco README.
