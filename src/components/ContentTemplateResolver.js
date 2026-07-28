@@ -190,7 +190,9 @@ export class ContentTemplateResolver {
     constructor(fetchImpl = globalThis.fetch, {
         selectionCacheLimit = DEFAULT_SELECTION_CACHE_LIMIT,
     } = {}) {
-        this.fetchImpl = fetchImpl;
+        this.fetchImpl = typeof fetchImpl === 'function'
+            ? fetchImpl.bind(globalThis)
+            : fetchImpl;
         this.catalog = null;
         this.loadPromise = null;
         this.selectionCache = new Map();

@@ -186,6 +186,33 @@ test('scene failure logs contain only the checkpoint allowlist', async () => {
     ]);
 });
 
+test('scene pipeline failures expose a safe diagnostic message in the log label', async () => {
+    const warnings = [];
+    const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
+        async loadSoft() { return []; },
+        async loadContent() {
+            throw Object.assign(
+                new Error('Template load failed at https://secret.test/signed-template.json'),
+                { code: 'TEMPLATE_LOAD_FAILED' },
+            );
+        },
+        diagnostic() {},
+        logger: {
+            log() {},
+            warn(...args) { warnings.push(args); },
+        },
+    });
+    await Promise.all([loads.softLoad, loads.contentLoad]);
+
+    const pipelineLog = warnings.find(([label]) => label.startsWith(
+        '[ContentLoader] scene pipeline failed',
+    ));
+    assert.equal(
+        pipelineLog[0],
+        '[ContentLoader] scene pipeline failed code=TEMPLATE_LOAD_FAILED message=Template load failed at [redacted-url]',
+    );
+});
+
 test('throwing diagnostics cannot prevent either scene-model pipeline', async () => {
     let softCalls = 0;
     let contentCalls = 0;

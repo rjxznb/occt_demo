@@ -80,6 +80,15 @@ function allowlistedFailures(failures) {
     }));
 }
 
+function safePipelineDiagnostic(error) {
+    const code = String(error?.code || 'UNKNOWN_ERROR').replace(/[^A-Z0-9_-]/gi, '_');
+    const message = String(error?.message || 'Content model pipeline failed')
+        .replace(/https?:\/\/\S+/gi, '[redacted-url]')
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 300);
+    return `code=${code} message=${message}`;
+}
+
 function emitDiagnostic(diagnostic, stage, code) {
     try {
         const result = diagnostic?.(stage, code);
@@ -138,7 +147,7 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         return result;
     }).catch(error => {
         emitDiagnostic(diagnostic, 'content-load-error', 'CONTENT_ERROR');
-        logger.warn?.('[ContentLoader] scene pipeline failed', {
+        logger.warn?.(`[ContentLoader] scene pipeline failed ${safePipelineDiagnostic(error)}`, {
             code: error?.code || 'UNKNOWN_ERROR',
         });
         return { summary: {}, failures: [] };

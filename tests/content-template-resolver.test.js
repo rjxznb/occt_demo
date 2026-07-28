@@ -166,6 +166,24 @@ test('caches the template fetch and per-size selection while retaining instance 
     assert.equal(mirrored.groundDist, 31);
 });
 
+test('binds the default browser fetch to its global owner', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = function fetchRequiringGlobalOwner() {
+        if (this !== globalThis) throw new TypeError('Illegal invocation');
+        return Promise.resolve({
+            ok: true,
+            json: async () => ({ AllItemInfo: [] }),
+        });
+    };
+    try {
+        const resolver = new ContentTemplateResolver();
+        await resolver.load();
+        assert.equal(resolver.catalog.size, 0);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('bounds template selections and evicts the least recently used size', async () => {
     const resolver = new ContentTemplateResolver(async () => ({
         ok: true,
