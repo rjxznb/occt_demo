@@ -108,11 +108,16 @@ export function normalizeGoodsItems(raw) {
     if (!response || typeof response !== 'object') return [];
 
     if (Object.hasOwn(response, 'code')) {
-        const businessCode = Number(response.code);
-        if (!Number.isFinite(businessCode) || ![1, 2000].includes(businessCode)) {
-            throw createError('INVALID_RESPONSE', `Invalid business response code: ${businessCode}`, {
-                businessCode,
-            });
+        const businessCode = response.code;
+        const isAllowedCode = businessCode === 1 || businessCode === 2000
+            || businessCode === '1' || businessCode === '2000';
+        if (!isAllowedCode) {
+            const numericCode = typeof businessCode === 'number' && Number.isFinite(businessCode)
+                ? businessCode
+                : undefined;
+            throw createError('INVALID_RESPONSE', numericCode === undefined
+                ? 'Invalid business response code'
+                : `Invalid business response code: ${numericCode}`, { businessCode: numericCode });
         }
     }
 

@@ -187,6 +187,18 @@ test('goods item normalization rejects unsupported business codes without raw re
     );
 });
 
+test('goods item normalization rejects coercible non-numeric business codes', () => {
+    for (const code of [true, false, [], [1], {}, '', ' ', ' 1 ', '02000']) {
+        assert.throws(
+            () => normalizeGoodsItems({ code, data: [] }),
+            error => error.code === 'INVALID_RESPONSE',
+            `code ${JSON.stringify(code)} must be rejected`,
+        );
+    }
+    assert.deepEqual(normalizeGoodsItems({ code: '1', data: [] }), []);
+    assert.deepEqual(normalizeGoodsItems({ code: '2000', data: [] }), []);
+});
+
 test('goods detail index finds IDs at the top level and inside modelDTO', () => {
     const result = indexGoodsDetails({ items: [{ id: 1 }, { modelDTO: { resGoodsId: 2 } }] });
     assert.equal(result.get('1').id, 1);
