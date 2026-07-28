@@ -15,6 +15,11 @@ test('native parametric API client keeps fixed endpoints and bounded secure curl
     assert.match(source, /CURLOPT_FOLLOWLOCATION\s*,\s*0L/);
     assert.match(source, /CURLOPT_SSL_VERIFYPEER\s*,\s*1L/);
     assert.match(source, /CURLOPT_SSL_VERIFYHOST\s*,\s*2L/);
+    assert.match(
+        source,
+        /CURLOPT_SSL_OPTIONS\s*,\s*(?:static_cast<long>\(\s*)?CURLSSLOPT_NATIVE_CA\s*\)?/,
+        'HTTPS requests must trust the Windows native CA store',
+    );
     assert.match(source, /RESPONSE_TOO_LARGE/);
     assert.match(source, /http:\/\/i\.bim-zeus\.home\.ke\.com\/api\/resGoods\/getGoodsDetailById\?id=/);
     assert.match(source, /https:\/\/beinuan\.ke\.com\/mortise-api\/parameter\/modelUrlToObj/);
