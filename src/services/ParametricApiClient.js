@@ -35,6 +35,24 @@ export class ParametricApiClient {
         );
     }
 
+    async getGoodsDetails(resIds) {
+        const ids = [...new Set((resIds || []).map(value => String(value).trim())
+            .filter(value => /^\d+$/.test(value)))];
+        if (ids.length === 0) return { items: [] };
+
+        const batches = [];
+        for (let index = 0; index < ids.length; index += 50) {
+            batches.push(ids.slice(index, index + 50));
+        }
+        const responses = this.transport === 'cad'
+            ? await Promise.all(batches.map(batch => this.hostClient.invoke(
+                'getContentGoodsDetails', { resIds: batch }, { timeoutMs: GOODS_TIMEOUT_MS },
+            )))
+            : await Promise.all(ids.map(id => this.getGoodsDetail(id)));
+        const detailById = indexGoodsDetails({ items: responses.flatMap(normalizeGoodsItems) });
+        return { items: ids.flatMap(id => detailById.has(id) ? [detailById.get(id)] : []) };
+    }
+
     async convertModel(url, parameters = []) {
         const payload = { url: String(url ?? '').trim() };
         if (!payload.url) throw createError('INVALID_ARGUMENT', 'model url is required');
@@ -84,6 +102,44 @@ export class ParametricApiClient {
 }
 
 export const parametricApiClient = new ParametricApiClient();
+
+export function normalizeGoodsItems(raw) {
+    const response = parsePossibleJson(raw);
+    if (!response || typeof response !== 'object') return [];
+
+    if (Object.hasOwn(response, 'code')) {
+        const businessCode = Number(response.code);
+        if (!Number.isFinite(businessCode) || ![1, 2000].includes(businessCode)) {
+            throw createError('INVALID_RESPONSE', `Invalid business response code: ${businessCode}`, {
+                businessCode,
+            });
+        }
+    }
+
+    if (Array.isArray(response.items)) return response.items;
+    if (Array.isArray(response.data)) return response.data;
+    if (Array.isArray(response.data?.list)) return response.data.list;
+    if (response.data?.modelDTO && typeof response.data.modelDTO === 'object') {
+        return [response.data.modelDTO];
+    }
+    if (response.modelDTO && typeof response.modelDTO === 'object') return [response.modelDTO];
+    if (response.data && typeof response.data === 'object') return [response.data];
+    return [];
+}
+
+export function indexGoodsDetails(raw) {
+    const items = Array.isArray(raw) ? raw : normalizeGoodsItems(raw);
+    const details = new Map();
+    for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const model = item.modelDTO ?? item.data?.modelDTO;
+        const ids = [item.id, item.resGoodsId, model?.id, model?.resGoodsId];
+        for (const id of ids) {
+            if (id !== undefined && id !== null) details.set(String(id), item);
+        }
+    }
+    return details;
+}
 
 function decodeModelResponse(raw, decompressImpl) {
     if (!raw || raw.encoding !== 'zstd-base64' || typeof raw.body !== 'string') {

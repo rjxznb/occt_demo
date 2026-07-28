@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ParametricApiClient } from '../src/services/ParametricApiClient.js';
+import {
+    ParametricApiClient,
+    indexGoodsDetails,
+    normalizeGoodsItems,
+} from '../src/services/ParametricApiClient.js';
 
 test('top-level mode uses the Node goods endpoint', async () => {
     const calls = [];
@@ -133,4 +137,67 @@ test('decoder failure becomes DECOMPRESSION_ERROR', async () => {
         client.convertModel('https://model.test/a.json'),
         error => error.code === 'DECOMPRESSION_ERROR',
     );
+});
+
+test('CAD goods detail calls are deduplicated and split into batches of 50', async () => {
+    const calls = [];
+    const hostClient = {
+        isAvailable: () => true,
+        invoke: async (method, payload) => {
+            calls.push({ method, payload });
+            return { code: 2000, data: payload.resIds.map(id => ({ id })) };
+        },
+    };
+    const client = new ParametricApiClient({ hostClient });
+    const ids = [...Array.from({ length: 51 }, (_, i) => String(i + 1)), '1'];
+    const result = await client.getGoodsDetails(ids);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].method, 'getContentGoodsDetails');
+    assert.equal(calls[0].payload.resIds.length, 50);
+    assert.deepEqual(result.items.map(item => String(item.id)),
+        Array.from({ length: 51 }, (_, i) => String(i + 1)));
+});
+
+test('Demo batch transport reuses the existing per-ID Node endpoint', async () => {
+    const urls = [];
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async url => {
+            urls.push(url);
+            return { ok: true, status: 200, json: async () => ({ data: { id: url.split('=').at(-1) } }) };
+        },
+    });
+    const result = await client.getGoodsDetails(['7', '8']);
+    assert.equal(urls.length, 2);
+    assert.deepEqual(result.items.map(item => item.id), ['7', '8']);
+});
+
+test('goods item normalization accepts supported batch and single payload shapes', () => {
+    assert.deepEqual(normalizeGoodsItems({ code: 1, data: { list: [{ id: 1 }] } }), [{ id: 1 }]);
+    assert.deepEqual(normalizeGoodsItems({ code: 2000, data: [{ id: 2 }] }), [{ id: 2 }]);
+    assert.deepEqual(normalizeGoodsItems({ data: { modelDTO: { id: 3 } } }), [{ id: 3 }]);
+    assert.deepEqual(normalizeGoodsItems({ items: [{ id: 4 }] }), [{ id: 4 }]);
+});
+
+test('goods item normalization rejects unsupported business codes without raw response data', () => {
+    assert.throws(
+        () => normalizeGoodsItems({ code: 500, data: { url: 'https://file.test/a?signature=secret' } }),
+        error => error.code === 'INVALID_RESPONSE' && error.businessCode === 500
+            && !Object.values(error).includes('https://file.test/a?signature=secret'),
+    );
+});
+
+test('goods detail index finds IDs at the top level and inside modelDTO', () => {
+    const result = indexGoodsDetails({ items: [{ id: 1 }, { modelDTO: { resGoodsId: 2 } }] });
+    assert.equal(result.get('1').id, 1);
+    assert.equal(result.get('2').modelDTO.resGoodsId, 2);
+});
+
+test('goods detail index retains every available ID alias', () => {
+    const detail = { id: 1, resGoodsId: 2, data: { modelDTO: { id: 3, resGoodsId: 4 } } };
+    const result = indexGoodsDetails({ items: [detail] });
+    assert.equal(result.get('1'), detail);
+    assert.equal(result.get('2'), detail);
+    assert.equal(result.get('3'), detail);
+    assert.equal(result.get('4'), detail);
 });
