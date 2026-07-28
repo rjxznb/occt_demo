@@ -24,7 +24,7 @@ test('ports UE folding-door, cabinet-style, and template fallback mappings', () 
 });
 
 test('ports every source-visible UE type mapping without decoding binary tables', () => {
-    const local = createTemplateCatalog({ AllItemInfo: [entry('7317', 0, [])] });
+    const local = createTemplateCatalog({ AllItemInfo: [entry('7317', 0, []), entry('7318', 0, [])] });
     const map = (typeId, style) => mapCadTypeId({
         typeId,
         rawBlockInnerInfo: style ? { '\u6837\u5f0f': style } : {},
@@ -39,7 +39,20 @@ test('ports every source-visible UE type mapping without decoding binary tables'
         map('20dc', '\u9910\u8fb9\u67dc'), map('20dc', '\u5f00\u95e8\u67dc'), map('20dc', '\u6597\u67dc'),
         map('20dc', '\u5f00\u653e\u683c'), map('20dc', '\u540a\u67dc'), map('20dc', '\u60ac\u7a7a\u50a8\u7269\u67dc'),
         map('20dc', '\u60ac\u7a7a\u62bd\u5c49\u67dc'),
-    ], ['203c', '203d', '203e', '203g', '0db00', '0db01', '0db02', '0f200', '20f201', '20f202']);
+    ], ['203c', '203d', '203e', '203g', '20db00', '20db01', '20db02', '20f200', '20f201', '20f202']);
+});
+
+test('keeps direct template TypeIds before only the documented 1301 and 1303 fallbacks', () => {
+    const direct = createTemplateCatalog({ AllItemInfo: [
+        entry('1301', 0, []), entry('1302', 0, []), entry('7317', 0, []),
+    ] });
+    const fallback = createTemplateCatalog({ AllItemInfo: [entry('1302', 0, [])] });
+    assert.equal(mapCadTypeId({ typeId: '1301', rawBlockInnerInfo: {} }, direct), '1301');
+    assert.equal(mapCadTypeId({ typeId: '1301', rawBlockInnerInfo: {} }, fallback), '1302');
+    assert.equal(mapCadTypeId({ typeId: '13042', rawBlockInnerInfo: {} }, direct), '1304');
+    assert.equal(mapCadTypeId({
+        typeId: '130402', rawBlockInnerInfo: { '\u6837\u5f0f': '\u9152\u67dc' },
+    }, direct), '7314');
 });
 
 test('selects the UE minimum area-difference sample after mm-to-cm conversion', () => {
@@ -74,6 +87,38 @@ test('selects range entries with UE tolerance and falls back stably', () => {
     }, local).resId, 'default');
 });
 
+test('requires all four tolerance corners and complete X/Y ranges', () => {
+    const local = createTemplateCatalog({ AllItemInfo: [{
+        TypeId: 'cabinet', TypeName: '\u67dc', StyleItemType: 1,
+        ResList: [
+            { ResId: 'default', X: 0, Y: 0, Z: 0 },
+            { ResId: 'narrow', X: 0, Y: 0, Z: 0,
+                SizeRangeX: '105.002,105.008', SizeRangeY: '30.002,30.008' },
+            { ResId: 'x-only', X: 0, Y: 0, Z: 0, SizeRangeX: '100,200' },
+        ],
+    }] });
+    assert.equal(selectTemplateResource({
+        typeId: 'cabinet', size: { x: 1050.05, y: 300.05 }, footprint: [],
+    }, local).resId, 'default');
+    assert.equal(selectTemplateResource({
+        typeId: 'cabinet', size: { x: 1500, y: 900 }, footprint: [],
+    }, local).resId, 'default');
+});
+
+test('returns selected resource mirror and template ground distance rather than CAD placement fields', () => {
+    const local = createTemplateCatalog({ AllItemInfo: [{
+        TypeId: 'metadata', TypeName: 'metadata', StyleItemType: 0, GroundDist: 31,
+        ResList: [{ ResId: 'sample', X: 100, Y: 60, Z: 90 }],
+        SizeSampleModelMap: { sample: { X: 100, Y: 60, Z: 90, XMirror: true } },
+    }] });
+    const selected = selectTemplateResource({
+        typeId: 'metadata', size: { x: 1000, y: 600 }, footprint: [],
+        outScale: { x: 1 }, groundHeight: 100,
+    }, local);
+    assert.equal(selected.xMirror, true);
+    assert.equal(selected.groundDist, 31);
+});
+
 test('returns explicit errors when a mapped template or resource is unavailable', () => {
     assert.equal(selectTemplateResource({ typeId: 'missing', size: { x: 1, y: 1 }, footprint: [] }, catalog).errorCode,
         'TEMPLATE_TYPE_NOT_FOUND');
@@ -88,10 +133,13 @@ test('caches the template fetch and per-size selection while retaining instance 
         fetchCount += 1;
         return {
             ok: true,
-            json: async () => ({ AllItemInfo: [entry('chair', 0, [
-                { ResId: 'small', X: 50, Y: 50, Z: 80 },
-                { ResId: 'large', X: 100, Y: 60, Z: 90 },
-            ])] }),
+            json: async () => ({ AllItemInfo: [{
+                ...entry('chair', 0, [
+                    { ResId: 'small', X: 50, Y: 50, Z: 80 },
+                    { ResId: 'large', X: 100, Y: 60, Z: 90, XMirror: true },
+                ]),
+                GroundDist: 31,
+            }] }),
         };
     });
     await Promise.all([resolver.load(), resolver.load()]);
@@ -103,7 +151,7 @@ test('caches the template fetch and per-size selection while retaining instance 
     const mirrored = resolver.select({ ...base, outScale: { x: -1 }, groundHeight: 50 });
     assert.equal(mirrored.resId, 'large');
     assert.equal(mirrored.xMirror, true);
-    assert.equal(mirrored.groundDist, 5);
+    assert.equal(mirrored.groundDist, 31);
 });
 
 test('Drawing2 selects the audited non-first nearest resources', async () => {

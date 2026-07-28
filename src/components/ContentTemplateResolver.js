@@ -17,10 +17,10 @@ const CABINET_STYLE_TYPE_IDS = new Map([
     ['\u9152\u67dc', '203d'],
     ['\u4e66\u67dc', '203e'],
     ['\u9910\u8fb9\u67dc', '203g'],
-    ['\u5f00\u95e8\u67dc', '0db00'],
-    ['\u6597\u67dc', '0db01'],
-    ['\u5f00\u653e\u683c', '0db02'],
-    ['\u540a\u67dc', '0f200'],
+    ['\u5f00\u95e8\u67dc', '20db00'],
+    ['\u6597\u67dc', '20db01'],
+    ['\u5f00\u653e\u683c', '20db02'],
+    ['\u540a\u67dc', '20f200'],
     ['\u60ac\u7a7a\u50a8\u7269\u67dc', '20f201'],
     ['\u60ac\u7a7a\u62bd\u5c49\u67dc', '20f202'],
 ]);
@@ -43,19 +43,19 @@ export function createTemplateCatalog(raw) {
 
 export function mapCadTypeId(instance, catalog) {
     const typeId = String(instance?.typeId ?? '').trim();
-    const style = instance?.rawBlockInnerInfo?.['\u6837\u5f0f'];
-    if (CABINET_STYLE_TYPE_IDS.has(style)) return CABINET_STYLE_TYPE_IDS.get(style);
-
     if (typeId.startsWith('1304')) {
-        const count = typeId.at(-1);
+        const count = typeId.length > 4 ? typeId.slice(5) : '';
         return new Map([
             ['2', '7314'], ['3', '7324'], ['4', '7312'], ['5', '7325'], ['6', '7313'],
         ]).get(count) ?? '1304';
     }
     if (typeId.startsWith('1305')) return '7319';
     if (typeId.startsWith('1311')) return '7323';
-    if (typeId === '1301') return catalog?.has('1302') ? '1302' : (catalog?.has('7317') ? '7317' : '1301');
-    if (typeId === '1303') return '7318';
+    const style = instance?.rawBlockInnerInfo?.['\u6837\u5f0f'];
+    if (CABINET_STYLE_TYPE_IDS.has(style)) return CABINET_STYLE_TYPE_IDS.get(style);
+    if (catalog?.has(typeId)) return typeId;
+    if (typeId === '1301') return catalog?.has('1302') ? '1302' : (catalog?.has('7317') ? '7317' : typeId);
+    if (typeId === '1303' && catalog?.has('7318')) return '7318';
     return typeId;
 }
 
@@ -103,11 +103,18 @@ function parseRange(value) {
     return Number.isFinite(minimum) && Number.isFinite(maximum) ? { minimum, maximum } : null;
 }
 
-function withinRange(value, range) {
-    return !range || (
-        value + RANGE_TOLERANCE_CM >= range.minimum
-        && value - RANGE_TOLERANCE_CM <= range.maximum
-    );
+function containsRangeCorner(x, y, xRange, yRange) {
+    return x >= xRange.minimum && x <= xRange.maximum
+        && y >= yRange.minimum && y <= yRange.maximum;
+}
+
+function hasRangeToleranceCorners(sizeCm, xRange, yRange) {
+    return [
+        [sizeCm.x - RANGE_TOLERANCE_CM, sizeCm.y - RANGE_TOLERANCE_CM],
+        [sizeCm.x - RANGE_TOLERANCE_CM, sizeCm.y + RANGE_TOLERANCE_CM],
+        [sizeCm.x + RANGE_TOLERANCE_CM, sizeCm.y - RANGE_TOLERANCE_CM],
+        [sizeCm.x + RANGE_TOLERANCE_CM, sizeCm.y + RANGE_TOLERANCE_CM],
+    ].some(([x, y]) => containsRangeCorner(x, y, xRange, yRange));
 }
 
 function selectNearest(resources, sizeCm) {
@@ -130,8 +137,8 @@ function selectRange(resources, sizeCm) {
     for (const resource of resources) {
         const xRange = parseRange(resource?.SizeRangeX);
         const yRange = parseRange(resource?.SizeRangeY);
-        if (!xRange && !yRange) continue;
-        if (withinRange(sizeCm.x, xRange) && withinRange(sizeCm.y, yRange)) return resource;
+        if (!xRange || !yRange) continue;
+        if (hasRangeToleranceCorners(sizeCm, xRange, yRange)) return resource;
     }
     return resources[0] ?? null;
 }
@@ -158,6 +165,7 @@ export function selectTemplateResource(instance, catalog) {
     if (!resource || resource.ResId == null) {
         return { errorCode: 'TEMPLATE_RESOURCE_MISSING', typeId: mappedTypeId, templateEntry };
     }
+    const sampleMetadata = templateEntry.SizeSampleModelMap?.[resource.ResId];
 
     return {
         typeId: mappedTypeId,
@@ -166,8 +174,8 @@ export function selectTemplateResource(instance, catalog) {
         resId: String(resource.ResId),
         referenceSize: referenceSize(resource),
         selection,
-        xMirror: finiteNumber(instance?.outScale?.x, 1) < 0,
-        groundDist: finiteNumber(instance?.groundHeight) / 10,
+        xMirror: Boolean(resource.XMirror ?? sampleMetadata?.XMirror),
+        groundDist: finiteNumber(templateEntry.GroundDist),
         templateEntry,
     };
 }
@@ -201,10 +209,6 @@ export class ContentTemplateResolver {
             selected = selectTemplateResource(instance, this.catalog);
             this.selectionCache.set(key, selected);
         }
-        return {
-            ...selected,
-            xMirror: finiteNumber(instance?.outScale?.x, 1) < 0,
-            groundDist: finiteNumber(instance?.groundHeight) / 10,
-        };
+        return selected;
     }
 }
