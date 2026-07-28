@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { parametricApiClient } from '../services/ParametricApiClient.js';
+import {
+    createContentDebugInfo,
+    createPlanTransform,
+    createYUpToZUpTransform,
+    computeModelPlacementOffset,
+} from './ContentModelPlacement.js';
+
+export {
+    createPlanTransform,
+    createYUpToZUpTransform,
+    computeModelPlacementOffset,
+} from './ContentModelPlacement.js';
 
 /**
  * 参数化模型加载器
@@ -30,94 +42,47 @@ const pendingRequests = new Map();   // TypeId → Promise（飞行去重）
 //==============================================================================
 const objLoader = new OBJLoader();
 
-/** 构造软装的俯视平面变换：局部 XY 翻转，再绕 Z 轴旋转，最后平移。 */
-export function createPlanTransform(item) {
-    const bp = item?.basepoint || {};
-    const position = new THREE.Vector3(bp.x ?? 0, bp.y ?? 0, bp.z ?? 0);
-    const quaternion = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        THREE.MathUtils.degToRad(Number(item?.rotate) || 0),
-    );
-    const scale = new THREE.Vector3(
-        item?.horizontalFlip === true ? -1 : 1,
-        item?.verticalFlip === true ? -1 : 1,
-        1,
-    );
-
-    return new THREE.Matrix4().compose(position, quaternion, scale);
-}
-
-/** 将参数化 OBJ 的 Y-up 坐标系转换为户型场景使用的 Z-up。 */
-export function createYUpToZUpTransform() {
-    return new THREE.Matrix4().makeRotationX(Math.PI / 2);
-}
-
-/**
- * 根据 JSON 的 BasePoint 与 footprint 关系，计算 OBJ 在块局部坐标中的偏移。
- * BasePoint 可能是中心、角点或边中点，不能一律把模型包围盒中心移到原点。
- */
-export function computeModelPlacementOffset(item, modelBox, baseScale = 1) {
-    const bp = item?.basepoint || {};
-    const footprintCenter = item?.footprint?.length
-        ? computeFootprintCenter(item.footprint)
-        : { x: bp.x ?? 0, y: bp.y ?? 0 };
-    const targetWorld = new THREE.Vector3(
-        footprintCenter.x,
-        footprintCenter.y,
-        bp.z ?? 0,
-    );
-    const targetLocal = targetWorld.applyMatrix4(createPlanTransform(item).invert());
-    const modelCenter = modelBox.getCenter(new THREE.Vector3());
-    const safeScale = Number.isFinite(baseScale) && baseScale !== 0 ? baseScale : 1;
-
-    return new THREE.Vector3(
-        targetLocal.x / safeScale - modelCenter.x,
-        targetLocal.y / safeScale - modelCenter.y,
-        -modelBox.min.z,
-    );
-}
-
-function vectorToPlain(vector) {
-    return {
-        x: Number(vector?.x ?? 0),
-        y: Number(vector?.y ?? 0),
-        z: Number(vector?.z ?? 0),
-    };
-}
-
-function clonePlain(value) {
-    return value == null ? value : JSON.parse(JSON.stringify(value));
-}
-
 /** 创建不持有 Three.js 对象引用的软装调试快照。 */
 export function createParametricDebugInfo(item, templateInfo, placement) {
-    const worldSize = placement.worldBox.getSize(new THREE.Vector3());
+    const baseScale = Number.isFinite(placement?.baseScale) ? placement.baseScale : 1;
+    const info = createContentDebugInfo({
+        ...item,
+        instanceId: item?.id ?? null,
+        basePoint: item?.basepoint,
+        rotationDegrees: item?.rotate,
+    }, {
+        typeName: templateInfo?.typeName,
+        resId: templateInfo?.resId,
+        referenceSize: templateInfo?.defaultSize,
+    }, {
+        kind: 'parametric-obj',
+    }, {
+        ...placement,
+        targetScale: new THREE.Vector3(baseScale, baseScale, baseScale),
+        effectiveHorizontalFlip: item?.horizontalFlip === true,
+    });
     return {
-        typeId: String(item.typeId),
-        softlistId: item.id ?? null,
-        typeName: templateInfo.typeName ?? null,
-        resId: templateInfo.resId ?? null,
-        defaultSize: clonePlain(templateInfo.defaultSize ?? null),
+        typeId: info.typeId,
+        softlistId: item?.id ?? null,
+        typeName: info.selection.typeName,
+        resId: info.selection.resId,
+        defaultSize: info.selection.referenceSize,
         source: {
-            basepoint: clonePlain(item.basepoint ?? null),
-            footprint: clonePlain(item.footprint ?? []),
-            modelParams: clonePlain(item.modelParams ?? []),
+            basepoint: info.source.basePoint,
+            footprint: info.source.footprint,
+            modelParams: info.source.modelParams,
         },
         transform: {
-            rotate: Number(item.rotate) || 0,
-            horizontalFlip: item.horizontalFlip === true,
-            verticalFlip: item.verticalFlip === true,
+            rotate: info.transform.rotationDegrees,
+            horizontalFlip: info.transform.horizontalFlip,
+            verticalFlip: info.transform.verticalFlip,
         },
         placement: {
-            rawSize: vectorToPlain(placement.rawSize),
-            baseScale: placement.baseScale,
-            modelOffset: vectorToPlain(placement.modelOffset),
-            worldPosition: vectorToPlain(placement.worldPosition),
-            worldBounds: {
-                min: vectorToPlain(placement.worldBox.min),
-                max: vectorToPlain(placement.worldBox.max),
-                size: vectorToPlain(worldSize),
-            },
+            rawSize: info.placement.rawSize,
+            baseScale,
+            modelOffset: info.placement.modelOffset,
+            worldPosition: info.placement.worldPosition,
+            worldBounds: info.placement.worldBounds,
         },
     };
 }
