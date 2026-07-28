@@ -9,7 +9,7 @@ import { ContentModelLoader } from '../src/components/ContentModelLoader.js';
 import * as RoomRendererModule from '../src/components/RoomRenderer.js';
 
 const {
-    createDoorWindowRenderSets,
+    createDoorWindowSceneBindings,
     filterNonSoftContentModels,
     handlePlacedContentModel,
     hidePlacedFallback,
@@ -96,21 +96,26 @@ function controlledDoorLoader(failurePhase = null) {
     });
 }
 
-test('door render sets omit visible door Boxes while preserving windows and all cutters', () => {
+test('door scene bindings omit door Boxes from results, scene inputs, and fallbacks', () => {
     const doorBox = new THREE.Mesh();
+    doorBox.userData = { sourceList: 'door_list', sourceIndex: 0 };
     const windowBox = new THREE.Mesh();
+    windowBox.userData = { sourceList: 'window_list', sourceIndex: 0 };
     const doorCutter = new THREE.Mesh();
     const windowCutter = new THREE.Mesh();
 
-    const result = createDoorWindowRenderSets(
+    const result = createDoorWindowSceneBindings(
         { doors: [doorBox], windows: [windowBox] },
         { doors: [doorCutter], windows: [windowCutter] },
     );
 
-    assert.deepEqual(result.visible.doors, []);
-    assert.deepEqual(result.visible.windows, [windowBox]);
+    assert.deepEqual(result.doorMeshes, []);
+    assert.deepEqual(result.windowMeshes, [windowBox]);
+    assert.deepEqual(result.visibleMeshes, [windowBox]);
     assert.deepEqual(result.cutters.doors, [doorCutter]);
     assert.deepEqual(result.cutters.windows, [windowCutter]);
+    assert.equal(result.fallbackMap.has('door_list:0'), false);
+    assert.equal(result.fallbackMap.get('window_list:0'), windowBox);
 });
 
 test('soft-list records never enter the unified content-model loader', () => {
@@ -149,6 +154,35 @@ test('scene orchestration starts isolated legacy-soft and unified non-soft pipel
     assert.deepEqual(calls, [
         ['soft', legacySoftlists, scene],
         ['content', [door], scene],
+    ]);
+});
+
+test('scene failure logs contain only the checkpoint allowlist', async () => {
+    const warnings = [];
+    const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
+        async loadSoft() { return []; },
+        async loadContent() {
+            return { summary: {}, failures: [{
+                instanceId: 'door_list:4',
+                sourceList: 'door_list',
+                sourceIndex: 4,
+                typeId: '1302',
+                resId: '9001',
+                errorCode: 'STATIC_MODEL_LOAD_FAILED',
+                sourceUrl: 'https://secret.test/signed.glb',
+            }] };
+        },
+        diagnostic() {},
+        logger: {
+            log() {},
+            warn(...args) { warnings.push(args); },
+        },
+    });
+    await Promise.all([loads.softLoad, loads.contentLoad]);
+
+    const failureLog = warnings.find(([label]) => label === '[ContentLoader] scene failures');
+    assert.deepEqual(Object.keys(failureLog[1][0]).sort(), [
+        'errorCode', 'resId', 'sourceIndex', 'sourceList', 'typeId',
     ]);
 });
 

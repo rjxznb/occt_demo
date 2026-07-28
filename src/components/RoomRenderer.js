@@ -59,9 +59,19 @@ export function createDoorWindowRenderSets(visibleMeshes = {}, cutterMeshes = {}
     };
 }
 
+export function createDoorWindowSceneBindings(visibleMeshes = {}, cutterMeshes = {}) {
+    const renderSets = createDoorWindowRenderSets(visibleMeshes, cutterMeshes);
+    return {
+        doorMeshes: renderSets.visible.doors,
+        windowMeshes: renderSets.visible.windows,
+        visibleMeshes: [...renderSets.visible.doors, ...renderSets.visible.windows],
+        cutters: renderSets.cutters,
+        fallbackMap: indexDoorWindowFallbacks(renderSets.visible),
+    };
+}
+
 function allowlistedFailures(failures) {
     return failures.map(failure => ({
-        instanceId: failure?.instanceId ?? null,
         sourceList: failure?.sourceList ?? null,
         sourceIndex: failure?.sourceIndex ?? null,
         typeId: failure?.typeId ?? null,
@@ -445,14 +455,13 @@ export class RoomRenderer {
             if (data.doorWindows) {
                 doorWindowSubMeshes = this.createDoorWindowMeshes(data.doorWindows.processed_doors, data.doorWindows.processed_windows);
             }
-            const doorWindowRenderSets = createDoorWindowRenderSets(
+            const doorWindowBindings = createDoorWindowSceneBindings(
                 doorWindowMeshes,
                 doorWindowSubMeshes,
             );
-            doorWindowMeshes = doorWindowRenderSets.visible;
-            doorWindowSubMeshes = doorWindowRenderSets.cutters;
-            result.doorMeshes = doorWindowMeshes.doors;
-            result.windowMeshes = doorWindowMeshes.windows;
+            doorWindowSubMeshes = doorWindowBindings.cutters;
+            result.doorMeshes = doorWindowBindings.doorMeshes;
+            result.windowMeshes = doorWindowBindings.windowMeshes;
 
             // 3. 创建房间 mesh 用于布尔运算（只做减数，不渲染）。
             //    必须在竖向上完全包住外壳（-25 ~ 2775），否则外壳底部那段挖不穿，
@@ -527,23 +536,12 @@ export class RoomRenderer {
                 });
 
                 // 单独添加门窗（不挖洞）
-                if (doorWindowMeshes.doors) {
-                    doorWindowMeshes.doors.forEach(mesh => {
-                        if (mesh && CSGOperations.isValidMesh(mesh)) {
-                            this.sceneGroup.add(mesh);
-                            wallSelector.addWall(mesh);
-                        }
-                    });
-
-                }
-                if (doorWindowMeshes.windows) {
-                    doorWindowMeshes.windows.forEach(mesh => {
-                        if (mesh && CSGOperations.isValidMesh(mesh)) {
-                            this.sceneGroup.add(mesh);
-                            wallSelector.addWall(mesh);
-                        }
-                    });
-                }
+                doorWindowBindings.visibleMeshes.forEach(mesh => {
+                    if (mesh && CSGOperations.isValidMesh(mesh)) {
+                        this.sceneGroup.add(mesh);
+                        wallSelector.addWall(mesh);
+                    }
+                });
             }
             // 因为对外墙挖洞，返回的实例对象其实已经不是原来的mesh啦，
             // 所以之前的一些userData全都不存在啦，我们需要自己再设置；
@@ -553,8 +551,11 @@ export class RoomRenderer {
             }
 
             // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
-            const fallbackMap = indexDoorWindowFallbacks(doorWindowMeshes);
-            startSceneContentModelLoads(data, this.sceneGroup, fallbackMap);
+            startSceneContentModelLoads(
+                data,
+                this.sceneGroup,
+                doorWindowBindings.fallbackMap,
+            );
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
             if (data.rooms?.roomInfo) {
