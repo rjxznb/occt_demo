@@ -32,6 +32,11 @@ export function hidePlacedFallback(fallbacks, instance) {
     return true;
 }
 
+export function hasIndexedFallback(fallbacks, instance) {
+    const key = fallbackKey(instance?.sourceList, instance?.sourceIndex);
+    return key ? fallbacks?.has(key) === true : false;
+}
+
 export function handlePlacedContentModel(fallbacks, instance, root) {
     if (root?.isObject3D) root.userData.contentModelRoot = true;
     return hidePlacedFallback(fallbacks, instance);
@@ -76,6 +81,7 @@ function allowlistedFailures(failures) {
         sourceIndex: failure?.sourceIndex ?? null,
         typeId: failure?.typeId ?? null,
         resId: failure?.resId ?? null,
+        resourceKind: failure?.resourceKind ?? null,
         errorCode: failure?.errorCode ?? 'UNKNOWN_ERROR',
     }));
 }
@@ -134,6 +140,7 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         sceneGroup,
         {
             concurrency: 3,
+            hasFallback: instance => hasIndexedFallback(fallbackMap, instance),
             onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
         },
     )).then(result => {

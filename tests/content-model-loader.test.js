@@ -114,9 +114,11 @@ function placeClone(model, currentInstance) {
 
 function makeHarness({
     selections, details, loadGltf, parseObj, convertModel, getGoodsDetails, logger,
-    prototypeCacheLimit,
+    prototypeCacheLimit, resolveParameters,
 } = {}) {
-    const calls = { sequence: [], goods: [], gltf: [], convert: [], place: [] };
+    const calls = {
+        sequence: [], goods: [], gltf: [], convert: [], place: [], resolveParameters: [],
+    };
     const templateResolver = {
         async load() {
             calls.sequence.push('template-load');
@@ -152,6 +154,12 @@ function makeHarness({
             calls.place.push({ model, currentInstance, selected, resource });
             return placeClone(model, currentInstance);
         },
+        resolveParameters(currentInstance, selected) {
+            calls.resolveParameters.push({ currentInstance, selected });
+            return resolveParameters
+                ? resolveParameters(currentInstance, selected)
+                : (currentInstance.modelParams ?? []);
+        },
         logger: logger ?? { log() {}, warn() {} },
         prototypeCacheLimit,
     });
@@ -181,22 +189,26 @@ test('default GLTF loading configures the bundled Draco decoder', () => {
     assert.equal(configured[0].workerLimit, 3);
 });
 
-test('loads the template first, batches unique details, and dispatches type 1 and type 8 resources', async () => {
+test('dispatches same-list static and parametric resources and resolves parameters only for type 8', async () => {
     const selections = new Map([
         ['static', selection('100', 'static')],
         ['parametric', selection('200', 'parametric')],
     ]);
+    const resolvedParameters = [{ name: '宽度', value: 800 }];
+    const warnings = [];
     const { loader, calls } = makeHarness({
         selections,
         details: [
             staticDetail('100', 'static-hash', 'https://file.test/static.kb'),
             parametricDetail('200', 'param-hash', 'https://file.test/param.json'),
         ],
+        resolveParameters: () => resolvedParameters,
+        logger: { log() {}, warn(...args) { warnings.push(args); } },
     });
 
     const result = await loader.load([
         instance('static', 0),
-        instance('parametric', 1, [{ name: '宽度', value: 800 }]),
+        instance('parametric', 1, [{ name: 'wrong-legacy-value', value: -1 }]),
     ], new THREE.Group());
 
     assert.deepEqual(calls.sequence, [
@@ -205,23 +217,29 @@ test('loads the template first, batches unique details, and dispatches type 1 an
     assert.deepEqual(calls.goods, [['100', '200']]);
     assert.deepEqual(calls.gltf, ['https://file.test/static.kb']);
     assert.deepEqual(calls.convert, [{
-        url: 'https://file.test/param.json', parameters: [{ name: '宽度', value: 800 }],
+        url: 'https://file.test/param.json', parameters: resolvedParameters,
     }]);
+    assert.equal(calls.resolveParameters.length, 1);
+    assert.equal(calls.resolveParameters[0].currentInstance.typeId, 'parametric');
+    assert.deepEqual(
+        calls.place.find(call => call.currentInstance.typeId === 'parametric')
+            .currentInstance.modelParams,
+        resolvedParameters,
+    );
     assert.deepEqual(result.summary, {
-        instances: 2,
-        selected: 2,
-        detailsResolved: 2,
-        staticLoaded: 1,
-        parametricLoaded: 1,
-        fallbackVisible: 0,
+        discovered: 2,
         localGeometry: 0,
+        staticSelected: 1,
+        parametricSelected: 1,
+        placed: 2,
+        fallbackVisible: 0,
         openingOnly: 0,
-        skipped: 0,
         failed: 0,
     });
     assert.equal(result.groups.length, 2);
     assert.equal(result.selections.length, 2);
     assert.deepEqual(result.failures, []);
+    assert.deepEqual(warnings, []);
 });
 
 test('deduplicates static prototypes in flight and in cache while returning independent roots', async () => {
@@ -370,8 +388,9 @@ test('isolates a static load failure and continues loading a parameterized model
     ], new THREE.Group());
 
     assert.equal(result.groups.length, 1);
-    assert.equal(result.summary.parametricLoaded, 1);
-    assert.equal(result.summary.staticLoaded, 0);
+    assert.equal(result.summary.parametricSelected, 1);
+    assert.equal(result.summary.staticSelected, 1);
+    assert.equal(result.summary.placed, 1);
     assert.equal(result.summary.failed, 1);
     assert.equal(result.failures[0].errorCode, 'STATIC_MODEL_LOAD_FAILED');
     assert.doesNotMatch(JSON.stringify(result.failures), /sentinel-secret|https:\/\//);
@@ -487,16 +506,14 @@ test('keeps selection misses as local geometry without requesting them', async (
         'RESOURCE_DETAIL_MISSING',
     ]);
     assert.deepEqual(result.summary, {
-        instances: 3,
-        selected: 1,
-        detailsResolved: 0,
-        staticLoaded: 0,
-        parametricLoaded: 0,
-        fallbackVisible: 0,
+        discovered: 3,
         localGeometry: 2,
+        staticSelected: 0,
+        parametricSelected: 0,
+        placed: 0,
+        fallbackVisible: 0,
         openingOnly: 0,
-        skipped: 3,
-        failed: 0,
+        failed: 1,
     });
 });
 
@@ -533,6 +550,61 @@ test('requests goods details only for classified model-resource selections', asy
     assert.deepEqual(result.failures, []);
 });
 
+test('reports exact terminal states and counts only real fallbacks for failures', async () => {
+    const selections = new Map([
+        ['local', { errorCode: 'TEMPLATE_TYPE_NOT_FOUND' }],
+        ['static', selection('100', 'static')],
+        ['parametric', selection('200', 'parametric')],
+        ['broken', selection('300', 'broken')],
+        ['1307', selection('must-not-request', '1307')],
+    ]);
+    const placed = [];
+    const { loader } = makeHarness({
+        selections,
+        details: [
+            staticDetail('100'),
+            parametricDetail('200'),
+            parametricDetail('300', 'broken-hash', 'https://file.test/broken.json'),
+        ],
+        convertModel: async url => ({ obj: url.includes('broken') ? 'broken-obj' : validObj }),
+        parseObj: content => {
+            if (content === 'broken-obj') throw new Error('controlled parse failure');
+            return prototype();
+        },
+    });
+
+    const result = await loader.load([
+        instance('local', 0),
+        instance('1307', 1),
+        instance('static', 2),
+        instance('parametric', 3),
+        instance('broken', 4),
+    ], new THREE.Group(), {
+        hasFallback: currentInstance => currentInstance.typeId === 'broken',
+        onInstancePlaced: currentInstance => placed.push(currentInstance.typeId),
+    });
+
+    assert.deepEqual(result.summary, {
+        discovered: 5,
+        localGeometry: 1,
+        staticSelected: 1,
+        parametricSelected: 2,
+        placed: 2,
+        fallbackVisible: 1,
+        openingOnly: 1,
+        failed: 1,
+    });
+    assert.deepEqual(placed.sort(), ['parametric', 'static']);
+    assert.deepEqual(result.failures, [{
+        sourceList: 'soft_list',
+        sourceIndex: 4,
+        typeId: 'broken',
+        resId: '300',
+        resourceKind: 'parametric-obj',
+        errorCode: 'MODEL_PARSE_FAILED',
+    }]);
+});
+
 test('retains selected counts and selections when the single detail batch fails', async () => {
     const selections = new Map([
         ['first', selection('100', 'first')],
@@ -549,8 +621,9 @@ test('retains selected counts and selections when the single detail batch fails'
         instance('first', 0), instance('second', 1),
     ], new THREE.Group());
 
-    assert.equal(result.summary.selected, 2);
-    assert.equal(result.summary.skipped, 2);
+    assert.equal(result.summary.discovered, 2);
+    assert.equal(result.summary.failed, 2);
+    assert.equal(result.summary.placed, 0);
     assert.equal(result.selections.length, 2);
     assert.deepEqual(result.failures.map(failure => failure.errorCode), [
         'HTTP_ERROR', 'HTTP_ERROR',
@@ -572,7 +645,8 @@ test('does not turn a placed model into a failure when the progress observer thr
 
     assert.equal(scene.children.length, 1);
     assert.equal(result.groups.length, 1);
-    assert.equal(result.summary.staticLoaded, 1);
+    assert.equal(result.summary.staticSelected, 1);
+    assert.equal(result.summary.placed, 1);
     assert.equal(result.summary.failed, 0);
     assert.deepEqual(result.failures, []);
 });
@@ -593,7 +667,8 @@ test('isolates synchronous and asynchronous onInstancePlaced observer failures',
 
         assert.equal(scene.children.length, 1);
         assert.equal(result.groups.length, 1);
-        assert.equal(result.summary.staticLoaded, 1);
+        assert.equal(result.summary.staticSelected, 1);
+        assert.equal(result.summary.placed, 1);
         assert.equal(result.summary.failed, 0);
         assert.deepEqual(result.failures, []);
     }
@@ -679,15 +754,19 @@ test('emits exactly one safe summary and one grouped error count with allowliste
         category: 'door',
     };
 
-    const result = await loader.load([door], new THREE.Group());
+    const result = await loader.load([door], new THREE.Group(), {
+        hasFallback: () => true,
+    });
 
     assert.equal(logs.length, 1);
     assert.equal(warnings.length, 1);
     assert.deepEqual(warnings[0][1], { STATIC_MODEL_LOAD_FAILED: 1 });
     assert.deepEqual(Object.keys(result.failures[0]).sort(), [
-        'errorCode', 'instanceId', 'message', 'resId', 'sourceIndex', 'sourceList', 'typeId',
+        'errorCode', 'resId', 'resourceKind', 'sourceIndex', 'sourceList', 'typeId',
     ]);
     assert.equal(result.summary.fallbackVisible, 1);
+    assert.match(logs[0][0], /^\[ContentLoader\] discovered=1 /);
+    assert.match(logs[0][0], /staticSelected=1 parametricSelected=0 placed=0/);
     const serialized = JSON.stringify({ logs, warnings, result });
     assert.doesNotMatch(serialized, /sourceUrl|sentinel-secret|https:\/\//);
 });

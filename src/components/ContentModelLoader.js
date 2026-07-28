@@ -5,6 +5,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
 import { classifyContentCandidates } from './ContentModelClassifier.js';
+import { resolveParametricParameters } from './ParametricParameterResolver.js';
 import { placeContentModel } from './ContentModelPlacement.js';
 import {
     indexGoodsDetails,
@@ -35,7 +36,7 @@ const FAILURE_CODES = new Set([
 
 const DEPENDENCY_OPTIONS = [
     'loadGltf', 'parseObj', 'templateResolver', 'apiClient',
-    'placeModel', 'resolveResource', 'logger',
+    'placeModel', 'resolveResource', 'resolveParameters', 'logger',
 ];
 const DEFAULT_PROTOTYPE_CACHE_LIMIT = 96;
 
@@ -192,15 +193,14 @@ function failureCode(error, fallback) {
     return FAILURE_CODES.has(error?.code) ? error.code : fallback;
 }
 
-function failureFor(instance, selection, errorCode, message) {
+function failureFor(instance, selection, resourceKind, errorCode) {
     return {
-        instanceId: instance?.instanceId ?? instance?.id ?? null,
         sourceList: instance?.sourceList ?? null,
         sourceIndex: instance?.sourceIndex ?? null,
         typeId: instance?.typeId == null ? null : String(instance.typeId),
         resId: selection?.resId == null ? null : String(selection.resId),
+        resourceKind: resourceKind ?? null,
         errorCode: FAILURE_CODES.has(errorCode) ? errorCode : 'INVALID_RESPONSE',
-        message: sanitizedMessage({ message }, 'Content model could not be loaded'),
     };
 }
 
@@ -212,8 +212,13 @@ function groupedFailureCounts(failures) {
     return counts;
 }
 
-function isFallbackInstance(instance) {
-    return instance?.sourceList === 'door_list' || instance?.sourceList === 'window_list';
+function hasVisibleFallback(options, instance) {
+    if (typeof options?.hasFallback !== 'function') return false;
+    try {
+        return options.hasFallback(instance) === true;
+    } catch {
+        return false;
+    }
 }
 
 function isValidInstance(instance) {
@@ -261,6 +266,7 @@ export class ContentModelLoader {
         apiClient = parametricApiClient,
         placeModel = placeContentModel,
         resolveResource = resolveModelResource,
+        resolveParameters = resolveParametricParameters,
         logger = console,
         prototypeCacheLimit = DEFAULT_PROTOTYPE_CACHE_LIMIT,
     } = {}) {
@@ -276,6 +282,7 @@ export class ContentModelLoader {
         this.apiClient = apiClient;
         this.placeModel = placeModel;
         this.resolveResource = resolveResource;
+        this.resolveParameters = resolveParameters;
         this.logger = logger;
         this.prototypeCache = new Map();
         this.prototypeCacheLimit = Math.max(1, Math.floor(Number(prototypeCacheLimit)) || 1);
@@ -354,21 +361,18 @@ export class ContentModelLoader {
         const failures = [];
         const validInstances = [];
         const groups = [];
-        let skipped = 0;
-        let failed = 0;
         let fallbackVisible = 0;
-        let detailsResolved = 0;
-        let staticLoaded = 0;
-        let parametricLoaded = 0;
+        let staticSelected = 0;
+        let parametricSelected = 0;
+        const recordFailure = (instance, selection, resourceKind, errorCode) => {
+            failures.push(failureFor(instance, selection, resourceKind, errorCode));
+            if (hasVisibleFallback(options, instance)) fallbackVisible += 1;
+        };
 
         await this.templateResolver.load(options.templatePath);
         for (const currentInstance of sourceInstances) {
             if (!isValidInstance(currentInstance)) {
-                failures.push(failureFor(
-                    currentInstance, null, 'CONTENT_INPUT_INVALID', 'Content model instance is invalid',
-                ));
-                skipped += 1;
-                if (isFallbackInstance(currentInstance)) fallbackVisible += 1;
+                recordFailure(currentInstance, null, null, 'CONTENT_INPUT_INVALID');
                 continue;
             }
             validInstances.push(currentInstance);
@@ -376,8 +380,6 @@ export class ContentModelLoader {
 
         const classification = classifyContentCandidates(validInstances, this.templateResolver);
         const { selectedRecords, localGeometry, openingOnly } = classification;
-        skipped += localGeometry.length + openingOnly.length;
-        fallbackVisible += localGeometry.filter(item => isFallbackInstance(item.instance)).length;
 
         const uniqueResIds = [...new Set(selectedRecords.map(record => String(record.selection.resId)))];
         let details = new Map();
@@ -388,14 +390,7 @@ export class ContentModelLoader {
             } catch (error) {
                 const code = failureCode(error, 'RESOURCE_DETAIL_MISSING');
                 for (const record of selectedRecords) {
-                    failures.push(failureFor(
-                        record.instance,
-                        record.selection,
-                        code,
-                        sanitizedMessage(error, 'Resource detail lookup failed'),
-                    ));
-                    skipped += 1;
-                    if (isFallbackInstance(record.instance)) fallbackVisible += 1;
+                    recordFailure(record.instance, record.selection, null, code);
                 }
                 detailLookupFailed = true;
             }
@@ -413,41 +408,36 @@ export class ContentModelLoader {
             const resId = String(record.selection.resId);
             const detail = details.get(resId);
             if (!detail) {
-                failures.push(failureFor(
-                    record.instance,
-                    record.selection,
-                    'RESOURCE_DETAIL_MISSING',
-                    'Resource detail is missing',
-                ));
-                skipped += 1;
-                if (isFallbackInstance(record.instance)) fallbackVisible += 1;
+                recordFailure(
+                    record.instance, record.selection, null, 'RESOURCE_DETAIL_MISSING',
+                );
                 continue;
             }
-            detailsResolved += 1;
             const resource = resourceByResId.get(resId);
             if (resource?.errorCode) {
-                failures.push(failureFor(
-                    record.instance,
-                    record.selection,
-                    resource.errorCode,
-                    resource.message ?? 'Model resource could not be resolved',
-                ));
-                skipped += 1;
-                if (isFallbackInstance(record.instance)) fallbackVisible += 1;
+                recordFailure(record.instance, record.selection, null, resource.errorCode);
                 continue;
             }
+            if (resource.kind === 'static-glb') staticSelected += 1;
+            else parametricSelected += 1;
             loadRecords.push({ ...record, resource });
         }
 
         await mapWithConcurrency(loadRecords, options.concurrency ?? 3, async record => {
             try {
+                const parameters = record.resource.kind === 'parametric-obj'
+                    ? this.resolveParameters(record.instance, record.selection)
+                    : [];
                 const model = await this.getPrototype(
                     record.resource,
-                    record.instance.modelParams ?? [],
+                    parameters,
                 );
+                const placementInstance = record.resource.kind === 'parametric-obj'
+                    ? { ...record.instance, modelParams: parameters }
+                    : record.instance;
                 const root = this.placeModel(
                     model,
-                    record.instance,
+                    placementInstance,
                     record.selection,
                     record.resource,
                 );
@@ -456,8 +446,6 @@ export class ContentModelLoader {
                 }
                 sceneGroup.add(root);
                 groups.push(root);
-                if (record.resource.kind === 'static-glb') staticLoaded += 1;
-                else parametricLoaded += 1;
                 if (typeof options.onInstancePlaced === 'function') {
                     try {
                         await options.onInstancePlaced(record.instance, root);
@@ -474,31 +462,32 @@ export class ContentModelLoader {
                 }
             } catch (error) {
                 const code = failureCode(error, 'MODEL_SIZE_UNRESOLVED');
-                failures.push(failureFor(
-                    record.instance,
-                    record.selection,
-                    code,
-                    sanitizedMessage(error, 'Content model placement failed'),
-                ));
-                failed += 1;
-                if (isFallbackInstance(record.instance)) fallbackVisible += 1;
+                recordFailure(
+                    record.instance, record.selection, record.resource.kind, code,
+                );
             }
         });
 
         const summary = {
-            instances: sourceInstances.length,
-            selected: selectedRecords.length,
-            detailsResolved,
-            staticLoaded,
-            parametricLoaded,
-            fallbackVisible,
+            discovered: sourceInstances.length,
             localGeometry: localGeometry.length,
+            staticSelected,
+            parametricSelected,
+            placed: groups.length,
+            fallbackVisible,
             openingOnly: openingOnly.length,
-            skipped,
-            failed,
+            failed: failures.length,
         };
-        this.logger.log('[ContentLoader] summary', summary);
-        this.logger.warn('[ContentLoader] failures', groupedFailureCounts(failures));
+        this.logger.log(
+            `[ContentLoader] discovered=${summary.discovered} `
+            + `localGeometry=${summary.localGeometry} staticSelected=${summary.staticSelected} `
+            + `parametricSelected=${summary.parametricSelected} placed=${summary.placed} `
+            + `fallbackVisible=${summary.fallbackVisible} openingOnly=${summary.openingOnly} `
+            + `failed=${summary.failed}`,
+        );
+        if (failures.length > 0) {
+            this.logger.warn('[ContentLoader] failures', groupedFailureCounts(failures));
+        }
         return {
             groups,
             summary,

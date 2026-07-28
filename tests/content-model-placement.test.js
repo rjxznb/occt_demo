@@ -176,6 +176,48 @@ test('parameterized OBJ uses a uniform unit normalization instead of forcing the
     assert.deepEqual(scale.toArray(), [10, 10, 10]);
 });
 
+test('a generated 1401 window stays upright without applying CAD dimensions twice', () => {
+    const windowInstance = {
+        ...instance,
+        instanceId: 'window_list:3',
+        sourceList: 'window_list',
+        sourceIndex: 3,
+        category: 'window',
+        typeId: '1401',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 }, { x: 0, y: -240 },
+            { x: 1100, y: -240 }, { x: 1100, y: 0 },
+        ],
+        size: { x: 1100, y: 240, z: 1380 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        groundHeight: 890,
+    };
+    const generatedWindow = new THREE.Mesh(
+        new THREE.BoxGeometry(1160, 1400, 300),
+        new THREE.MeshBasicMaterial(),
+    );
+    const box = worldBox(placeContentModel(generatedWindow, windowInstance, {
+        ...selection,
+        typeId: '1401',
+        resId: '2406313',
+        referenceSize: { x: 0, y: 0, z: 160 },
+    }, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0, contentHash: 'window-hash',
+    }));
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    assertNear(size.x, 1160, 'generated window world width');
+    assertNear(size.y, 300, 'generated window world wall depth');
+    assertNear(size.z, 1400, 'generated window world height');
+    assertNear(center.x, 550, 'generated window footprint center x');
+    assertNear(center.y, -120, 'generated window footprint center y');
+    assertNear(box.min.z, 890, 'generated window sill height');
+});
+
 test('template XMirror composes with CAD horizontal flip using XOR', () => {
     const prototype = makePrototype();
     const root = placeContentModel(prototype, instance, {

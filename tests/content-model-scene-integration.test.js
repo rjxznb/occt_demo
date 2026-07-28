@@ -12,6 +12,7 @@ const {
     createDoorWindowSceneBindings,
     filterNonSoftContentModels,
     handlePlacedContentModel,
+    hasIndexedFallback,
     hidePlacedFallback,
     indexDoorWindowFallbacks,
     startSceneContentModelLoads,
@@ -182,7 +183,7 @@ test('scene failure logs contain only the checkpoint allowlist', async () => {
 
     const failureLog = warnings.find(([label]) => label === '[ContentLoader] scene failures');
     assert.deepEqual(Object.keys(failureLog[1][0]).sort(), [
-        'errorCode', 'resId', 'sourceIndex', 'sourceList', 'typeId',
+        'errorCode', 'resId', 'resourceKind', 'sourceIndex', 'sourceList', 'typeId',
     ]);
 });
 
@@ -348,6 +349,13 @@ test('fallback visibility helper hides only the matching source identity', () =>
     window.userData = { sourceList: 'window_list', sourceIndex: 0 };
     const fallbackMap = indexDoorWindowFallbacks({ doors: [door], windows: [window] });
 
+    assert.equal(hasIndexedFallback(fallbackMap, {
+        sourceList: 'door_list', sourceIndex: 0,
+    }), true);
+    assert.equal(hasIndexedFallback(fallbackMap, {
+        sourceList: 'window_list', sourceIndex: 9,
+    }), false);
+
     assert.equal(hidePlacedFallback(fallbackMap, {
         sourceList: 'door_list', sourceIndex: 0,
     }), true);
@@ -430,12 +438,15 @@ test('local geometry and resource, load, or placement failures retain matching f
         const fallbackMap = indexDoorWindowFallbacks({ doors: [fallback], windows: [] });
 
         const result = await controlledDoorLoader(failurePhase).load([doorInstance()], scene, {
+            hasFallback: instance => hasIndexedFallback(fallbackMap, instance),
             onInstancePlaced: RoomRendererModule.createContentModelPlacementHandler(fallbackMap),
         });
 
         assert.equal(result.groups.length, 0, failurePhase);
         assert.equal(result.failures.length, failurePhase === 'selection' ? 0 : 1, failurePhase);
         assert.equal(result.summary.localGeometry, failurePhase === 'selection' ? 1 : 0, failurePhase);
+        assert.equal(result.summary.fallbackVisible, failurePhase === 'selection' ? 0 : 1,
+            failurePhase);
         assert.equal(fallback.visible, true, failurePhase);
         assert.equal(cutter.visible, true, failurePhase);
     }
