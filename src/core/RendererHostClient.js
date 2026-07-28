@@ -25,8 +25,13 @@ export class RendererHostClient {
             this.parentWindow !== this.selfWindow;
     }
 
+    diagnose(stage, code) {
+        this.selfWindow?.__renderPreviewDiagnostic?.(stage, code);
+    }
+
     invoke(method, payload, { timeoutMs = this.defaultTimeoutMs } = {}) {
         if (!this.isAvailable()) {
+            this.diagnose('rpc-result', 'BRIDGE_UNAVAILABLE');
             return Promise.reject(Object.assign(new Error('CAD host bridge is unavailable'), {
                 code: 'BRIDGE_UNAVAILABLE',
             }));
@@ -35,11 +40,13 @@ export class RendererHostClient {
         return new Promise((resolve, reject) => {
             const timeoutId = this.selfWindow.setTimeout(() => {
                 this.pending.delete(requestId);
+                this.diagnose('rpc-timeout', 'TIMEOUT');
                 reject(Object.assign(new Error(`Native call timed out: ${method}`), {
                     code: 'TIMEOUT',
                 }));
             }, timeoutMs);
             this.pending.set(requestId, { resolve, reject, timeoutId });
+            this.diagnose('rpc-send', 'OK');
             this.parentWindow.postMessage({
                 channel: CHANNEL,
                 version: VERSION,
@@ -62,9 +69,11 @@ export class RendererHostClient {
         this.pending.delete(message.requestId);
         this.selfWindow.clearTimeout(pending.timeoutId);
         if (message.ok) {
+            this.diagnose('rpc-result', 'OK');
             pending.resolve(message.payload);
             return;
         }
+        this.diagnose('rpc-result', 'NATIVE_ERROR');
         const error = new Error(message.error?.message || 'Native call failed');
         error.code = message.error?.code || 'NATIVE_ERROR';
         error.status = message.error?.status;

@@ -34,6 +34,7 @@ function createHarness(nativeMethods) {
   const listeners = new Map();
   const posts = [];
   const calls = [];
+  const diagnostics = [];
   const elements = new Map();
   const document = {
     hidden: false,
@@ -55,6 +56,9 @@ function createHarness(nativeMethods) {
     addEventListener() {}
   };
   const window = {
+    __renderPreviewDiagnostic(stage, code) {
+      diagnostics.push({ stage, code });
+    },
     addEventListener(type, listener) {
       listeners.set(type, listener);
     },
@@ -85,6 +89,7 @@ function createHarness(nativeMethods) {
   return {
     posts,
     calls,
+    diagnostics,
     invoke(message) {
       listeners.get('message')({ source: iframe.contentWindow, data: {
         channel: 'renderer-preview', version: 1, tabId: 'page-1', type: 'invoke', ...message
@@ -182,4 +187,33 @@ test('render preview rejects invalid batch goods payloads before calling native 
       code: 'INVALID_ARGUMENT', message: 'resIds 鍙傛暟鏃犳晥'
     });
   }
+});
+
+test('outer render preview reports fixed receive and result diagnostics', { skip: integrationSkip }, async () => {
+  const successHarness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getContentGoodsDetails: () => '[]'
+  });
+  successHarness.invoke({
+    requestId: 'batch', method: 'getContentGoodsDetails', payload: { resIds: ['1961100'] }
+  });
+  await flush();
+  assert.deepEqual(successHarness.diagnostics, [
+    { stage: 'outer-rpc-received', code: 'OK' },
+    { stage: 'outer-rpc-result', code: 'OK' }
+  ]);
+
+  const errorHarness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getContentGoodsDetails: () => { throw new Error('private native error'); }
+  });
+  errorHarness.invoke({
+    requestId: 'batch-error', method: 'getContentGoodsDetails', payload: { resIds: ['1961100'] }
+  });
+  await flush();
+  assert.deepEqual(errorHarness.diagnostics, [
+    { stage: 'outer-rpc-received', code: 'OK' },
+    { stage: 'outer-rpc-result', code: 'NATIVE_ERROR' }
+  ]);
+  assert.doesNotMatch(JSON.stringify(errorHarness.diagnostics), /private native error|1961100/);
 });

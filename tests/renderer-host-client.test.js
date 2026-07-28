@@ -32,6 +32,10 @@ class FakeWindow {
 function createHarness(defaultTimeoutMs = 50) {
     const selfWindow = new FakeWindow();
     const sent = [];
+    const diagnostics = [];
+    selfWindow.__renderPreviewDiagnostic = (stage, code) => {
+        diagnostics.push({ stage, code });
+    };
     const parentWindow = {
         postMessage(message, targetOrigin) {
             sent.push({ message, targetOrigin });
@@ -43,7 +47,7 @@ function createHarness(defaultTimeoutMs = 50) {
         tabId: 'page-2',
         defaultTimeoutMs,
     });
-    return { selfWindow, parentWindow, sent, client };
+    return { selfWindow, parentWindow, sent, diagnostics, client };
 }
 
 test('invoke pairs a renderer-preview result with its request', async () => {
@@ -113,6 +117,42 @@ test('rejects timed out requests with TIMEOUT', async () => {
     );
     assert.equal(client.pending.size, 0);
     client.dispose();
+});
+
+test('emits only fixed RPC diagnostic stages for success and timeout', async () => {
+    const successHarness = createHarness();
+    const pending = successHarness.client.invoke('getParametricGoodsDetail', {
+        resId: 'sensitive-resource-id',
+    });
+    const request = successHarness.sent[0].message;
+    successHarness.selfWindow.emitMessage(successHarness.parentWindow, {
+        channel: 'renderer-preview',
+        version: 1,
+        tabId: 'page-2',
+        type: 'result',
+        requestId: request.requestId,
+        ok: true,
+        payload: { data: { secret: 'must-not-be-diagnostic' } },
+    });
+    await pending;
+    assert.deepEqual(successHarness.diagnostics, [
+        { stage: 'rpc-send', code: 'OK' },
+        { stage: 'rpc-result', code: 'OK' },
+    ]);
+    assert.doesNotMatch(JSON.stringify(successHarness.diagnostics),
+        /sensitive-resource-id|must-not-be-diagnostic/);
+    successHarness.client.dispose();
+
+    const timeoutHarness = createHarness(5);
+    await assert.rejects(
+        timeoutHarness.client.invoke('getParametricGoodsDetail', { resId: '42' }),
+        error => error.code === 'TIMEOUT',
+    );
+    assert.deepEqual(timeoutHarness.diagnostics, [
+        { stage: 'rpc-send', code: 'OK' },
+        { stage: 'rpc-timeout', code: 'TIMEOUT' },
+    ]);
+    timeoutHarness.client.dispose();
 });
 
 test('dispose rejects pending calls with CANCELLED and removes the listener', async () => {

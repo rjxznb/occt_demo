@@ -227,6 +227,7 @@ class OCCTApp3D {
     }
 
     async loadData() {
+        globalThis.__renderPreviewDiagnostic?.('data-load-start', 'OK');
         try {
             this.updateStatus('正在初始化几何引擎...');
             await geometryService.init();
@@ -241,6 +242,7 @@ class OCCTApp3D {
             ]);
 
             const data = { outline, rooms, doorWindows, softlists, contentModels };
+            globalThis.__renderPreviewDiagnostic?.('data-load-ready', 'OK');
             this.sharedData = data;
 
             this.updateStatus('正在渲染几何体...');
@@ -251,6 +253,7 @@ class OCCTApp3D {
 
             console.log('数据加载和 3D 渲染完成');
         } catch (error) {
+            globalThis.__renderPreviewDiagnostic?.('data-load-error', 'DATA_ERROR');
             console.error('数据加载失败:', error);
             this.updateStatus('数据加载失败: ' + error.message);
             throw error;
@@ -343,6 +346,7 @@ class OCCTApp3D {
 
 // 启动：直接用内置示例数据（相对路径，兼容 iframe 内嵌），不再弹数据源选择
 document.addEventListener('DOMContentLoaded', () => {
+    globalThis.__renderPreviewDiagnostic?.('app-boot', 'OK');
     geometryService.setDataSource(new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf'));
     window.occtApp = new OCCTApp3D();
 });

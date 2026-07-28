@@ -59,3 +59,24 @@ test('render preview drains queued WebView dispatches before bridge and WebView 
     assert.match(source, /for\s*\(\s*;\s*;\s*\)[\s\S]*?PeekMessageW[\s\S]*?if\s*\(barrier->completed\)\s*break/);
     assert.match(source, /barrier completion[\s\S]{0,240}?WM_APP queue is empty/i);
 });
+
+test('render preview accepts only fixed safe WebView diagnostic envelopes', { skip: browserIntegrationSkip }, async () => {
+    const source = await readFile(BROWSER_PATH, 'utf8');
+
+    assert.match(source, /kRenderPreviewDiagnosticMaxBytes\s*=\s*512/);
+    assert.match(source, /renderer-preview-diagnostic/);
+    assert.match(source, /IsAllowedDiagnosticStage/);
+    assert.match(source, /IsAllowedDiagnosticCode/);
+    assert.match(source, /diagnostic\.size\(\)\s*!=\s*4/);
+    assert.match(source, /get_Source\(&source\)/);
+    assert.match(source, /https:\/\/renderer\.local\//);
+    assert.match(source, /get_WebMessageAsJson/);
+    assert.match(source, /AddScriptToExecuteOnDocumentCreated/);
+    assert.match(source, /add_WebMessageReceived/);
+    assert.match(source, /add_NavigationCompleted/);
+    assert.match(source, /\[RenderPreviewDiag\] stage=%s code=%s/);
+    assert.match(source, /document-created/);
+    assert.match(source, /dom-content-loaded/);
+    assert.match(source, /unhandled-rejection/);
+    assert.doesNotMatch(source, /remote-debugging-port|OpenDevToolsWindow/);
+});
