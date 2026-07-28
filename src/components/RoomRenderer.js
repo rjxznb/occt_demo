@@ -46,6 +46,19 @@ export function filterNonSoftContentModels(instances) {
         .filter(instance => instance?.sourceList !== 'soft_list');
 }
 
+export function createDoorWindowRenderSets(visibleMeshes = {}, cutterMeshes = {}) {
+    return {
+        visible: {
+            doors: [],
+            windows: Array.isArray(visibleMeshes.windows) ? visibleMeshes.windows : [],
+        },
+        cutters: {
+            doors: Array.isArray(cutterMeshes.doors) ? cutterMeshes.doors : [],
+            windows: Array.isArray(cutterMeshes.windows) ? cutterMeshes.windows : [],
+        },
+    };
+}
+
 function allowlistedFailures(failures) {
     return failures.map(failure => ({
         instanceId: failure?.instanceId ?? null,
@@ -424,8 +437,6 @@ export class RoomRenderer {
             let doorWindowMeshes = { doors: [], windows: [] };
             if (data.doorWindows) {
                 doorWindowMeshes = this.createDoorWindowMeshes(data.doorWindows.doors, data.doorWindows.windows);
-                result.doorMeshes = doorWindowMeshes.doors;
-                result.windowMeshes = doorWindowMeshes.windows;
             }
 
             // 3. 创建用于挖门窗的 mesh，这里得到的mesh只用于挖洞，而不用于渲染，
@@ -434,6 +445,14 @@ export class RoomRenderer {
             if (data.doorWindows) {
                 doorWindowSubMeshes = this.createDoorWindowMeshes(data.doorWindows.processed_doors, data.doorWindows.processed_windows);
             }
+            const doorWindowRenderSets = createDoorWindowRenderSets(
+                doorWindowMeshes,
+                doorWindowSubMeshes,
+            );
+            doorWindowMeshes = doorWindowRenderSets.visible;
+            doorWindowSubMeshes = doorWindowRenderSets.cutters;
+            result.doorMeshes = doorWindowMeshes.doors;
+            result.windowMeshes = doorWindowMeshes.windows;
 
             // 3. 创建房间 mesh 用于布尔运算（只做减数，不渲染）。
             //    必须在竖向上完全包住外壳（-25 ~ 2775），否则外壳底部那段挖不穿，

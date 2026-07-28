@@ -9,6 +9,7 @@ import { ContentModelLoader } from '../src/components/ContentModelLoader.js';
 import * as RoomRendererModule from '../src/components/RoomRenderer.js';
 
 const {
+    createDoorWindowRenderSets,
     filterNonSoftContentModels,
     handlePlacedContentModel,
     hidePlacedFallback,
@@ -94,6 +95,23 @@ function controlledDoorLoader(failurePhase = null) {
         logger: { log() {}, warn() {} },
     });
 }
+
+test('door render sets omit visible door Boxes while preserving windows and all cutters', () => {
+    const doorBox = new THREE.Mesh();
+    const windowBox = new THREE.Mesh();
+    const doorCutter = new THREE.Mesh();
+    const windowCutter = new THREE.Mesh();
+
+    const result = createDoorWindowRenderSets(
+        { doors: [doorBox], windows: [windowBox] },
+        { doors: [doorCutter], windows: [windowCutter] },
+    );
+
+    assert.deepEqual(result.visible.doors, []);
+    assert.deepEqual(result.visible.windows, [windowBox]);
+    assert.deepEqual(result.cutters.doors, [doorCutter]);
+    assert.deepEqual(result.cutters.windows, [windowCutter]);
+});
 
 test('soft-list records never enter the unified content-model loader', () => {
     const soft = { instanceId: 'soft_list:0', sourceList: 'soft_list' };
