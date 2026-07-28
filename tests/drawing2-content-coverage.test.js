@@ -7,6 +7,7 @@ import {
     createTemplateCatalog,
     selectTemplateResource,
 } from '../src/components/ContentTemplateResolver.js';
+import ParseJson from '../src/utils/json_parse.js';
 
 async function loadDrawing2Coverage() {
     const [drawingText, templateText] = await Promise.all([
@@ -52,6 +53,30 @@ test('Drawing2 preserves authoritative finite CAD paths for both free windows', 
     }), [1, 1]);
     assert.ok(freeWindows.every(instance => instance.cadPath.every(point =>
         [point.x, point.y, point.z, point.bulge].every(Number.isFinite))));
+});
+
+test('Drawing2 scene parsing expands free windows before template selection', async () => {
+    const { drawing } = await loadDrawing2Coverage();
+    const parsed = ParseJson(drawing);
+    const generated = parsed.content_models.filter(instance =>
+        instance.generatedFromTypeId === '140d02');
+
+    assert.deepEqual(generated.map(instance => instance.typeId), [
+        '1401', '140c', '1401', '140c', '1401', '1401',
+    ]);
+    assert.equal(generated.filter(instance => instance.typeId === '1401').length, 4);
+    assert.equal(generated.filter(instance => instance.typeId === '140c').length, 2);
+    assert.equal(parsed.content_models.some(instance => instance.typeId === '140d02'), false);
+
+    const templateText = await readFile(
+        new URL('../public/data/template.json', import.meta.url),
+        'utf8',
+    );
+    const catalog = createTemplateCatalog(JSON.parse(templateText));
+    const resIds = generated.map(instance => selectTemplateResource(instance, catalog).resId);
+    assert.deepEqual(resIds, [
+        '2406313', '2423932', '2406313', '2423932', '2406313', '2406313',
+    ]);
 });
 
 test('Drawing2 keeps audited soft-content and template-selection coverage', async () => {

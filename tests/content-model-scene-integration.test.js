@@ -150,6 +150,49 @@ test('scene orchestration routes soft and non-soft records through one content p
     assert.deepEqual(Object.keys(loads), ['contentLoad']);
 });
 
+test('scene orchestration receives free-window children once instead of the parent', async () => {
+    const parsed = ParseJson({
+        window_list: [{
+            TypeId: '140d02',
+            BasePoint: 'X=0 Y=0 Z=0',
+            Points: [
+                'X=0 Y=0 Z=0 B=0',
+                'X=1000 Y=0 Z=0 B=0.25',
+                'X=1000 Y=1000 Z=0 B=0',
+                'X=1200 Y=1000 Z=0 B=-0.25',
+                'X=1200 Y=-200 Z=0 B=0',
+                'X=0 Y=-200 Z=0 B=0',
+            ],
+            Size: 'X=0 Y=0',
+            OutXScale: -1,
+            OutYScale: -1,
+            OutZScale: -1,
+            OutRotateRadian: 0,
+            BlockInnerInfo: { 高度: 1500, 离地高度: 900 },
+        }],
+    });
+    const received = [];
+    const loads = startSceneContentModelLoads({
+        contentModels: { contentModels: parsed.content_models },
+    }, new THREE.Group(), new Map(), {
+        async loadContent(instances) {
+            received.push(...instances);
+            return { groups: [], summary: {}, failures: [] };
+        },
+        diagnostic() {},
+        logger: { log() {}, warn() {} },
+    });
+
+    await loads.contentLoad;
+
+    assert.deepEqual(received.map(instance => instance.instanceId), [
+        'window_list:0#segment:0',
+        'window_list:0#segment:1',
+    ]);
+    assert.deepEqual(received.map(instance => instance.typeId), ['1401', '140c']);
+    assert.equal(received.some(instance => instance.typeId === '140d02'), false);
+});
+
 test('scene failure logs contain only the checkpoint allowlist', async () => {
     const warnings = [];
     const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
