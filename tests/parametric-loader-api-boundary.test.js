@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { loadParametricModels, loadTemplate } from '../src/components/ParametricModelLoader.js';
 import {
     findParametricSoftlistRoot,
+    isSceneRaycastTarget,
     logParametricSoftlistDebug,
 } from '../src/components/SceneClickInteraction.js';
 
@@ -87,10 +88,11 @@ test('loadParametricModels uses the independent per-resource detail and conversi
         parseObj(content) {
             assert.equal(content, 'parameterized model fixture');
             const root = new THREE.Group();
-            root.add(new THREE.Mesh(
+            const mesh = new THREE.Mesh(
                 new THREE.BoxGeometry(1, 1, 1),
-                new THREE.MeshBasicMaterial(),
-            ));
+                null,
+            );
+            root.add(mesh);
             return root;
         },
         logger: { log() {}, warn() {} },
@@ -104,6 +106,195 @@ test('loadParametricModels uses the independent per-resource detail and conversi
     ]);
     assert.equal(result[0].userData.type, 'parametric-softlist');
     assert.equal(result[0].userData.softlistId, 'legacy-7');
+    const placedMesh = result[0].getObjectByProperty('isMesh', true);
+    assert.equal(isSceneRaycastTarget(placedMesh), true);
+    assert.equal(placedMesh.castShadow, true);
+    assert.equal(placedMesh.receiveShadow, true);
+    assert.equal(placedMesh.material?.isMeshStandardMaterial, true);
+});
+
+test('concurrent parameter variants share one in-flight goods-detail request', async () => {
+    const scene = new THREE.Group();
+    let detailCalls = 0;
+    let conversionCalls = 0;
+    const templateResolver = {
+        async load() {},
+        select() {
+            return {
+                typeId: '1001', typeName: 'Shared resource', resId: 'res-shared',
+                referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+            };
+        },
+    };
+    const apiClient = {
+        async getGoodsDetail() {
+            detailCalls += 1;
+            await Promise.resolve();
+            return { parameterizedJsonUrl: 'https://file.test/shared.json' };
+        },
+        async convertModel() {
+            conversionCalls += 1;
+            return { obj: 'parameterized model fixture' };
+        },
+    };
+    const footprint = [
+        { x: 0, y: 0 }, { x: 100, y: 0 },
+        { x: 100, y: 100 }, { x: 0, y: 100 },
+    ];
+    const groups = await loadParametricModels([
+        { id: 'variant-a', kind: 'softlist', typeId: '1001', footprint,
+            basepoint: { x: 0, y: 0, z: 0 }, modelParams: [{ name: 'width', value: 100 }] },
+        { id: 'variant-b', kind: 'softlist', typeId: '1001', footprint,
+            basepoint: { x: 200, y: 0, z: 0 }, modelParams: [{ name: 'width', value: 200 }] },
+    ], scene, {
+        concurrency: 2,
+        templateResolver,
+        apiClient,
+        parseObj() {
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+            return root;
+        },
+        logger: { log() {}, warn() {} },
+    });
+
+    assert.equal(groups.length, 2);
+    assert.equal(detailCalls, 1);
+    assert.equal(conversionCalls, 2);
+});
+
+test('equivalent parameter ordering shares one converted prototype', async () => {
+    let conversionCalls = 0;
+    const footprint = [
+        { x: 0, y: 0 }, { x: 100, y: 0 },
+        { x: 100, y: 100 }, { x: 0, y: 100 },
+    ];
+    const groups = await loadParametricModels([
+        { id: 'ordered-a', kind: 'softlist', typeId: '1001', footprint,
+            basepoint: { x: 0, y: 0, z: 0 }, modelParams: [
+                { name: 'height', value: '20' }, { name: 'width', value: 100 },
+            ] },
+        { id: 'ordered-b', kind: 'softlist', typeId: '1001', footprint,
+            basepoint: { x: 200, y: 0, z: 0 }, modelParams: [
+                { value: '100', name: 'width' }, { value: 20, name: 'height' },
+            ] },
+    ], new THREE.Group(), {
+        concurrency: 2,
+        templateResolver: {
+            async load() {},
+            select() {
+                return {
+                    typeId: '1001', typeName: 'Canonical', resId: 'res-canonical',
+                    referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+                };
+            },
+        },
+        apiClient: {
+            async getGoodsDetail() {
+                return { parameterizedJsonUrl: 'https://file.test/canonical.json' };
+            },
+            async convertModel() {
+                conversionCalls += 1;
+                return { obj: 'parameterized model fixture' };
+            },
+        },
+        parseObj() {
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+            return root;
+        },
+        logger: { log() {}, warn() {} },
+    });
+
+    assert.equal(groups.length, 2);
+    assert.equal(conversionCalls, 1);
+});
+
+test('a throwing progress observer does not reject already placed soft models', async () => {
+    const scene = new THREE.Group();
+    const groups = await loadParametricModels([{
+        id: 'progress-safe', kind: 'softlist', typeId: '1001',
+        basepoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 }, { x: 100, y: 0 },
+            { x: 100, y: 100 }, { x: 0, y: 100 },
+        ],
+        modelParams: [],
+    }], scene, {
+        templateResolver: {
+            async load() {},
+            select() {
+                return {
+                    typeId: '1001', typeName: 'Progress safe', resId: 'res-progress',
+                    referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+                };
+            },
+        },
+        apiClient: {
+            async getGoodsDetail() {
+                return { parameterizedJsonUrl: 'https://file.test/progress.json' };
+            },
+            async convertModel() { return { obj: 'parameterized model fixture' }; },
+        },
+        parseObj() {
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+            return root;
+        },
+        onProgress() { throw new Error('observer failed'); },
+        logger: { log() {}, warn() {} },
+    });
+
+    assert.equal(groups.length, 1);
+    assert.equal(scene.children.includes(groups[0]), true);
+});
+
+test('legacy prototype cache evicts the least recently used parameterized model', async () => {
+    let conversionCalls = 0;
+    const templateResolver = {
+        async load() {},
+        select(instance) {
+            return {
+                typeId: instance.typeId, typeName: instance.typeId, resId: `res-${instance.typeId}`,
+                referenceSize: { x: 10, y: 10, z: 10 }, selection: 'nearest-area',
+            };
+        },
+    };
+    const apiClient = {
+        async getGoodsDetail(resId) {
+            return { parameterizedJsonUrl: `https://file.test/${resId}.json` };
+        },
+        async convertModel() {
+            conversionCalls += 1;
+            return { obj: 'parameterized model fixture' };
+        },
+    };
+    const footprint = [
+        { x: 0, y: 0 }, { x: 100, y: 0 },
+        { x: 100, y: 100 }, { x: 0, y: 100 },
+    ];
+    const options = {
+        concurrency: 1,
+        prototypeCacheLimit: 2,
+        urlCacheLimit: 2,
+        templateResolver,
+        apiClient,
+        parseObj() {
+            const root = new THREE.Group();
+            root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1)));
+            return root;
+        },
+        logger: { log() {}, warn() {} },
+    };
+    const item = typeId => ({
+        id: typeId, kind: 'softlist', typeId,
+        basepoint: { x: 0, y: 0, z: 0 }, footprint, modelParams: [],
+    });
+
+    await loadParametricModels([item('one'), item('two'), item('three')], new THREE.Group(), options);
+    await loadParametricModels([item('one')], new THREE.Group(), options);
+
+    assert.equal(conversionCalls, 4);
 });
 
 test('independent legacy loader preserves current parametric click metadata', async () => {

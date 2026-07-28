@@ -57,6 +57,64 @@ function allowlistedFailures(failures) {
     }));
 }
 
+export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, options = {}) {
+    const {
+        diagnostic = globalThis.__renderPreviewDiagnostic,
+        loadContent = loadContentModels,
+        loadSoft = loadParametricModels,
+        logger = console,
+    } = options;
+
+    diagnostic?.('soft-load-start', 'OK');
+    const softLoad = Promise.resolve().then(() => loadSoft(
+        data?.softlists?.softlists || [],
+        sceneGroup,
+        {
+            concurrency: 3,
+            onProgress: (loaded, total) => {
+                logger.log?.(`[ParamLoader] scene progress ${loaded}/${total}`);
+            },
+        },
+    )).then(groups => {
+        diagnostic?.('soft-load-summary', 'OK');
+        logger.log?.(`[ParamLoader] scene summary ${groups?.length ?? 0} models`);
+        return groups;
+    }).catch(error => {
+        diagnostic?.('soft-load-error', 'PARAMETRIC_ERROR');
+        logger.warn?.('[ParamLoader] scene pipeline failed', {
+            code: error?.code || 'UNKNOWN_ERROR',
+        });
+        return [];
+    });
+
+    diagnostic?.('content-load-start', 'OK');
+    const contentLoad = Promise.resolve().then(() => loadContent(
+        filterNonSoftContentModels(data?.contentModels?.contentModels),
+        sceneGroup,
+        {
+            concurrency: 3,
+            onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
+        },
+    )).then(result => {
+        const summary = result?.summary ?? {};
+        const failures = Array.isArray(result?.failures) ? result.failures : [];
+        diagnostic?.('content-load-summary', 'OK');
+        logger.log?.('[ContentLoader] scene summary', summary);
+        if (failures.length) {
+            logger.warn?.('[ContentLoader] scene failures', allowlistedFailures(failures));
+        }
+        return result;
+    }).catch(error => {
+        diagnostic?.('content-load-error', 'CONTENT_ERROR');
+        logger.warn?.('[ContentLoader] scene pipeline failed', {
+            code: error?.code || 'UNKNOWN_ERROR',
+        });
+        return { summary: {}, failures: [] };
+    });
+
+    return { softLoad, contentLoad };
+}
+
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
 evaluator.useGroups = false;
@@ -468,42 +526,7 @@ export class RoomRenderer {
 
             // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
             const fallbackMap = indexDoorWindowFallbacks(doorWindowMeshes);
-            globalThis.__renderPreviewDiagnostic?.('soft-load-start', 'OK');
-            loadParametricModels(data.softlists?.softlists || [], this.sceneGroup, {
-                concurrency: 3,
-                onProgress: (loaded, total) => {
-                    console.log(`[ParamLoader] scene progress ${loaded}/${total}`);
-                },
-            }).then(groups => {
-                globalThis.__renderPreviewDiagnostic?.('soft-load-summary', 'OK');
-                console.log(`[ParamLoader] scene summary ${groups.length} models`);
-            }).catch(error => {
-                globalThis.__renderPreviewDiagnostic?.('soft-load-error', 'PARAMETRIC_ERROR');
-                console.warn('[ParamLoader] scene pipeline failed', {
-                    code: error?.code || 'UNKNOWN_ERROR',
-                });
-            });
-
-            globalThis.__renderPreviewDiagnostic?.('content-load-start', 'OK');
-            loadContentModels(
-                filterNonSoftContentModels(data.contentModels?.contentModels),
-                this.sceneGroup,
-                {
-                    concurrency: 3,
-                    onInstancePlaced: createContentModelPlacementHandler(fallbackMap),
-                },
-            ).then(({ summary, failures }) => {
-                globalThis.__renderPreviewDiagnostic?.('content-load-summary', 'OK');
-                console.log('[ContentLoader] scene summary', summary);
-                if (failures.length) {
-                    console.warn('[ContentLoader] scene failures', allowlistedFailures(failures));
-                }
-            }).catch(error => {
-                globalThis.__renderPreviewDiagnostic?.('content-load-error', 'CONTENT_ERROR');
-                console.warn('[ContentLoader] scene pipeline failed', {
-                    code: error?.code || 'UNKNOWN_ERROR',
-                });
-            });
+            startSceneContentModelLoads(data, this.sceneGroup, fallbackMap);
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
             if (data.rooms?.roomInfo) {

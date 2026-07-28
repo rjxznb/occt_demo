@@ -14,6 +14,8 @@ export {
 const compatibilityTemplateResolver = new ContentTemplateResolver(
     (...args) => globalThis.fetch(...args),
 );
+const DEFAULT_PROTOTYPE_CACHE_LIMIT = 128;
+const DEFAULT_URL_CACHE_LIMIT = 512;
 let compatibilityTemplateMap = null;
 let compatibilityTemplatePromise = null;
 const clientCaches = new WeakMap();
@@ -127,6 +129,7 @@ function markLegacyParametricModel(instance, root) {
     root.userData = {
         ...root.userData,
         type: 'parametric-softlist',
+        contentModelRoot: true,
         softlistId,
         debugInfo: {
             ...debugInfo,
@@ -193,51 +196,146 @@ function extractObjContent(value, depth = 0) {
 function cachesFor(apiClient) {
     let caches = clientCaches.get(apiClient);
     if (!caches) {
-        caches = { urls: new Map(), prototypes: new Map(), pending: new Map() };
+        caches = {
+            urls: new Map(),
+            pendingUrls: new Map(),
+            prototypes: new Map(),
+            pending: new Map(),
+        };
         clientCaches.set(apiClient, caches);
     }
     return caches;
 }
 
-async function resolveParametricUrl(selection, apiClient, caches) {
-    if (caches.urls.has(selection.resId)) return caches.urls.get(selection.resId);
-    const detail = await apiClient.getGoodsDetail(selection.resId);
-    const url = findStringField(detail?.data?.modelDTO, 'parameterizedJsonUrl')
-        ?? findStringField(detail, 'parameterizedJsonUrl');
-    if (!url) throw Object.assign(new Error('Parameterized model URL is missing'), {
-        code: 'PARAMETRIC_URL_MISSING',
+function normalizedCacheLimit(value, fallback) {
+    return Math.max(1, Math.floor(Number(value)) || fallback);
+}
+
+function readLru(cache, key) {
+    if (!cache.has(key)) return undefined;
+    const value = cache.get(key);
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+}
+
+function writeLru(cache, key, value, limit, onEvict) {
+    if (cache.has(key)) cache.delete(key);
+    cache.set(key, value);
+    while (cache.size > limit) {
+        const oldestKey = cache.keys().next().value;
+        const oldestValue = cache.get(oldestKey);
+        cache.delete(oldestKey);
+        onEvict?.(oldestValue);
+    }
+}
+
+function disposePrototype(prototype) {
+    prototype?.traverse?.(child => {
+        child.geometry?.dispose?.();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach(material => material?.dispose?.());
     });
-    caches.urls.set(selection.resId, url);
-    return url;
+}
+
+function stableParameterValue(value, key = '') {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (key === 'value' && typeof value === 'string' && value.trim() !== '') {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric;
+    }
+    if (Array.isArray(value)) return value.map(item => stableParameterValue(item));
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort()
+        .map(property => [property, stableParameterValue(value[property], property)]));
+}
+
+function parameterCacheKey(parameters) {
+    const normalized = (Array.isArray(parameters) ? parameters : [])
+        .map(parameter => stableParameterValue(parameter));
+    normalized.sort((left, right) => {
+        const nameOrder = String(left?.name ?? '').localeCompare(String(right?.name ?? ''));
+        return nameOrder || JSON.stringify(left).localeCompare(JSON.stringify(right));
+    });
+    return JSON.stringify(normalized);
+}
+
+function prepareLegacyPrototype(prototype) {
+    if (!prototype?.isObject3D) {
+        throw Object.assign(new Error('Parsed OBJ model is invalid'), {
+            code: 'PARAMETRIC_OBJ_INVALID',
+        });
+    }
+    let meshCount = 0;
+    prototype.traverse(child => {
+        if (!child.isMesh) return;
+        meshCount += 1;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        if (!materials.some(material => material?.isMaterial === true)) {
+            child.material = new THREE.MeshStandardMaterial({
+                color: 0xB8B0A0,
+                roughness: 0.85,
+                metalness: 0,
+            });
+        }
+        child.castShadow = true;
+        child.receiveShadow = true;
+    });
+    if (meshCount === 0) {
+        throw Object.assign(new Error('Parsed OBJ model contains no Mesh'), {
+            code: 'PARAMETRIC_OBJ_INVALID',
+        });
+    }
+    return prototype;
+}
+
+async function resolveParametricUrl(selection, apiClient, caches, urlCacheLimit) {
+    const cachedUrl = readLru(caches.urls, selection.resId);
+    if (cachedUrl !== undefined) return cachedUrl;
+    if (caches.pendingUrls.has(selection.resId)) return caches.pendingUrls.get(selection.resId);
+    const pending = (async () => {
+        const detail = await apiClient.getGoodsDetail(selection.resId);
+        const url = findStringField(detail?.data?.modelDTO, 'parameterizedJsonUrl')
+            ?? findStringField(detail, 'parameterizedJsonUrl');
+        if (!url) throw Object.assign(new Error('Parameterized model URL is missing'), {
+            code: 'PARAMETRIC_URL_MISSING',
+        });
+        writeLru(caches.urls, selection.resId, url, urlCacheLimit);
+        return url;
+    })();
+    caches.pendingUrls.set(selection.resId, pending);
+    try {
+        return await pending;
+    } finally {
+        caches.pendingUrls.delete(selection.resId);
+    }
 }
 
 async function loadLegacyPrototype(instance, selection, {
     apiClient,
     parseObj,
+    prototypeCacheLimit,
+    urlCacheLimit,
 }) {
     const caches = cachesFor(apiClient);
     const parameters = Array.isArray(instance.modelParams) ? instance.modelParams : [];
-    const key = `${selection.resId}|${JSON.stringify(parameters)}`;
-    if (caches.prototypes.has(key)) return caches.prototypes.get(key);
+    const key = `${selection.resId}|${parameterCacheKey(parameters)}`;
+    const cachedPrototype = readLru(caches.prototypes, key);
+    if (cachedPrototype !== undefined) return cachedPrototype;
     if (caches.pending.has(key)) return caches.pending.get(key);
 
     const pending = (async () => {
-        const url = await resolveParametricUrl(selection, apiClient, caches);
+        const url = await resolveParametricUrl(selection, apiClient, caches, urlCacheLimit);
         const converted = await apiClient.convertModel(url, parameters);
         const content = extractObjContent(converted);
         if (!content) throw Object.assign(new Error('Converted response contains no OBJ model'), {
             code: 'PARAMETRIC_OBJ_MISSING',
         });
-        const prototype = parseObj
+        const prototype = prepareLegacyPrototype(parseObj
             ? parseObj(content, instance.typeId)
-            : new OBJLoader().parse(content);
-        if (!prototype?.isObject3D) {
-            throw Object.assign(new Error('Parsed OBJ model is invalid'), {
-                code: 'PARAMETRIC_OBJ_INVALID',
-            });
-        }
+            : new OBJLoader().parse(content));
         prototype.name ||= `parametric-${instance.typeId}`;
-        caches.prototypes.set(key, prototype);
+        writeLru(caches.prototypes, key, prototype, prototypeCacheLimit, disposePrototype);
         return prototype;
     })();
     caches.pending.set(key, pending);
@@ -278,7 +376,9 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
         onInstancePlaced,
         onProgress,
         parseObj,
+        prototypeCacheLimit = DEFAULT_PROTOTYPE_CACHE_LIMIT,
         templateResolver = compatibilityTemplateResolver,
+        urlCacheLimit = DEFAULT_URL_CACHE_LIMIT,
     } = options;
     await templateResolver.load('data/template.json');
 
@@ -291,7 +391,15 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
                     code: selection?.errorCode || 'TEMPLATE_SELECTION_FAILED',
                 });
             }
-            const prototype = await loadLegacyPrototype(instance, selection, { apiClient, parseObj });
+            const prototype = await loadLegacyPrototype(instance, selection, {
+                apiClient,
+                parseObj,
+                prototypeCacheLimit: normalizedCacheLimit(
+                    prototypeCacheLimit,
+                    DEFAULT_PROTOTYPE_CACHE_LIMIT,
+                ),
+                urlCacheLimit: normalizedCacheLimit(urlCacheLimit, DEFAULT_URL_CACHE_LIMIT),
+            });
             const root = placeContentModel(prototype, instance, selection, {
                 kind: 'parametric-obj',
             });
@@ -315,7 +423,13 @@ export async function loadParametricModels(softlists, sceneGroup, options = {}) 
             return null;
         } finally {
             completed += 1;
-            onProgress?.(completed, instances.length);
+            try {
+                await onProgress?.(completed, instances.length);
+            } catch (error) {
+                logger.warn?.('[ParamLoader] progress observer failed', {
+                    code: error?.code || 'OBSERVER_ERROR',
+                });
+            }
         }
     });
     return placed.filter(Boolean);

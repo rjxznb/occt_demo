@@ -13,6 +13,7 @@ const {
     handlePlacedContentModel,
     hidePlacedFallback,
     indexDoorWindowFallbacks,
+    startSceneContentModelLoads,
 } = RoomRendererModule;
 
 const openingPoints = [
@@ -101,6 +102,36 @@ test('soft-list records never enter the unified content-model loader', () => {
 
     assert.deepEqual(filterNonSoftContentModels([soft, door, radiator]), [door, radiator]);
     assert.deepEqual(filterNonSoftContentModels(null), []);
+});
+
+test('scene orchestration starts isolated legacy-soft and unified non-soft pipelines', async () => {
+    const scene = new THREE.Group();
+    const legacySoftlists = [{ id: 'legacy-soft', kind: 'softlist' }];
+    const normalizedSoft = { instanceId: 'soft_list:0', sourceList: 'soft_list' };
+    const door = { instanceId: 'door_list:0', sourceList: 'door_list' };
+    const calls = [];
+
+    const loads = startSceneContentModelLoads({
+        softlists: { softlists: legacySoftlists },
+        contentModels: { contentModels: [normalizedSoft, door] },
+    }, scene, new Map(), {
+        async loadSoft(instances, sceneGroup) {
+            calls.push(['soft', instances, sceneGroup]);
+            throw Object.assign(new Error('controlled soft failure'), { code: 'SOFT_FAILED' });
+        },
+        async loadContent(instances, sceneGroup) {
+            calls.push(['content', instances, sceneGroup]);
+            return { summary: { loaded: 1 }, failures: [] };
+        },
+        diagnostic() {},
+        logger: { log() {}, warn() {} },
+    });
+    await Promise.all([loads.softLoad, loads.contentLoad]);
+
+    assert.deepEqual(calls, [
+        ['soft', legacySoftlists, scene],
+        ['content', [door], scene],
+    ]);
 });
 
 test('GeometryService exposes every normalized content model without removing legacy softlists', async () => {

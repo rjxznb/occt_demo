@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+import { startSceneContentModelLoads } from '../src/components/RoomRenderer.js';
+
 const APP_PATH = new URL('../src/App3D.js', import.meta.url);
-const ROOM_RENDERER_PATH = new URL('../src/components/RoomRenderer.js', import.meta.url);
 
 test('App3D reports only fixed boot and data-load diagnostic stages', async () => {
     const source = await readFile(APP_PATH, 'utf8');
@@ -15,11 +16,36 @@ test('App3D reports only fixed boot and data-load diagnostic stages', async () =
     assert.doesNotMatch(source, /__renderPreviewDiagnostic\?\.\([^'\n]/);
 });
 
-test('RoomRenderer reports fixed content-load start, summary, and error stages', async () => {
-    const source = await readFile(ROOM_RENDERER_PATH, 'utf8');
+test('RoomRenderer reports only fixed soft and content pipeline diagnostic stages', async () => {
+    const diagnostics = [];
+    const data = {
+        softlists: { softlists: [] },
+        contentModels: { contentModels: [] },
+    };
+    const success = startSceneContentModelLoads(data, {}, new Map(), {
+        diagnostic: (stage, code) => diagnostics.push([stage, code]),
+        async loadSoft() { return []; },
+        async loadContent() { return { summary: {}, failures: [] }; },
+        logger: { log() {}, warn() {} },
+    });
+    await Promise.all([success.softLoad, success.contentLoad]);
 
-    assert.match(source, /__renderPreviewDiagnostic\?\.\('content-load-start', 'OK'\)/);
-    assert.match(source, /__renderPreviewDiagnostic\?\.\('content-load-summary', 'OK'\)/);
-    assert.match(source, /__renderPreviewDiagnostic\?\.\('content-load-error', 'CONTENT_ERROR'\)/);
-    assert.doesNotMatch(source, /__renderPreviewDiagnostic\?\.\([^'\n]/);
+    const failure = startSceneContentModelLoads(data, {}, new Map(), {
+        diagnostic: (stage, code) => diagnostics.push([stage, code]),
+        async loadSoft() { throw new Error('soft failed'); },
+        async loadContent() { throw new Error('content failed'); },
+        logger: { log() {}, warn() {} },
+    });
+    await Promise.all([failure.softLoad, failure.contentLoad]);
+
+    assert.deepEqual(diagnostics, [
+        ['soft-load-start', 'OK'],
+        ['content-load-start', 'OK'],
+        ['soft-load-summary', 'OK'],
+        ['content-load-summary', 'OK'],
+        ['soft-load-start', 'OK'],
+        ['content-load-start', 'OK'],
+        ['soft-load-error', 'PARAMETRIC_ERROR'],
+        ['content-load-error', 'CONTENT_ERROR'],
+    ]);
 });
