@@ -353,3 +353,40 @@ CAD 当前没有独立的 C++ 单元测试框架，本次不引入新的测试�
 6. 关闭预览、断网和上游错误不会造成崩溃或整体渲染中断。
 7. OCCT 自动测试与 3D 构建通过，CAD Debug/Release x64 编译通过。
 8. CAD 项目没有任何新增提交、暂存或推送。
+
+## 15. 2026-07-28 HTTPS 根证书修正
+
+### 15.1 现场证据与根因
+
+- CAD 原生桥中的 `getParametricGoodsDetail` 使用 HTTP，请求持续返回 200。
+- `convertParametricModel` 使用 HTTPS，请求在取得 HTTP 状态前返回 `status=0` 和 `NETWORK_ERROR`。
+- 同一 HTTPS 端点通过 Windows 网络栈能够正常返回 HTTP 200。
+- CAD 项目链接的 libcurl 7.87.0 使用 OpenSSL 静态后端；项目、运行缓存和环境中均没有 CA bundle。
+- 当前客户端启用了 `CURLOPT_SSL_VERIFYPEER=1` 和 `CURLOPT_SSL_VERIFYHOST=2`，但没有为 OpenSSL 配置可信根来源。
+
+因此，HTTPS 转换失败发生在 TLS 证书链校验阶段，而不是 WebView RPC、商品详情解析、模型参数、OBJ 解析或 Three.js 放置阶段。
+
+### 15.2 修正设计
+
+在 `KParametricApiClient` 的公共 curl 请求配置中增加：
+
+```cpp
+CURLOPT_SSL_OPTIONS = CURLSSLOPT_NATIVE_CA
+```
+
+该选项让 Windows 上的 OpenSSL/libcurl 导入系统原生根证书库，同时继续保留：
+
+- `CURLOPT_SSL_VERIFYPEER=1`
+- `CURLOPT_SSL_VERIFYHOST=2`
+- 禁止重定向
+- 仅允许 HTTP/HTTPS 协议
+- 固定模型转换端点
+
+不关闭 TLS 校验，不部署独立 PEM 文件，也不回退 Node 后端。
+
+### 15.3 验证标准
+
+1. 源码合约测试在实现前因缺少 `CURLSSLOPT_NATIVE_CA` 而失败，实现后通过。
+2. CAD Debug x64 重新生成成功，并由现有 PostBuild 复制到 AutoCAD 2021 Support 目录；两份 ARX 哈希一致。
+3. 实际 CAD 日志中 `convertParametricModel` 获得 HTTP 200，不再出现 `status=0 code=NETWORK_ERROR`。
+4. 参数化软装重新显示，且不影响现有朝向、锚点、旋转、翻转与点击调试行为。
