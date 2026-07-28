@@ -97,6 +97,21 @@ test('derives dimensions from a valid footprint when CAD Size is unavailable', (
     assert.deepEqual(item.size, { x: 400, y: 200, z: 800 });
 });
 
+test('keeps two-axis CAD Size when its footprint starts on the opposite axis', () => {
+    const [item] = collectContentModelInstances({
+        soft_list: [block('two-axis-size', {
+            Size: 'X=420 Y=730',
+            Points: [
+                'X=0 Y=0 Z=0', 'X=0 Y=730 Z=0',
+                'X=420 Y=730 Z=0', 'X=420 Y=0 Z=0',
+            ],
+            BlockInnerInfo: { '\u9ad8': 800 },
+        })],
+    });
+
+    assert.deepEqual(item.size, { x: 420, y: 730, z: 800 });
+});
+
 test('skips records without valid dimensions or a usable footprint', () => {
     const result = collectContentModelInstances({
         soft_list: [block('no-dimensions', { Size: 'invalid', Points: [] })],

@@ -23,7 +23,7 @@ export function collectContentModelInstances(json) {
     return result;
 }
 
-function parseVector(value) {
+function parseVector(value, requiredAxes = ['X', 'Y', 'Z']) {
     if (typeof value !== 'string') return null;
     const coordinate = (axis) => {
         const match = value.match(new RegExp(`${axis}=([+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?)`));
@@ -32,13 +32,14 @@ function parseVector(value) {
     const x = coordinate('X');
     const y = coordinate('Y');
     const z = coordinate('Z');
-    return x === null || y === null || z === null ? null : { x, y, z };
+    const coordinateByAxis = { X: x, Y: y, Z: z };
+    return requiredAxes.some(axis => coordinateByAxis[axis] === null) ? null : { x, y, z };
 }
 
 function parsePoints(points) {
     if (!Array.isArray(points)) return [];
     return points
-        .map(parseVector)
+        .map(value => parseVector(value))
         .filter(Boolean)
         .map(({ x, y }) => ({ x, y }));
 }
@@ -59,6 +60,12 @@ function hasUsablePlanDimensions(size) {
     return size && size.x > 0 && size.y > 0;
 }
 
+function readHeight(blockInnerInfo) {
+    const heightKey = ['\u9ad8', '\u9ad8\u5ea6', '\u81ea\u8eab\u9ad8\u5ea6']
+        .find(key => Object.prototype.hasOwnProperty.call(blockInnerInfo, key));
+    return heightKey ? finiteNumber(blockInnerInfo[heightKey], 0) : 0;
+}
+
 function deriveFootprintSize(footprint, blockInnerInfo) {
     if (footprint.length < 3) return null;
 
@@ -72,12 +79,10 @@ function deriveFootprintSize(footprint, blockInnerInfo) {
     );
     if (!(firstEdge > 0) || !(secondEdge > 0)) return null;
 
-    const heightKey = ['高', '高度', '自身高度']
-        .find(key => Object.prototype.hasOwnProperty.call(blockInnerInfo, key));
     return {
         x: firstEdge,
         y: secondEdge,
-        z: heightKey ? finiteNumber(blockInnerInfo[heightKey], 0) : 0,
+        z: readHeight(blockInnerInfo),
     };
 }
 
@@ -92,7 +97,8 @@ function normalizeRecord(record, descriptor, sourceIndex) {
         ? record.BlockInnerInfo
         : {};
     const footprint = parsePoints(record.Points);
-    const parsedSize = parseVector(record.Size);
+    const parsedSize = parseVector(record.Size, ['X', 'Y']);
+    if (parsedSize && parsedSize.z === null) parsedSize.z = readHeight(blockInnerInfo);
     const size = hasUsablePlanDimensions(parsedSize)
         ? parsedSize
         : deriveFootprintSize(footprint, blockInnerInfo);
