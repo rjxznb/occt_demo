@@ -57,6 +57,15 @@ function allowlistedFailures(failures) {
     }));
 }
 
+function emitDiagnostic(diagnostic, stage, code) {
+    try {
+        const result = diagnostic?.(stage, code);
+        result?.catch?.(() => {});
+    } catch {
+        // Diagnostics are observability only and must never affect model loading.
+    }
+}
+
 export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, options = {}) {
     const {
         diagnostic = globalThis.__renderPreviewDiagnostic,
@@ -65,7 +74,7 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         logger = console,
     } = options;
 
-    diagnostic?.('soft-load-start', 'OK');
+    emitDiagnostic(diagnostic, 'soft-load-start', 'OK');
     const softLoad = Promise.resolve().then(() => loadSoft(
         data?.softlists?.softlists || [],
         sceneGroup,
@@ -76,18 +85,18 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
             },
         },
     )).then(groups => {
-        diagnostic?.('soft-load-summary', 'OK');
+        emitDiagnostic(diagnostic, 'soft-load-summary', 'OK');
         logger.log?.(`[ParamLoader] scene summary ${groups?.length ?? 0} models`);
         return groups;
     }).catch(error => {
-        diagnostic?.('soft-load-error', 'PARAMETRIC_ERROR');
+        emitDiagnostic(diagnostic, 'soft-load-error', 'PARAMETRIC_ERROR');
         logger.warn?.('[ParamLoader] scene pipeline failed', {
             code: error?.code || 'UNKNOWN_ERROR',
         });
         return [];
     });
 
-    diagnostic?.('content-load-start', 'OK');
+    emitDiagnostic(diagnostic, 'content-load-start', 'OK');
     const contentLoad = Promise.resolve().then(() => loadContent(
         filterNonSoftContentModels(data?.contentModels?.contentModels),
         sceneGroup,
@@ -98,14 +107,14 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
     )).then(result => {
         const summary = result?.summary ?? {};
         const failures = Array.isArray(result?.failures) ? result.failures : [];
-        diagnostic?.('content-load-summary', 'OK');
+        emitDiagnostic(diagnostic, 'content-load-summary', 'OK');
         logger.log?.('[ContentLoader] scene summary', summary);
         if (failures.length) {
             logger.warn?.('[ContentLoader] scene failures', allowlistedFailures(failures));
         }
         return result;
     }).catch(error => {
-        diagnostic?.('content-load-error', 'CONTENT_ERROR');
+        emitDiagnostic(diagnostic, 'content-load-error', 'CONTENT_ERROR');
         logger.warn?.('[ContentLoader] scene pipeline failed', {
             code: error?.code || 'UNKNOWN_ERROR',
         });

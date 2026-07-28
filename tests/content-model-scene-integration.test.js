@@ -134,6 +134,27 @@ test('scene orchestration starts isolated legacy-soft and unified non-soft pipel
     ]);
 });
 
+test('throwing diagnostics cannot prevent either scene-model pipeline', async () => {
+    let softCalls = 0;
+    let contentCalls = 0;
+    const loads = startSceneContentModelLoads({}, new THREE.Group(), new Map(), {
+        diagnostic() { throw new Error('diagnostic sink failed'); },
+        async loadSoft() {
+            softCalls += 1;
+            return [];
+        },
+        async loadContent() {
+            contentCalls += 1;
+            return { summary: {}, failures: [] };
+        },
+        logger: { log() {}, warn() {} },
+    });
+    await Promise.all([loads.softLoad, loads.contentLoad]);
+
+    assert.equal(softCalls, 1);
+    assert.equal(contentCalls, 1);
+});
+
 test('GeometryService exposes every normalized content model without removing legacy softlists', async () => {
     const previousParseData = geometryService.parseData;
     const contentModels = [
