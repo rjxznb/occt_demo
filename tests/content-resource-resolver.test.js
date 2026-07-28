@@ -22,17 +22,29 @@ test('type 1 chooses nested webV2Url as a static GLB', () => {
     });
 });
 
-test('type 8 chooses parameterizedJsonUrl and never treats it as static', () => {
+test('type 8 prefers the Web parameterized JSON and falls back to the legacy JSON', () => {
     const resource = resolveModelResource('2406734', {
         id: 2406734, modelType: 0,
         resourceList: [{ type: 8, data: {
-            parameterizedJsonUrl: 'https://file.test/model.json?signature=secret',
-            parameterizedJsonMd5: 'parameter-md5',
+            parameterizedWebJsonUrl: 'https://file.test/model-web.json?signature=secret',
+            parameterizedWebJsonMd5: 'parameter-web-md5',
+            parameterizedJsonUrl: 'https://file.test/model-desktop.json?signature=secret',
+            parameterizedJsonMd5: 'parameter-desktop-md5',
         } }],
     });
     assert.equal(resource.kind, 'parametric-obj');
     assert.equal(resource.resourceType, 8);
-    assert.equal(resource.contentHash, 'parameter-md5');
+    assert.equal(resource.sourceUrl, 'https://file.test/model-web.json?signature=secret');
+    assert.equal(resource.contentHash, 'parameter-web-md5');
+
+    const fallback = resolveModelResource('2406735', {
+        resourceList: [{ type: 8, data: {
+            parameterizedJsonUrl: 'https://file.test/model-desktop.json',
+            parameterizedJsonMd5: 'parameter-desktop-md5',
+        } }],
+    });
+    assert.equal(fallback.sourceUrl, 'https://file.test/model-desktop.json');
+    assert.equal(fallback.contentHash, 'parameter-desktop-md5');
 });
 
 test('standalone Node flat modelDTO fields resolve to the same resource kinds', () => {

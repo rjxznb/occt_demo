@@ -12,7 +12,7 @@ export function resolveModelResource(resId, detail) {
         hasStaticWebV2: resources.some(resource => resource.type === 1
             && hasValue(resource.data.webV2Url)),
         hasParameterizedJson: resources.some(resource => resource.type === 8
-            && hasValue(resource.data.parameterizedJsonUrl)),
+            && hasValue(parameterizedUrl(resource.data))),
     };
 
     for (const resource of resources) {
@@ -20,9 +20,9 @@ export function resolveModelResource(resId, detail) {
             return resolvedResource(normalizedResId, 'static-glb', resource.data.webV2Url,
                 resource.data.webV2Md5, model.modelType, 1, rawSummary);
         }
-        if (resource.type === 8 && isHttpUrl(resource.data.parameterizedJsonUrl)) {
-            return resolvedResource(normalizedResId, 'parametric-obj', resource.data.parameterizedJsonUrl,
-                resource.data.parameterizedJsonMd5, model.modelType, 8, rawSummary);
+        if (resource.type === 8 && isHttpUrl(parameterizedUrl(resource.data))) {
+            return resolvedResource(normalizedResId, 'parametric-obj', parameterizedUrl(resource.data),
+                parameterizedHash(resource.data), model.modelType, 8, rawSummary);
         }
     }
 
@@ -35,13 +35,25 @@ export function resolveModelResource(resId, detail) {
 
 function legacyFlatCandidates(model) {
     const resources = [];
-    if (hasValue(model?.parameterizedJsonUrl) || hasValue(model?.parameterizedJsonMd5)) {
+    if (hasValue(parameterizedUrl(model)) || hasValue(parameterizedHash(model))) {
         resources.push({ type: 8, data: model });
     }
     if (hasValue(model?.webV2Url) || hasValue(model?.webV2Md5)) {
         resources.push({ type: 1, data: model });
     }
     return resources;
+}
+
+function parameterizedUrl(data) {
+    return isHttpUrl(data?.parameterizedWebJsonUrl)
+        ? data.parameterizedWebJsonUrl
+        : data?.parameterizedJsonUrl;
+}
+
+function parameterizedHash(data) {
+    return isHttpUrl(data?.parameterizedWebJsonUrl)
+        ? data?.parameterizedWebJsonMd5
+        : data?.parameterizedJsonMd5;
 }
 
 function resolvedResource(resId, kind, sourceUrl, contentHash, modelType, resourceType, rawSummary) {
