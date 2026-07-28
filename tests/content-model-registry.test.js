@@ -60,7 +60,7 @@ test('retains zero-size irregular candidates for later local-geometry classifica
     assert.equal(item.footprint.length, 6);
 });
 
-test('normalizes CAD plan transform, dimensions, and parameters', () => {
+test('normalizes CAD plan facts and preserves raw parameter sources', () => {
     const [item] = collectContentModelInstances({ soft_list: [block('225903')] });
     assert.equal(item.instanceId, 'soft_list:0');
     assert.equal(item.typeId, '225903');
@@ -71,12 +71,16 @@ test('normalizes CAD plan transform, dimensions, and parameters', () => {
     assert.equal(item.horizontalFlip, true);
     assert.equal(item.verticalFlip, false);
     assert.equal(item.groundHeight, 120);
-    assert.deepEqual(item.modelParams, [
-        { name: '长度', value: 200 },
-        { name: '宽度', value: 200 },
-        { name: '高度', value: 800 },
-        { name: '离地高度', value: 120 },
-    ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(item, 'modelParams'), false);
+    assert.deepEqual(item.rawBlockInnerInfo, {
+        旋转角度: 30,
+        左右翻转: true,
+        上下翻转: false,
+        长: 200,
+        宽: 200,
+        高: 800,
+        离地高度: 120,
+    });
     assert.equal(item.footprint.length, 4);
 });
 

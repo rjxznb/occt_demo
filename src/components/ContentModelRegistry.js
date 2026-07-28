@@ -1,8 +1,3 @@
-const PARAMETER_NAMES = Object.freeze({
-    长: '长度', 宽: '宽度', 高: '高度', 自身高度: '自身高度',
-    离地高度: '离地高度', 挡水条高度: '挡水条高度',
-});
-
 export function collectContentModelInstances(json) {
     const result = [];
     for (const [sourceList, records] of Object.entries(json ?? {})) {
@@ -104,9 +99,6 @@ function normalizeRecord(record, descriptor, sourceIndex) {
     const groundHeight = Object.prototype.hasOwnProperty.call(blockInnerInfo, '离地高度')
         ? finiteNumber(blockInnerInfo.离地高度)
         : null;
-    const modelParams = Object.entries(PARAMETER_NAMES)
-        .filter(([rawName]) => Object.prototype.hasOwnProperty.call(blockInnerInfo, rawName))
-        .map(([rawName, name]) => ({ name, value: blockInnerInfo[rawName] }));
 
     return {
         instanceId: `${descriptor.sourceList}:${sourceIndex}`,
@@ -127,7 +119,6 @@ function normalizeRecord(record, descriptor, sourceIndex) {
         horizontalFlip: readFlip(record, blockInnerInfo, '左右翻转', 'HorizontalFlip'),
         verticalFlip: readFlip(record, blockInnerInfo, '上下翻转', 'VerticalFlip'),
         groundHeight,
-        modelParams,
         rawBlockInnerInfo,
     };
 }
