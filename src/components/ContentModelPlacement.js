@@ -38,21 +38,11 @@ function vectorToPlain(vector) {
     };
 }
 
-function footprintMetrics(footprint) {
+function footprintMetrics(footprint, rotationDegrees = 0, basePoint = {}) {
     if (!Array.isArray(footprint) || footprint.length < 3) return null;
     const points = footprint.filter(point =>
         Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y)));
     if (points.length < 3) return null;
-
-    const firstEdge = Math.hypot(
-        finiteNumber(points[1].x) - finiteNumber(points[0].x),
-        finiteNumber(points[1].y) - finiteNumber(points[0].y),
-    );
-    const secondEdge = Math.hypot(
-        finiteNumber(points[2].x) - finiteNumber(points[1].x),
-        finiteNumber(points[2].y) - finiteNumber(points[1].y),
-    );
-    if (!(firstEdge > SIZE_EPSILON) || !(secondEdge > SIZE_EPSILON)) return null;
 
     const center = points.reduce((sum, point) => {
         sum.x += finiteNumber(point.x);
@@ -61,7 +51,32 @@ function footprintMetrics(footprint) {
     }, { x: 0, y: 0 });
     center.x /= points.length;
     center.y /= points.length;
-    return { x: firstEdge, y: secondEdge, center };
+
+    const originX = Number.isFinite(Number(basePoint?.x))
+        ? Number(basePoint.x) : center.x;
+    const originY = Number.isFinite(Number(basePoint?.y))
+        ? Number(basePoint.y) : center.y;
+    const angle = THREE.MathUtils.degToRad(-finiteNumber(rotationDegrees));
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const point of points) {
+        const worldX = finiteNumber(point.x) - originX;
+        const worldY = finiteNumber(point.y) - originY;
+        const localX = worldX * cosine - worldY * sine;
+        const localY = worldX * sine + worldY * cosine;
+        minX = Math.min(minX, localX);
+        minY = Math.min(minY, localY);
+        maxX = Math.max(maxX, localX);
+        maxY = Math.max(maxY, localY);
+    }
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+    if (!(spanX > SIZE_EPSILON) || !(spanY > SIZE_EPSILON)) return null;
+    return { x: spanX, y: spanY, center };
 }
 
 function validatedBoxSize(modelBox) {
@@ -81,7 +96,11 @@ function validatedBoxSize(modelBox) {
 }
 
 function targetSceneSize(instance, selection) {
-    const footprint = footprintMetrics(instance?.footprint);
+    const footprint = footprintMetrics(
+        instance?.footprint,
+        rotationDegreesOf(instance),
+        basePointOf(instance),
+    );
     const size = instance?.size ?? {};
     const outScale = instance?.outScale ?? {};
     const reference = selection?.referenceSize ?? {};
@@ -198,7 +217,11 @@ export function computeTargetScale(instance, selection, modelBox, resourceKind) 
 export function computeModelPlacementOffset(instance, modelBox, scale = 1) {
     validatedBoxSize(modelBox);
     const basePoint = basePointOf(instance);
-    const footprint = footprintMetrics(instance?.footprint);
+    const footprint = footprintMetrics(
+        instance?.footprint,
+        rotationDegreesOf(instance),
+        basePoint,
+    );
     const footprintCenter = footprint?.center ?? {
         x: finiteNumber(basePoint.x),
         y: finiteNumber(basePoint.y),
