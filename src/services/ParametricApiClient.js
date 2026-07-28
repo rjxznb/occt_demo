@@ -45,15 +45,17 @@ export class ParametricApiClient {
         for (let index = 0; index < ids.length; index += 50) {
             batches.push(ids.slice(index, index + 50));
         }
-        const requests = this.transport === 'cad' ? batches : ids;
         const responses = await mapSettledWithConcurrency(
-            requests,
+            batches,
             GOODS_CONCURRENCY,
-            request => this.transport === 'cad'
+            batch => this.transport === 'cad'
                 ? this.hostClient.invoke(
-                    'getContentGoodsDetails', { resIds: request }, { timeoutMs: GOODS_TIMEOUT_MS },
+                    'getContentGoodsDetails', { resIds: batch }, { timeoutMs: GOODS_TIMEOUT_MS },
                 )
-                : this.getGoodsDetail(request),
+                : this.postJson(
+                    `${this.backendUrl}/api/getContentGoodsDetails`,
+                    { resIds: batch },
+                ),
         );
         const errors = responses.filter(result => result.status === 'rejected')
             .map(result => result.reason);

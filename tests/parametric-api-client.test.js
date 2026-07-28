@@ -158,58 +158,80 @@ test('CAD goods detail calls are deduplicated and split into batches of 50', asy
         Array.from({ length: 51 }, (_, i) => String(i + 1)));
 });
 
-test('Demo batch transport reuses the existing per-ID Node endpoint', async () => {
-    const urls = [];
+test('standalone goods details are deduplicated and POSTed in batches of 50', async () => {
+    const calls = [];
     const client = new ParametricApiClient({
         hostClient: null,
-        fetchImpl: async url => {
-            urls.push(url);
-            return { ok: true, status: 200, json: async () => ({ data: { id: url.split('=').at(-1) } }) };
+        fetchImpl: async (url, init) => {
+            calls.push({ url, init });
+            const ids = JSON.parse(init.body).resIds;
+            return { ok: true, status: 200, json: async () => ({ code: 2000, data: ids.map(id => ({ id })) }) };
         },
     });
-    const result = await client.getGoodsDetails(['7', '8']);
-    assert.equal(urls.length, 2);
-    assert.deepEqual(result.items.map(item => item.id), ['7', '8']);
+    const ids = [...Array.from({ length: 51 }, (_, index) => String(index + 1)), '1'];
+    const result = await client.getGoodsDetails(ids);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, 'http://localhost:3100/api/getContentGoodsDetails');
+    assert.equal(calls[0].init.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[0].init.body).resIds, ids.slice(0, 50));
+    assert.deepEqual(JSON.parse(calls[1].init.body).resIds, ['51']);
+    assert.deepEqual(result.items.map(item => String(item.id)), ids.slice(0, 51));
 });
 
-test('Demo goods transport caps per-ID requests at concurrency three', async () => {
+test('standalone goods transport caps batch requests at concurrency three', async () => {
     let active = 0;
     let maximum = 0;
     const client = new ParametricApiClient({
         hostClient: null,
-        fetchImpl: async url => {
+        fetchImpl: async (url, init) => {
             active += 1;
             maximum = Math.max(maximum, active);
             await new Promise(resolve => setTimeout(resolve, 5));
             active -= 1;
+            const ids = JSON.parse(init.body).resIds;
             return {
                 ok: true,
                 status: 200,
-                json: async () => ({ data: { id: url.split('=').at(-1) } }),
+                json: async () => ({ code: 2000, data: ids.map(id => ({ id })) }),
             };
         },
     });
+    const ids = Array.from({ length: 151 }, (_, index) => String(index + 1));
 
-    const result = await client.getGoodsDetails(['1', '2', '3', '4', '5', '6', '7']);
+    const result = await client.getGoodsDetails(ids);
 
     assert.equal(maximum, 3);
-    assert.deepEqual(result.items.map(item => item.id), ['1', '2', '3', '4', '5', '6', '7']);
+    assert.deepEqual(result.items.map(item => String(item.id)), ids);
 });
 
-test('one failed Demo goods request does not discard successful details', async () => {
+test('one failed standalone batch does not discard successful details', async () => {
     const client = new ParametricApiClient({
         hostClient: null,
-        fetchImpl: async url => {
-            const id = url.split('=').at(-1);
-            return id === '8'
+        fetchImpl: async (url, init) => {
+            const ids = JSON.parse(init.body).resIds;
+            return ids.includes('51')
                 ? { ok: false, status: 503 }
-                : { ok: true, status: 200, json: async () => ({ data: { id } }) };
+                : { ok: true, status: 200, json: async () => ({ code: 2000, data: ids.map(id => ({ id })) }) };
         },
     });
+    const ids = Array.from({ length: 51 }, (_, index) => String(index + 1));
 
-    const result = await client.getGoodsDetails(['7', '8', '9']);
+    const result = await client.getGoodsDetails(ids);
 
-    assert.deepEqual(result.items.map(item => item.id), ['7', '9']);
+    assert.deepEqual(result.items.map(item => String(item.id)), ids.slice(0, 50));
+});
+
+test('all failed standalone batches surface the first transport error', async () => {
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async () => ({ ok: false, status: 503 }),
+    });
+
+    await assert.rejects(
+        client.getGoodsDetails(['7', '8']),
+        error => error.code === 'HTTP_ERROR' && error.status === 503,
+    );
 });
 
 test('goods item normalization accepts supported batch and single payload shapes', () => {
