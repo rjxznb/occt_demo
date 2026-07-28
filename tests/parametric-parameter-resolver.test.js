@@ -7,6 +7,11 @@ const selection = modelParameterMap => ({
     templateEntry: { ModelParamterMap: modelParameterMap },
 });
 
+function assertNear(actual, expected, label, tolerance = 1e-3) {
+    assert.ok(Math.abs(actual - expected) <= tolerance,
+        `${label}: expected ${expected}, got ${actual}`);
+}
+
 test('maps standard-window CAD dimensions to model semantics', () => {
     const parameters = resolveParametricParameters({
         typeId: '1401',
@@ -19,6 +24,56 @@ test('maps standard-window CAD dimensions to model semantics', () => {
         { name: '离地', value: 890 },
         { name: '墙厚', value: 240 },
     ]);
+});
+
+test('maps both Drawing2 arc-window paths to literal model semantics', () => {
+    const fixtures = [
+        {
+            instance: {
+                typeId: '140c',
+                cadPath: [
+                    { x: -3828.686478, y: 6031.954413, z: 0, bulge: 0 },
+                    { x: 0, y: 0, z: 0, bulge: 0 },
+                    { x: 0, y: 0, z: 0, bulge: 0 },
+                    { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
+                ],
+                rawBlockInnerInfo: { 高度: 1500 },
+            },
+            expected: {
+                chord: 3134.996018,
+                sagitta: 2281.192393,
+                sashCount: 11,
+            },
+        },
+        {
+            instance: {
+                typeId: '140c',
+                cadPath: [
+                    { x: 5591.313296, y: -378.045377, z: 0, bulge: 0 },
+                    { x: 0, y: 0, z: 0, bulge: 0 },
+                    { x: 0, y: 0, z: 0, bulge: 0 },
+                    { x: 5591.314060, y: -4748.045378, z: 0, bulge: 0.224261 },
+                ],
+                rawBlockInnerInfo: { 高度: 1500 },
+            },
+            expected: {
+                chord: 4370.000001,
+                sagitta: 490.010285,
+                sashCount: 8,
+            },
+        },
+    ];
+
+    for (const { instance, expected } of fixtures) {
+        const parameters = resolveParametricParameters(instance, selection({}));
+        assert.deepEqual(parameters.map(parameter => parameter.name), [
+            '弦长', '拱高', '窗扇数量', '高度',
+        ]);
+        assertNear(parameters[0].value, expected.chord, 'chord');
+        assertNear(parameters[1].value, expected.sagitta, 'sagitta');
+        assert.equal(parameters[2].value, expected.sashCount);
+        assert.equal(parameters[3].value, 1500);
+    }
 });
 
 test('keeps generic geometry aliases without scene transforms', () => {

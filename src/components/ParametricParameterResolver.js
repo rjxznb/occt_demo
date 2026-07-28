@@ -1,3 +1,5 @@
+import { describeBulgeArc } from './ArcWindowGeometry.js';
+
 const MAX_PARAMETERS = 64;
 
 const GENERIC_ALIASES = Object.freeze([
@@ -42,6 +44,16 @@ function addStandardWindowParameters(target, blockInnerInfo) {
     setFinite(target, '高度', blockInnerInfo.高度);
     setFinite(target, '离地', blockInnerInfo.离地高度);
     setFinite(target, '墙厚', blockInnerInfo.宽);
+}
+
+function addArcWindowParameters(target, instance, blockInnerInfo) {
+    const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
+    const arc = path.length === 4 ? describeBulgeArc(path[3], path[0]) : null;
+    if (!arc) return;
+    setFinite(target, '弦长', arc.chordLength);
+    setFinite(target, '拱高', arc.sagitta);
+    setFinite(target, '窗扇数量', Math.max(1, Math.ceil(arc.arcLength / 600)));
+    setFinite(target, '高度', blockInnerInfo.高度);
 }
 
 function point(value) {
@@ -159,10 +171,11 @@ export function resolveParametricParameters(instance, selection) {
         ? instance.rawBlockInnerInfo
         : {};
     const typeId = String(instance?.typeId ?? '').trim();
-    const hasTypeAdapter = typeId === '1401' || typeId === '1407';
+    const hasTypeAdapter = typeId === '1401' || typeId === '1407' || typeId === '140c';
 
     if (typeId === '1401') addStandardWindowParameters(target, blockInnerInfo);
     if (typeId === '1407') addCornerWindowParameters(target, instance, blockInnerInfo);
+    if (typeId === '140c') addArcWindowParameters(target, instance, blockInnerInfo);
     if (hasTypeAdapter) {
         addNumericTemplateDefaults(target, selection, true);
     } else {
