@@ -269,3 +269,53 @@ test('maps L-shaped sliding-door sides to the model parameter names', () => {
         { name: '左墙厚', value: 240 },
     ]);
 });
+
+test('maps 1408 U-window CAD fields to UE parameter names', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '1408',
+        externalWallThickness: 240,
+        rawBlockInnerInfo: {
+            长: 2870,
+            下厚: 240,
+            左厚: 180,
+            右厚: 220,
+            左宽: 1030,
+            右宽: 810,
+            高度: 1600,
+            离地高度: 900,
+            墙厚: 260,
+        },
+    }, selection({ 宽度: 3970, 高度: 1900 }));
+
+    assert.deepEqual(parameters, [
+        { name: '宽度', value: 2870 },
+        { name: '深度', value: 240 },
+        { name: '左深', value: 180 },
+        { name: '右深', value: 220 },
+        { name: '左宽', value: 1030 },
+        { name: '右宽', value: 810 },
+        { name: '高度', value: 1600 },
+        { name: '离地', value: 900 },
+        { name: '墙厚', value: 260 },
+    ]);
+});
+
+test('uses drawing external wall thickness when 1408 has no explicit wall thickness', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '1408',
+        externalWallThickness: 240,
+        rawBlockInnerInfo: {
+            长: 2870,
+            下厚: 240,
+            左厚: 180,
+            右厚: 220,
+            左宽: 1030,
+            右宽: 810,
+            高度: 1600,
+            离地高度: 900,
+        },
+    }, selection({}));
+
+    assert.deepEqual(parameters.at(-1), { name: '墙厚', value: 240 });
+    assert.equal(parameters.length, 9);
+});

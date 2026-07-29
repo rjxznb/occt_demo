@@ -56,6 +56,22 @@ function addArcWindowParameters(target, instance, blockInnerInfo) {
     setFinite(target, '高度', blockInnerInfo.高度);
 }
 
+function addUWindowParameters(target, instance, blockInnerInfo) {
+    setFinite(target, '宽度', blockInnerInfo.长);
+    setFinite(target, '深度', blockInnerInfo.下厚);
+    setFinite(target, '左深', blockInnerInfo.左厚);
+    setFinite(target, '右深', blockInnerInfo.右厚);
+    setFinite(target, '左宽', blockInnerInfo.左宽);
+    setFinite(target, '右宽', blockInnerInfo.右宽);
+    setFinite(target, '高度', blockInnerInfo.高度);
+    setFinite(target, '离地', blockInnerInfo.离地高度);
+
+    const explicitWallThickness = finiteNumber(blockInnerInfo.墙厚);
+    setFinite(target, '墙厚', explicitWallThickness === null
+        ? instance?.externalWallThickness
+        : explicitWallThickness);
+}
+
 function point(value) {
     if (!value || typeof value !== 'object') return null;
     const x = finiteNumber(value.x);
@@ -174,11 +190,13 @@ export function resolveParametricParameters(instance, selection) {
     const hasTypeAdapter = typeId === '1313'
         || typeId === '1401'
         || typeId === '1407'
+        || typeId === '1408'
         || typeId === '140c';
 
     if (typeId === '1313') addCornerOpeningParameters(target, instance, blockInnerInfo, false);
     if (typeId === '1401') addStandardWindowParameters(target, blockInnerInfo);
     if (typeId === '1407') addCornerOpeningParameters(target, instance, blockInnerInfo, true);
+    if (typeId === '1408') addUWindowParameters(target, instance, blockInnerInfo);
     if (typeId === '140c') addArcWindowParameters(target, instance, blockInnerInfo);
     if (hasTypeAdapter) {
         addNumericTemplateDefaults(target, selection, true);
