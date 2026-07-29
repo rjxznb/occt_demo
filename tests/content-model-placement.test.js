@@ -218,7 +218,7 @@ test('a generated 1401 window stays upright without applying CAD dimensions twic
     assertNear(box.min.z, 890, 'generated window sill height');
 });
 
-test('generated 140c windows anchor at the arc apex and point local X at the circle center', () => {
+test('generated 140c windows anchor at the arc apex and point UE local right at the circle center', () => {
     const fixtures = [
         {
             innerStart: { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
@@ -246,8 +246,10 @@ test('generated 140c windows anchor at the arc apex and point local X at the cir
         originMarker.name = 'arcOrigin';
         prototype.add(originMarker);
         const directionMarker = new THREE.Object3D();
-        directionMarker.name = 'arcPositiveX';
-        directionMarker.position.x = 100;
+        directionMarker.name = 'arcRightAxis';
+        // The source model is Y-up. After its Y-up -> Z-up conversion,
+        // source -Z is UE's horizontal local RightVector (+Y).
+        directionMarker.position.z = -100;
         prototype.add(directionMarker);
 
         const arcInstance = {
@@ -293,9 +295,9 @@ test('generated 140c windows anchor at the arc apex and point local X at the cir
 
         root.updateMatrixWorld(true);
         const origin = root.getObjectByName('arcOrigin').getWorldPosition(new THREE.Vector3());
-        const positiveX = root.getObjectByName('arcPositiveX')
+        const rightAxis = root.getObjectByName('arcRightAxis')
             .getWorldPosition(new THREE.Vector3());
-        const actualDirection = positiveX.sub(origin).normalize();
+        const actualDirection = rightAxis.sub(origin).normalize();
         const expectedDirection = new THREE.Vector3(
             fixture.center.x - fixture.apex.x,
             fixture.center.y - fixture.apex.y,
@@ -306,14 +308,14 @@ test('generated 140c windows anchor at the arc apex and point local X at the cir
         assertNear(root.position.x, fixture.apex.x, 'arc root apex x');
         assertNear(root.position.y, fixture.apex.y, 'arc root apex y');
         assertNear(root.rotation.z, 0, 'rotation remains in the plan wrapper');
-        assertNear(actualDirection.x, expectedDirection.x, 'arc local X direction x');
-        assertNear(actualDirection.y, expectedDirection.y, 'arc local X direction y');
-        assertNear(actualDirection.z, 0, 'arc local X remains horizontal');
+        assertNear(actualDirection.x, expectedDirection.x, 'arc local right direction x');
+        assertNear(actualDirection.y, expectedDirection.y, 'arc local right direction y');
+        assertNear(actualDirection.z, 0, 'arc local right remains horizontal');
         assertNear(box.min.z, 900, 'arc sill height');
         assertNear(box.getSize(new THREE.Vector3()).z, 150, 'arc model stays upright');
         assert.deepEqual(root.userData.debugInfo.placement.targetScale, { x: 1, y: 1, z: 1 });
         assertNear(root.userData.debugInfo.transform.rotationDegrees,
-            fixture.heading, 'debug heading');
+            fixture.heading - 90, 'debug rotation');
     }
 });
 

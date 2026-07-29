@@ -44,7 +44,10 @@ function resolvePlacementPlan(instance, selection) {
                     z: finiteNumber(sourceBasePoint.z),
                 },
                 footprint: [],
-                rotationDegrees: arc.headingDegrees,
+                // UE aligns FVector::RightVector (+Y), not local +X, to the
+                // apex-to-center direction. Rotating +Y to heading requires
+                // subtracting 90 degrees from the geometric heading.
+                rotationDegrees: arc.headingDegrees - 90,
                 horizontalFlip: false,
                 verticalFlip: false,
             },
