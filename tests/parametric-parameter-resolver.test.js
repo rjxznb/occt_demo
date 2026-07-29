@@ -7,6 +7,9 @@ const selection = modelParameterMap => ({
     templateEntry: { ModelParamterMap: modelParameterMap },
 });
 
+const valueOf = (parameters, name) =>
+    parameters.find(parameter => parameter.name === name)?.value;
+
 function assertNear(actual, expected, label, tolerance = 1e-3) {
     assert.ok(Math.abs(actual - expected) <= tolerance,
         `${label}: expected ${expected}, got ${actual}`);
@@ -318,4 +321,107 @@ test('uses drawing external wall thickness when 1408 has no explicit wall thickn
 
     assert.deepEqual(parameters.at(-1), { name: '墙厚', value: 240 });
     assert.equal(parameters.length, 9);
+});
+
+test('maps every remaining rectangular window family to standard window parameters', () => {
+    for (const typeId of ['1402', '1403', '140302', '140303', '1404', '1405']) {
+        const parameters = resolveParametricParameters({
+            typeId,
+            rawBlockInnerInfo: {
+                ['\u957f']: 1680,
+                ['\u5bbd']: 260,
+                ['\u9ad8\u5ea6']: 1450,
+                ['\u79bb\u5730\u9ad8\u5ea6']: 820,
+            },
+        }, selection({}));
+
+        assert.equal(valueOf(parameters, '\u5bbd\u5ea6'), 1680, `${typeId} width`);
+        assert.equal(valueOf(parameters, '\u9ad8\u5ea6'), 1450, `${typeId} height`);
+        assert.equal(valueOf(parameters, '\u79bb\u5730'), 820, `${typeId} ground`);
+        assert.equal(valueOf(parameters, '\u5899\u539a'), 260, `${typeId} wall`);
+    }
+});
+
+test('140302 selects its visible side from the CAD vertical flip', () => {
+    const instance = verticalFlip => ({
+        typeId: '140302',
+        verticalFlip,
+        rawBlockInnerInfo: {
+            ['\u957f']: 1800,
+            ['\u5bbd']: 600,
+            ['\u9ad8\u5ea6']: 1200,
+            ['\u79bb\u5730\u9ad8\u5ea6']: 900,
+        },
+    });
+
+    const right = resolveParametricParameters(instance(false), selection({}));
+    const left = resolveParametricParameters(instance(true), selection({}));
+
+    assert.equal(valueOf(right, '\u7a97\u6237\u7c7b\u578b'), '\u53f3\u4fa7\u73bb\u7483');
+    assert.equal(valueOf(right, '\u6321\u677f'), '\u53f3\u4fa7\u6321\u677f');
+    assert.equal(valueOf(left, '\u7a97\u6237\u7c7b\u578b'), '\u5de6\u4fa7\u73bb\u7483');
+    assert.equal(valueOf(left, '\u6321\u677f'), '\u5de6\u4fa7\u6321\u677f');
+});
+
+test('1406 maps winding-aware left and right bay dimensions', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '1406',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 },
+            { x: 0, y: 1200 },
+            { x: -240, y: 1200 },
+            { x: -240, y: -180 },
+            { x: 900, y: -180 },
+            { x: 900, y: 0 },
+        ],
+        rawBlockInnerInfo: {
+            ['\u957f']: 900,
+            ['\u5bbd']: 1200,
+            ['\u9ad8\u5ea6']: 1500,
+            ['\u79bb\u5730\u9ad8\u5ea6']: 900,
+            ['\u5916\u8fb9\u957f']: 180,
+            ['\u5916\u8fb9\u5bbd']: 240,
+        },
+    }, selection({}));
+
+    assert.equal(valueOf(parameters, '\u53f3\u5bbd'), 900);
+    assert.equal(valueOf(parameters, '\u5de6\u5bbd'), 1200);
+    assert.equal(valueOf(parameters, '\u53f3\u5899\u539a'), 180);
+    assert.equal(valueOf(parameters, '\u5de6\u5899\u539a'), 240);
+    assert.equal(valueOf(parameters, '\u79bb\u5730'), 900);
+});
+
+test('140f keeps door-window source values and derives UE total height', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '140f',
+        rawBlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u843d\u5730\u7a97\u6709\u526f\u7a97',
+            ['\u95e8\u9ad8']: 2100,
+            ['\u7a97\u9ad8']: 600,
+            ['\u526f\u7a97\u9ad8\u5ea6']: 300,
+            ['\u5916\u8fb9\u957f']: 900,
+            ['\u957f']: 2400,
+        },
+    }, selection({}));
+    const noSubWindow = resolveParametricParameters({
+        typeId: '140f',
+        rawBlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u975e\u843d\u5730\u7a97\u65e0\u526f\u7a97',
+            ['\u95e8\u9ad8']: 2100,
+            ['\u7a97\u9ad8']: 600,
+            ['\u526f\u7a97\u9ad8\u5ea6']: 300,
+            ['\u5916\u8fb9\u957f']: 900,
+            ['\u957f']: 2400,
+        },
+    }, selection({}));
+
+    assert.equal(valueOf(parameters, '\u7c7b\u578b'), '\u843d\u5730\u7a97\u6709\u526f\u7a97');
+    assert.equal(valueOf(parameters, '\u95e8\u9ad8'), 2100);
+    assert.equal(valueOf(parameters, '\u7a97\u9ad8'), 600);
+    assert.equal(valueOf(parameters, '\u526f\u7a97\u9ad8\u5ea6'), 300);
+    assert.equal(valueOf(parameters, '\u5916\u8fb9\u957f'), 900);
+    assert.equal(valueOf(parameters, '\u957f\u5ea6'), 2400);
+    assert.equal(valueOf(parameters, '\u603b\u9ad8\u5ea6'), 2700);
+    assert.equal(valueOf(noSubWindow, '\u603b\u9ad8\u5ea6'), 2100);
 });

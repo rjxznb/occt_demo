@@ -1,4 +1,5 @@
 import { describeBulgeArc } from './ArcWindowGeometry.js';
+import { contentTypeRuleFor } from './ContentTypeRules.js';
 
 const MAX_PARAMETERS = 64;
 
@@ -20,6 +21,11 @@ function setFinite(target, name, value) {
     const number = finiteNumber(value);
     if (!name || number === null) return;
     target.set(name, number);
+}
+
+function setText(target, name, value) {
+    if (!name || typeof value !== 'string' || value.length === 0) return;
+    target.set(name, value);
 }
 
 function addGenericAliases(target, blockInnerInfo) {
@@ -44,6 +50,34 @@ function addStandardWindowParameters(target, blockInnerInfo) {
     setFinite(target, '高度', blockInnerInfo.高度);
     setFinite(target, '离地', blockInnerInfo.离地高度);
     setFinite(target, '墙厚', blockInnerInfo.宽);
+}
+
+function addBayWindowParameters(target, instance, blockInnerInfo) {
+    addStandardWindowParameters(target, blockInnerInfo);
+    if (String(instance?.typeId ?? '').trim() !== '140302') return;
+    const left = instance?.verticalFlip === true;
+    setText(target, '\u7a97\u6237\u7c7b\u578b', left
+        ? '\u5de6\u4fa7\u73bb\u7483'
+        : '\u53f3\u4fa7\u73bb\u7483');
+    setText(target, '\u6321\u677f', left
+        ? '\u5de6\u4fa7\u6321\u677f'
+        : '\u53f3\u4fa7\u6321\u677f');
+}
+
+function addDoorWindowParameters(target, blockInnerInfo) {
+    const type = blockInnerInfo['\u7c7b\u578b'];
+    const doorHeight = finiteNumber(blockInnerInfo['\u95e8\u9ad8']);
+    const windowHeight = finiteNumber(blockInnerInfo['\u7a97\u9ad8']);
+    setText(target, '\u7c7b\u578b', type);
+    setFinite(target, '\u95e8\u9ad8', doorHeight);
+    setFinite(target, '\u7a97\u9ad8', windowHeight);
+    setFinite(target, '\u526f\u7a97\u9ad8\u5ea6', blockInnerInfo['\u526f\u7a97\u9ad8\u5ea6']);
+    setFinite(target, '\u5916\u8fb9\u957f', blockInnerInfo['\u5916\u8fb9\u957f']);
+    setFinite(target, '\u957f\u5ea6', blockInnerInfo['\u957f']);
+    if (doorHeight === null || windowHeight === null || typeof type !== 'string') return;
+    setFinite(target, '\u603b\u9ad8\u5ea6', type.includes('\u65e0\u526f\u7a97')
+        ? doorHeight
+        : doorHeight + windowHeight);
 }
 
 function addArcWindowParameters(target, instance, blockInnerInfo) {
@@ -187,17 +221,31 @@ export function resolveParametricParameters(instance, selection) {
         ? instance.rawBlockInnerInfo
         : {};
     const typeId = String(instance?.typeId ?? '').trim();
+    const family = contentTypeRuleFor(typeId)?.family ?? null;
     const hasTypeAdapter = typeId === '1313'
         || typeId === '1401'
         || typeId === '1407'
         || typeId === '1408'
-        || typeId === '140c';
+        || typeId === '140c'
+        || family === 'standard-window'
+        || family === 'bay-window'
+        || family === 'arc-bay-window'
+        || family === 'corner-bay-window'
+        || family === 'door-window';
 
     if (typeId === '1313') addCornerOpeningParameters(target, instance, blockInnerInfo, false);
     if (typeId === '1401') addStandardWindowParameters(target, blockInnerInfo);
     if (typeId === '1407') addCornerOpeningParameters(target, instance, blockInnerInfo, true);
     if (typeId === '1408') addUWindowParameters(target, instance, blockInnerInfo);
     if (typeId === '140c') addArcWindowParameters(target, instance, blockInnerInfo);
+    if (family === 'standard-window' || family === 'arc-bay-window') {
+        addStandardWindowParameters(target, blockInnerInfo);
+    }
+    if (family === 'bay-window') addBayWindowParameters(target, instance, blockInnerInfo);
+    if (family === 'corner-bay-window') {
+        addCornerOpeningParameters(target, instance, blockInnerInfo, true);
+    }
+    if (family === 'door-window') addDoorWindowParameters(target, blockInnerInfo);
     if (hasTypeAdapter) {
         addNumericTemplateDefaults(target, selection, true);
     } else {
