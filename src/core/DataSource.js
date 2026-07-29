@@ -87,7 +87,9 @@ class SceneFixtureDataSource {
 
 export function withSceneFixture(source, search = '') {
     const fixtureName = new URLSearchParams(String(search).replace(/^\?/, '')).get('fixture');
-    return fixtureName === '1313' ? new SceneFixtureDataSource(source, fixtureName) : source;
+    return fixtureName === '1313' || fixtureName === '1408'
+        ? new SceneFixtureDataSource(source, fixtureName)
+        : source;
 }
 
 async function readJsonFile(file) {

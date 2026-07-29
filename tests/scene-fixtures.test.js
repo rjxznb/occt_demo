@@ -48,10 +48,59 @@ test('fixture=1313 appends one complete CAD door record without mutating the dra
     assert.equal(result.final_room_list, drawing.final_room_list);
 });
 
-test('unrelated fixture values leave the drawing untouched', async () => {
-    const drawing = { door_list: [{ TypeId: '1302' }] };
-    const result = await withFixture(drawingSource(drawing), '?fixture=13130').loadDrawing();
+test('fixture=1408 appends one asymmetric U-window without mutating the drawing', async () => {
+    const originalWindow = { TypeId: '1401', BasePoint: 'X=0 Y=0 Z=0' };
+    const originalDoor = { TypeId: '1302' };
+    const drawing = {
+        window_list: [originalWindow],
+        door_list: [originalDoor],
+        final_room_list: [{ TypeId: '1101' }],
+    };
 
-    assert.equal(result, drawing);
-    assert.equal(result.door_list.length, 1);
+    const result = await withFixture(drawingSource(drawing), '?fixture=1408').loadDrawing();
+    const fixture = result.window_list.at(-1);
+
+    assert.equal(result.window_list.length, 2);
+    assert.equal(fixture.TypeId, '1408');
+    assert.equal(fixture.BasePoint, 'X=3631.313676 Y=-4728.045438 Z=0.000000');
+    assert.equal(fixture.Size, 'X=2870.000000 Y=1030.000000');
+    assert.equal(fixture.OutRotateRadian, 180);
+    assert.deepEqual(fixture.BlockInnerInfo, {
+        长: 2870,
+        下厚: 240,
+        左厚: 180,
+        右厚: 220,
+        左宽: 1030,
+        右宽: 810,
+        高度: 1600,
+        墙厚: 240,
+        左右翻转: 0,
+        上下翻转: 0,
+        旋转角度: 0,
+        离地高度: 900,
+    });
+    assert.equal(fixture.Points.length, 8);
+    assert.equal(fixture.Points[0],
+        'X=3631.313676 Y=-4728.045438 Z=0.000000 B=0.000000');
+    assert.equal(fixture.Points[6],
+        'X=3411.313676 Y=-5778.045438 Z=0.000000 B=0.000000');
+    assert.notEqual(result, drawing);
+    assert.notEqual(result.window_list, drawing.window_list);
+    assert.deepEqual(drawing.window_list, [originalWindow]);
+    assert.equal(result.door_list, drawing.door_list);
+    assert.equal(result.final_room_list, drawing.final_room_list);
+});
+
+test('unrelated fixture values leave the drawing untouched', async () => {
+    for (const search of ['?fixture=13130', '?fixture=14080', '?fixture=U-window']) {
+        const drawing = {
+            door_list: [{ TypeId: '1302' }],
+            window_list: [{ TypeId: '1401' }],
+        };
+        const result = await withFixture(drawingSource(drawing), search).loadDrawing();
+
+        assert.equal(result, drawing);
+        assert.equal(result.door_list.length, 1);
+        assert.equal(result.window_list.length, 1);
+    }
 });
