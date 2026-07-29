@@ -86,13 +86,14 @@ class VRHouseApp {
 
     async _loadData() {
         await geometryService.init();
-        const [outline, rooms, doorWindows, softlists] = await Promise.all([
+        const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
             geometryService.getOutline(),
             geometryService.getRooms(),
             geometryService.getDoorsAndWindows(),
             geometryService.getSoftlists(),
+            geometryService.getContentModels(),
         ]);
-        return { outline, rooms, doorWindows, softlists };
+        return { outline, rooms, doorWindows, softlists, contentModels };
     }
 
     /** 克隆每间房地板抬到层高，作为吊顶封顶 */

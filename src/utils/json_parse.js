@@ -1,6 +1,8 @@
 import { Shape } from "three";
 import * as Render from "./colorplane.js";
 import { freestyle } from "../config/freestyle.js";
+import { collectContentModelInstances } from '../components/ContentModelRegistry.js';
+import { expandFreeWindowInstances } from '../components/FreeWindowSegmentAdapter.js';
 
 // 解析json字符串为对象，并且返回所有解析后的数据；
 export default function ParseJson(json){
@@ -151,24 +153,6 @@ export default function ParseJson(json){
                     ShapeDXF.horizontalFlip = !!item.BlockInnerInfo.左右翻转;
             }
 
-            // 参数化模型的尺寸参数（从 BlockInnerInfo 提取，key 名映射到 API 参数名）
-            ShapeDXF.modelParams = [];
-            if (item.BlockInnerInfo) {
-                const keyMap = {
-                    '长': '长度',
-                    '宽': '宽度',
-                    '高': '高度',
-                    '自身高度': '自身高度',
-                    '离地高度': '离地高度',
-                    '挡水条高度': '挡水条高度',
-                };
-                for (const [rawKey, apiKey] of Object.entries(keyMap)) {
-                    if (item.BlockInnerInfo[rawKey] !== undefined) {
-                        ShapeDXF.modelParams.push({ name: apiKey, value: item.BlockInnerInfo[rawKey] });
-                    }
-                }
-            }
-
             // TypeId 与方块外接轮廓（世界坐标），供 3D 用 box 占位、模板按类别上色。
             // item.Points 是该图例方块的角点（已是绝对世界坐标，中心即 BasePoint），
             // 直接当 footprint 挤出即可，无需再变换。
@@ -272,6 +256,7 @@ export default function ParseJson(json){
                     size: { x: sizeX, y: sizeY },
                     typeid: item.TypeId,
                     height: height,
+                    sourceIndex: index,
                 });
 
                 // 对应一个图例对象；
@@ -372,6 +357,7 @@ export default function ParseJson(json){
                     typeid: item.TypeId,
                     groundHeight: groundHeight,
                     height: height,
+                    sourceIndex: index,
                 });
 
                 // 对应一个图例对象；
@@ -438,6 +424,8 @@ export default function ParseJson(json){
         parse_data.Room_Points[index] = newitem; // 替换掉原来的数组；不能通过item直接修改，因为item是一个局部变量引用，改变他不会改变原数组的对象；
     });
 
+    const discoveredContentModels = collectContentModelInstances(json);
+    parse_data.content_models = expandFreeWindowInstances(discoveredContentModels);
     return parse_data;
 }
 

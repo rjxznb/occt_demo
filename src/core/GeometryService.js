@@ -208,6 +208,15 @@ class GeometryService {
         };
     }
 
+    /** Expose normalized content models while retaining getSoftlists for legacy/2D callers. */
+    async getContentModels() {
+        this.ensureReady();
+        return {
+            success: true,
+            contentModels: this.parseData.content_models || []
+        };
+    }
+
     /**
      * 按 id 获取软装的几何点数据
      * 对应原 GET /softlists_points?id=xxx

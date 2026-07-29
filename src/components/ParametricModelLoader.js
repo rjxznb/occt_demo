@@ -1,613 +1,436 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
-/**
- * 参数化模型加载器
- *
- * 管线：TypeId → Template(ResId) → getGoodsDetail → parameterizedJsonUrl
- *       → modelUrlToObj → OBJ 字符串 → Three.js Group → 放入场景
- *
- * 依赖 parametric-lab 后端运行在 http://localhost:3100
- */
+import { parametricApiClient } from '../services/ParametricApiClient.js';
+import { ContentTemplateResolver } from './ContentTemplateResolver.js';
+import { createContentDebugInfo, placeContentModel } from './ContentModelPlacement.js';
 
-const BACKEND_URL = 'http://localhost:3100';
-const LOG_PREFIX = '[ParamLoader]';
+export {
+    createPlanTransform,
+    createYUpToZUpTransform,
+    computeModelPlacementOffset,
+} from './ContentModelPlacement.js';
 
-//==============================================================================
-// 模板缓存
-//==============================================================================
-let templateMap = null;       // Map<TypeId, {resId, defaultSize, typeName}>
-let templatePromise = null;
+const compatibilityTemplateResolver = new ContentTemplateResolver(
+    (...args) => globalThis.fetch(...args),
+);
+const DEFAULT_PROTOTYPE_CACHE_LIMIT = 128;
+const DEFAULT_URL_CACHE_LIMIT = 512;
+let compatibilityTemplateMap = null;
+let compatibilityTemplatePromise = null;
+const clientCaches = new WeakMap();
 
-//==============================================================================
-// 模型缓存（按 TypeId，同一 TypeId 只下载一次 OBJ）
-//==============================================================================
-const modelCache = new Map();        // TypeId → THREE.Group（Y-up，位于原点）
-const pendingRequests = new Map();   // TypeId → Promise（飞行去重）
-
-//==============================================================================
-// OBJLoader 单例
-//==============================================================================
-const objLoader = new OBJLoader();
-
-/** 构造软装的俯视平面变换：局部 XY 翻转，再绕 Z 轴旋转，最后平移。 */
-export function createPlanTransform(item) {
-    const bp = item?.basepoint || {};
-    const position = new THREE.Vector3(bp.x ?? 0, bp.y ?? 0, bp.z ?? 0);
-    const quaternion = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        THREE.MathUtils.degToRad(Number(item?.rotate) || 0),
-    );
-    const scale = new THREE.Vector3(
-        item?.horizontalFlip === true ? -1 : 1,
-        item?.verticalFlip === true ? -1 : 1,
-        1,
-    );
-
-    return new THREE.Matrix4().compose(position, quaternion, scale);
-}
-
-/** 将参数化 OBJ 的 Y-up 坐标系转换为户型场景使用的 Z-up。 */
-export function createYUpToZUpTransform() {
-    return new THREE.Matrix4().makeRotationX(Math.PI / 2);
-}
-
-/**
- * 根据 JSON 的 BasePoint 与 footprint 关系，计算 OBJ 在块局部坐标中的偏移。
- * BasePoint 可能是中心、角点或边中点，不能一律把模型包围盒中心移到原点。
- */
-export function computeModelPlacementOffset(item, modelBox, baseScale = 1) {
-    const bp = item?.basepoint || {};
-    const footprintCenter = item?.footprint?.length
-        ? computeFootprintCenter(item.footprint)
-        : { x: bp.x ?? 0, y: bp.y ?? 0 };
-    const targetWorld = new THREE.Vector3(
-        footprintCenter.x,
-        footprintCenter.y,
-        bp.z ?? 0,
-    );
-    const targetLocal = targetWorld.applyMatrix4(createPlanTransform(item).invert());
-    const modelCenter = modelBox.getCenter(new THREE.Vector3());
-    const safeScale = Number.isFinite(baseScale) && baseScale !== 0 ? baseScale : 1;
-
-    return new THREE.Vector3(
-        targetLocal.x / safeScale - modelCenter.x,
-        targetLocal.y / safeScale - modelCenter.y,
-        -modelBox.min.z,
-    );
-}
-
-function vectorToPlain(vector) {
-    return {
-        x: Number(vector?.x ?? 0),
-        y: Number(vector?.y ?? 0),
-        z: Number(vector?.z ?? 0),
-    };
-}
-
-function clonePlain(value) {
-    return value == null ? value : JSON.parse(JSON.stringify(value));
-}
-
-/** 创建不持有 Three.js 对象引用的软装调试快照。 */
+/** Create the legacy plain-data debug snapshot without retaining Three.js objects. */
 export function createParametricDebugInfo(item, templateInfo, placement) {
-    const worldSize = placement.worldBox.getSize(new THREE.Vector3());
+    const baseScale = Number.isFinite(placement?.baseScale) ? placement.baseScale : 1;
+    const info = createContentDebugInfo({
+        ...item,
+        instanceId: item?.id ?? null,
+        basePoint: item?.basepoint,
+        rotationDegrees: item?.rotate,
+    }, {
+        typeName: templateInfo?.typeName,
+        resId: templateInfo?.resId,
+        referenceSize: templateInfo?.defaultSize,
+    }, {
+        kind: 'parametric-obj',
+    }, {
+        ...placement,
+        targetScale: new THREE.Vector3(baseScale, baseScale, baseScale),
+        effectiveHorizontalFlip: item?.horizontalFlip === true,
+    });
     return {
-        typeId: String(item.typeId),
-        softlistId: item.id ?? null,
-        typeName: templateInfo.typeName ?? null,
-        resId: templateInfo.resId ?? null,
-        defaultSize: clonePlain(templateInfo.defaultSize ?? null),
+        typeId: info.typeId,
+        softlistId: item?.id ?? null,
+        typeName: info.selection.typeName,
+        resId: info.selection.resId,
+        defaultSize: info.selection.referenceSize,
         source: {
-            basepoint: clonePlain(item.basepoint ?? null),
-            footprint: clonePlain(item.footprint ?? []),
-            modelParams: clonePlain(item.modelParams ?? []),
+            basepoint: info.source.basePoint,
+            footprint: info.source.footprint,
+            modelParams: info.source.modelParams,
         },
         transform: {
-            rotate: Number(item.rotate) || 0,
-            horizontalFlip: item.horizontalFlip === true,
-            verticalFlip: item.verticalFlip === true,
+            rotate: info.transform.rotationDegrees,
+            horizontalFlip: info.transform.horizontalFlip,
+            verticalFlip: info.transform.verticalFlip,
         },
         placement: {
-            rawSize: vectorToPlain(placement.rawSize),
-            baseScale: placement.baseScale,
-            modelOffset: vectorToPlain(placement.modelOffset),
-            worldPosition: vectorToPlain(placement.worldPosition),
-            worldBounds: {
-                min: vectorToPlain(placement.worldBox.min),
-                max: vectorToPlain(placement.worldBox.max),
-                size: vectorToPlain(worldSize),
-            },
+            rawSize: info.placement.rawSize,
+            baseScale,
+            modelOffset: info.placement.modelOffset,
+            worldPosition: info.placement.worldPosition,
+            worldBounds: info.placement.worldBounds,
         },
     };
 }
 
-
-
-//==============================================================================
-// 公开 API
-//==============================================================================
-
-export async function loadTemplate(templatePath = '/data/template.json') {
-    if (templatePromise) return templatePromise;
-
-    templatePromise = (async () => {
-        console.log(`${LOG_PREFIX} 加载模板: ${templatePath}`);
-        const res = await fetch(templatePath);
-        if (!res.ok) throw new Error(`模板加载失败: HTTP ${res.status}`);
-        const data = await res.json();
-
-        templateMap = new Map();
-        for (const item of data.AllItemInfo || []) {
-            const typeId = String(item.TypeId);
-            const resList = item.ResList || [];
-            if (resList.length > 0) {
-                templateMap.set(typeId, {
-                    resId: String(resList[0].ResId),
-                    defaultSize: {
-                        x: resList[0].X || 0,
-                        y: resList[0].Y || 0,
-                        z: resList[0].Z || 0,
-                    },
-                    typeName: item.TypeName || '',
-                });
-            }
+export function loadTemplate(templatePath = 'data/template.json') {
+    if (compatibilityTemplatePromise) return compatibilityTemplatePromise;
+    compatibilityTemplatePromise = compatibilityTemplateResolver.load(templatePath).then(catalog => {
+        compatibilityTemplateMap = new Map();
+        for (const [typeId, entry] of catalog) {
+            const resource = entry.ResList.find(item => item?.ResId != null);
+            if (!resource) continue;
+            compatibilityTemplateMap.set(typeId, {
+                resId: String(resource.ResId),
+                defaultSize: {
+                    x: Number(resource.X) || 0,
+                    y: Number(resource.Y) || 0,
+                    z: Number(resource.Z) || 0,
+                },
+                typeName: entry.TypeName ?? '',
+            });
         }
-        console.log(`${LOG_PREFIX} 模板加载完成: ${templateMap.size} 个 TypeId → ResId 映射`);
-        return templateMap;
-    })();
-
-    return templatePromise;
+        return compatibilityTemplateMap;
+    });
+    return compatibilityTemplatePromise;
 }
 
 export function getResId(typeId) {
-    if (!templateMap) return null;
-    const entry = templateMap.get(String(typeId));
-    return entry ? entry.resId : null;
+    return compatibilityTemplateMap?.get(String(typeId))?.resId ?? null;
 }
 
 export function getDefaultSize(typeId) {
-    if (!templateMap) return null;
-    const entry = templateMap.get(String(typeId));
-    return entry ? entry.defaultSize : null;
+    return compatibilityTemplateMap?.get(String(typeId))?.defaultSize ?? null;
 }
 
-//==============================================================================
-// 内部：API 调用
-//==============================================================================
-
-async function fetchGoodsDetail(resId) {
-    const url = `${BACKEND_URL}/api/getGoodsDetail?id=${encodeURIComponent(resId)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`getGoodsDetail HTTP ${res.status}`);
-    return res.json();
+function normalizeLegacySoftlist(item, sourceIndex) {
+    const sourceList = item?.sourceList ?? 'soft_list';
+    const normalizedIndex = item?.sourceIndex ?? sourceIndex;
+    return {
+        instanceId: item?.instanceId ?? item?.id ?? `${sourceList}:${normalizedIndex}`,
+        sourceList,
+        sourceIndex: normalizedIndex,
+        category: item?.category ?? 'soft',
+        typeId: String(item?.typeId ?? ''),
+        basePoint: item?.basePoint ?? item?.basepoint,
+        footprint: item?.footprint,
+        size: item?.size,
+        rotationDegrees: item?.rotationDegrees ?? item?.rotate ?? 0,
+        horizontalFlip: item?.horizontalFlip === true,
+        verticalFlip: item?.verticalFlip === true,
+        outScale: item?.outScale,
+        groundHeight: item?.groundHeight,
+        modelParams: Array.isArray(item?.modelParams) ? item.modelParams : [],
+        rawBlockInnerInfo: item?.rawBlockInnerInfo,
+        legacySoftlistId: item?.id ?? item?.instanceId ?? `${sourceList}:${normalizedIndex}`,
+    };
 }
 
-function findParameterizedJsonUrl(obj, depth = 0) {
-    if (!obj || typeof obj !== 'object' || depth > 6) return null;
-    if (typeof obj.parameterizedJsonUrl === 'string' && obj.parameterizedJsonUrl) {
-        return obj.parameterizedJsonUrl;
-    }
-    for (const val of Object.values(obj)) {
-        const found = findParameterizedJsonUrl(val, depth + 1);
+function markLegacyParametricModel(instance, root) {
+    const softlistId = instance.legacySoftlistId;
+    const debugInfo = root.userData?.debugInfo ?? {};
+    const selection = debugInfo.selection ?? {};
+    const source = debugInfo.source ?? {};
+    const transform = debugInfo.transform ?? {};
+    const placement = debugInfo.placement ?? {};
+    const targetScaleX = Number(placement.targetScale?.x);
+    root.userData = {
+        ...root.userData,
+        type: 'parametric-softlist',
+        contentModelRoot: true,
+        softlistId,
+        debugInfo: {
+            ...debugInfo,
+            softlistId,
+            typeName: selection.typeName ?? null,
+            resId: selection.resId ?? null,
+            defaultSize: selection.referenceSize ?? null,
+            source: {
+                ...source,
+                basepoint: source.basePoint ?? null,
+            },
+            transform: {
+                ...transform,
+                rotate: transform.rotationDegrees ?? 0,
+            },
+            placement: {
+                ...placement,
+                baseScale: Number.isFinite(targetScaleX) ? targetScaleX : 1,
+            },
+        },
+    };
+    root.traverse(child => {
+        if (!child.isMesh) return;
+        child.userData = {
+            ...child.userData,
+            type: child.userData?.type || 'parametric-softlist',
+            softlistId,
+        };
+    });
+}
+
+function findStringField(value, fieldName, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 6) return null;
+    if (typeof value[fieldName] === 'string' && value[fieldName]) return value[fieldName];
+    for (const child of Object.values(value)) {
+        const found = findStringField(child, fieldName, depth + 1);
         if (found) return found;
     }
     return null;
 }
 
-async function fetchModelObj(parameterizedJsonUrl, modelParams) {
-    const body = { url: parameterizedJsonUrl };
-    if (modelParams && modelParams.length > 0) {
-        body.parameters = modelParams;
-        console.log(`${LOG_PREFIX}   params:`, modelParams.map(p => `${p.name}=${p.value}`).join(', '));
-    }
-    console.log(`${LOG_PREFIX}   POST modelUrlToObj: ${parameterizedJsonUrl.substring(0, 80)}...`);
-    const res = await fetch(`${BACKEND_URL}/api/modelUrlToObj`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`modelUrlToObj HTTP ${res.status}: ${text.substring(0, 200)}`);
-    }
-    return res.json();
-}
-
-function extractObjContent(data) {
-    if (!data) return null;
-
-    // 1. 顶层 obj 字段（beinuan API 最常用格式）
-    if (typeof data.obj === 'string' && data.obj.length > 100) return data.obj;
-
-    // 2. files 嵌套对象
-    if (data.files && typeof data.files === 'object') {
-        for (const [name, content] of Object.entries(data.files)) {
-            if (name.endsWith('.obj') && typeof content === 'string' && content.length > 100) {
+function extractObjContent(value, depth = 0) {
+    if (!value || depth > 6) return null;
+    if (typeof value === 'string') return null;
+    if (typeof value !== 'object') return null;
+    if (typeof value.obj === 'string' && value.obj) return value.obj;
+    if (value.files && typeof value.files === 'object') {
+        for (const [name, content] of Object.entries(value.files)) {
+            if (name.toLowerCase().endsWith('.obj') && typeof content === 'string' && content) {
                 return content;
             }
         }
     }
-
-    // 3. 递归进入 data.data
-    let inner = data;
-    for (let i = 0; i < 3; i++) {
-        if (!inner.data || typeof inner.data !== 'object') break;
-        inner = inner.data;
-        if (typeof inner.obj === 'string' && inner.obj.length > 100) return inner.obj;
-        if (inner.files && typeof inner.files === 'object') {
-            for (const [name, content] of Object.entries(inner.files)) {
-                if (name.endsWith('.obj') && typeof content === 'string' && content.length > 100) {
-                    return content;
-                }
-            }
+    for (const [name, child] of Object.entries(value)) {
+        if (name.toLowerCase().endsWith('.obj') && typeof child === 'string' && child) {
+            return child;
         }
+        const found = extractObjContent(child, depth + 1);
+        if (found) return found;
     }
-
-    // 4. 扫描顶层所有 .obj key
-    for (const [key, val] of Object.entries(data)) {
-        if (key.endsWith('.obj') && typeof val === 'string' && val.length > 100) return val;
-    }
-
-    // 5. 打印响应结构帮助调试
-    console.warn(`${LOG_PREFIX}   无法提取 OBJ 内容，响应 keys:`, Object.keys(data).join(', '));
     return null;
 }
 
-//==============================================================================
-// OBJ 解析
-//==============================================================================
+function cachesFor(apiClient) {
+    let caches = clientCaches.get(apiClient);
+    if (!caches) {
+        caches = {
+            urls: new Map(),
+            pendingUrls: new Map(),
+            prototypes: new Map(),
+            pending: new Map(),
+        };
+        clientCaches.set(apiClient, caches);
+    }
+    return caches;
+}
 
-function parseObjString(objContent, typeId) {
-    try {
-        const group = objLoader.parse(objContent);
-        group.name = `parametric-${typeId}`;
+function normalizedCacheLimit(value, fallback) {
+    return Math.max(1, Math.floor(Number(value)) || fallback);
+}
 
-        let meshCount = 0;
-        group.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                meshCount++;
-                const hasMaterial = child.material &&
-                    !(Array.isArray(child.material) && child.material.length === 0);
-                if (!hasMaterial) {
-                    child.material = new THREE.MeshStandardMaterial({
-                        color: 0xB8B0A0,
-                        roughness: 0.85,
-                        metalness: 0.0,
-                    });
-                } else if (!Array.isArray(child.material)) {
-                    // 保留原有颜色，确保是 StandardMaterial（支持光照/阴影）
-                    if (!child.material.isMeshStandardMaterial && !child.material.isMeshPhongMaterial) {
-                        const oldColor = child.material.color ? child.material.color.getHex() : 0xB8B0A0;
-                        child.material = new THREE.MeshStandardMaterial({
-                            color: oldColor,
-                            roughness: 0.85,
-                            metalness: 0.0,
-                        });
-                    }
-                }
-                child.castShadow = true;
-                child.receiveShadow = true;
-            }
+function readLru(cache, key) {
+    if (!cache.has(key)) return undefined;
+    const value = cache.get(key);
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+}
+
+function writeLru(cache, key, value, limit, onEvict) {
+    if (cache.has(key)) cache.delete(key);
+    cache.set(key, value);
+    while (cache.size > limit) {
+        const oldestKey = cache.keys().next().value;
+        const oldestValue = cache.get(oldestKey);
+        cache.delete(oldestKey);
+        onEvict?.(oldestValue);
+    }
+}
+
+function disposePrototype(prototype) {
+    prototype?.traverse?.(child => {
+        child.geometry?.dispose?.();
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach(material => material?.dispose?.());
+    });
+}
+
+function stableParameterValue(value, key = '') {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (key === 'value' && typeof value === 'string' && value.trim() !== '') {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric;
+    }
+    if (Array.isArray(value)) return value.map(item => stableParameterValue(item));
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort()
+        .map(property => [property, stableParameterValue(value[property], property)]));
+}
+
+function parameterCacheKey(parameters) {
+    const normalized = (Array.isArray(parameters) ? parameters : [])
+        .map(parameter => stableParameterValue(parameter));
+    normalized.sort((left, right) => {
+        const nameOrder = String(left?.name ?? '').localeCompare(String(right?.name ?? ''));
+        return nameOrder || JSON.stringify(left).localeCompare(JSON.stringify(right));
+    });
+    return JSON.stringify(normalized);
+}
+
+function prepareLegacyPrototype(prototype) {
+    if (!prototype?.isObject3D) {
+        throw Object.assign(new Error('Parsed OBJ model is invalid'), {
+            code: 'PARAMETRIC_OBJ_INVALID',
         });
-
-        if (meshCount === 0) {
-            console.warn(`${LOG_PREFIX}   OBJ 解析结果无 mesh! TypeId=${typeId}, 内容长度=${objContent.length}`);
-            return null;
-        }
-
-        // 计算包围盒确认尺寸合理
-        const box = new THREE.Box3().setFromObject(group);
-        const size = box.getSize(new THREE.Vector3());
-        console.log(`${LOG_PREFIX}   OBJ 解析: ${meshCount} meshes, 包围盒 (${size.x.toFixed(1)}, ${size.y.toFixed(1)}, ${size.z.toFixed(1)})`);
-
-        return group;
-
-    } catch (err) {
-        console.error(`${LOG_PREFIX}   OBJ 解析失败 TypeId=${typeId}:`, err.message);
-        return null;
     }
+    let meshCount = 0;
+    prototype.traverse(child => {
+        if (!child.isMesh) return;
+        meshCount += 1;
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        if (!materials.some(material => material?.isMaterial === true)) {
+            child.material = new THREE.MeshStandardMaterial({
+                color: 0xB8B0A0,
+                roughness: 0.85,
+                metalness: 0,
+            });
+        }
+        child.castShadow = true;
+        child.receiveShadow = true;
+    });
+    if (meshCount === 0) {
+        throw Object.assign(new Error('Parsed OBJ model contains no Mesh'), {
+            code: 'PARAMETRIC_OBJ_INVALID',
+        });
+    }
+    return prototype;
 }
 
-//==============================================================================
-// 核心管线
-//==============================================================================
-
-// 单独缓存 parameterizedJsonUrl（不依赖 modelParams）
-const urlCache = new Map();  // TypeId → parameterizedJsonUrl
-
-/** 获取某个 TypeId 的 parameterizedJsonUrl（缓存） */
-async function resolveParametricUrl(typeId) {
-    const tid = String(typeId);
-    if (urlCache.has(tid)) return urlCache.get(tid);
-
-    const entry = templateMap.get(tid);
-    if (!entry) return null;
-
-    try {
-        const detail = await fetchGoodsDetail(entry.resId);
-        const url = findParameterizedJsonUrl(detail?.data?.modelDTO ?? {})
-            ?? findParameterizedJsonUrl(detail);
-        if (url) {
-            urlCache.set(tid, url);
-            console.log(`${LOG_PREFIX} TypeId=${tid} parameterizedJsonUrl 已解析`);
-        }
+async function resolveParametricUrl(selection, apiClient, caches, urlCacheLimit) {
+    const cachedUrl = readLru(caches.urls, selection.resId);
+    if (cachedUrl !== undefined) return cachedUrl;
+    if (caches.pendingUrls.has(selection.resId)) return caches.pendingUrls.get(selection.resId);
+    const pending = (async () => {
+        const detail = await apiClient.getGoodsDetail(selection.resId);
+        const url = findStringField(detail?.data?.modelDTO, 'parameterizedJsonUrl')
+            ?? findStringField(detail, 'parameterizedJsonUrl');
+        if (!url) throw Object.assign(new Error('Parameterized model URL is missing'), {
+            code: 'PARAMETRIC_URL_MISSING',
+        });
+        writeLru(caches.urls, selection.resId, url, urlCacheLimit);
         return url;
-    } catch (err) {
-        console.warn(`${LOG_PREFIX} TypeId=${tid} 解析URL失败:`, err.message);
-        return null;
-    }
-}
-
-/** 缓存 key：TypeId + modelParams JSON */
-function cacheKey(typeId, modelParams) {
-    const paramsStr = (modelParams && modelParams.length > 0)
-        ? JSON.stringify(modelParams)
-        : '';
-    return `${typeId}|${paramsStr}`;
-}
-
-async function fetchModelForTypeId(typeId, modelParams) {
-    if (!templateMap) {
-        console.warn(`${LOG_PREFIX} 模板未加载`);
-        return null;
-    }
-
-    const tid = String(typeId);
-    const ck = cacheKey(tid, modelParams);
-
-    if (modelCache.has(ck)) {
-        console.log(`${LOG_PREFIX} ${tid} 命中缓存`);
-        return modelCache.get(ck);
-    }
-
-    if (pendingRequests.has(ck)) {
-        console.log(`${LOG_PREFIX} ${tid} 等待飞行中请求`);
-        return pendingRequests.get(ck);
-    }
-
-    const promise = (async () => {
-        const url = await resolveParametricUrl(tid);
-        if (!url) return null;
-
-        const entry = templateMap.get(tid);
-        const resId = entry.resId;
-        console.log(`${LOG_PREFIX} TypeId=${tid} → ResId=${resId} (${entry.typeName})`);
-
-        try {
-            // modelUrlToObj（传入尺寸参数）
-            const result = await fetchModelObj(url, modelParams);
-
-            // 提取 OBJ
-            const objContent = extractObjContent(result);
-            if (!objContent) {
-                console.warn(`${LOG_PREFIX}   响应中无 OBJ 内容`);
-                return null;
-            }
-            console.log(`${LOG_PREFIX}   OBJ 内容: ${(objContent.length / 1024).toFixed(1)} KB`);
-
-            // 解析 OBJ
-            const group = parseObjString(objContent, tid);
-            if (!group) {
-                console.warn(`${LOG_PREFIX}   OBJ 解析后无有效 mesh`);
-                return null;
-            }
-
-            group.userData = {
-                type: 'parametric-softlist',
-                typeId: tid,
-                resId,
-                typeName: entry.typeName,
-                defaultSize: entry.defaultSize,
-            };
-
-            modelCache.set(ck, group);
-            console.log(`${LOG_PREFIX} ✓ TypeId=${tid} (${entry.typeName}) 已缓存`);
-            return group;
-
-        } catch (err) {
-            console.error(`${LOG_PREFIX} TypeId=${tid} 失败:`, err.message);
-            return null;
-        }
     })();
-
-    pendingRequests.set(ck, promise);
-    promise.finally(() => pendingRequests.delete(ck));
-    return promise;
+    caches.pendingUrls.set(selection.resId, pending);
+    try {
+        return await pending;
+    } finally {
+        caches.pendingUrls.delete(selection.resId);
+    }
 }
 
-//==============================================================================
-// 场景集成
-//==============================================================================
+async function loadLegacyPrototype(instance, selection, {
+    apiClient,
+    parseObj,
+    prototypeCacheLimit,
+    urlCacheLimit,
+}) {
+    const caches = cachesFor(apiClient);
+    const parameters = Array.isArray(instance.modelParams) ? instance.modelParams : [];
+    const key = `${selection.resId}|${parameterCacheKey(parameters)}`;
+    const cachedPrototype = readLru(caches.prototypes, key);
+    if (cachedPrototype !== undefined) return cachedPrototype;
+    if (caches.pending.has(key)) return caches.pending.get(key);
 
+    const pending = (async () => {
+        const url = await resolveParametricUrl(selection, apiClient, caches, urlCacheLimit);
+        const converted = await apiClient.convertModel(url, parameters);
+        const content = extractObjContent(converted);
+        if (!content) throw Object.assign(new Error('Converted response contains no OBJ model'), {
+            code: 'PARAMETRIC_OBJ_MISSING',
+        });
+        const prototype = prepareLegacyPrototype(parseObj
+            ? parseObj(content, instance.typeId)
+            : new OBJLoader().parse(content));
+        prototype.name ||= `parametric-${instance.typeId}`;
+        writeLru(caches.prototypes, key, prototype, prototypeCacheLimit, disposePrototype);
+        return prototype;
+    })();
+    caches.pending.set(key, pending);
+    try {
+        return await pending;
+    } finally {
+        caches.pending.delete(key);
+    }
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+    const results = new Array(values.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, Number(concurrency) || 1), values.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex++;
+            results[index] = await mapper(values[index], index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
+/** Load legacy soft-list records through the independent per-resource bridge. */
 export async function loadParametricModels(softlists, sceneGroup, options = {}) {
-    const { concurrency = 3, onProgress = null } = options;
+    const instances = (Array.isArray(softlists) ? softlists : [])
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item?.kind === 'softlist' && item?.typeId
+            && Array.isArray(item?.footprint) && item.footprint.length >= 3)
+        .map(({ item, index }) => normalizeLegacySoftlist(item, index));
+    if (instances.length === 0) return [];
 
-    await loadTemplate();
-    if (!templateMap || templateMap.size === 0) {
-        console.warn(`${LOG_PREFIX} 模板为空，跳过参数化模型加载`);
-        return [];
-    }
+    const {
+        apiClient = parametricApiClient,
+        concurrency = 3,
+        logger = console,
+        onInstancePlaced,
+        onProgress,
+        parseObj,
+        prototypeCacheLimit = DEFAULT_PROTOTYPE_CACHE_LIMIT,
+        templateResolver = compatibilityTemplateResolver,
+        urlCacheLimit = DEFAULT_URL_CACHE_LIMIT,
+    } = options;
+    await templateResolver.load('data/template.json');
 
-    // 过滤软装项
-    const softlistItems = (softlists || []).filter(
-        item => item.kind === 'softlist' && item.typeId && item.footprint?.length >= 3
-    );
-
-    if (softlistItems.length === 0) {
-        console.log(`${LOG_PREFIX} 无软装项（需要 kind=softlist + typeId + footprint）`);
-        return [];
-    }
-
-    const uniqueTypeIds = [...new Set(softlistItems.map(item => String(item.typeId)))];
-    console.log(`${LOG_PREFIX} 待加载: ${softlistItems.length} 软装实例, ${uniqueTypeIds.length} 唯一 TypeId`);
-    console.log(`${LOG_PREFIX} TypeIds:`, uniqueTypeIds.join(', '));
-
-    // Step 1: 预解析所有 parameterizedJsonUrl（不依赖尺寸参数）
-    let resolvedCount = 0;
-    for (let i = 0; i < uniqueTypeIds.length; i += concurrency) {
-        const batch = uniqueTypeIds.slice(i, i + concurrency);
-        await Promise.allSettled(batch.map(typeId => resolveParametricUrl(typeId)));
-        resolvedCount += batch.length;
-    }
-    console.log(`${LOG_PREFIX} URL 解析完成: ${urlCache.size}/${uniqueTypeIds.length} 个`);
-
-    // Step 2: 为每个软装实例获取模型并放置（传入 modelParams 控制尺寸）
-    const resultGroups = [];
-    let placedCount = 0;
-
-    for (const item of softlistItems) {
-        const tid = String(item.typeId);
-        const modelParams = item.modelParams || [];
-        const templateModel = await fetchModelForTypeId(tid, modelParams);
-        if (!templateModel) continue;
-
+    let completed = 0;
+    const placed = await mapWithConcurrency(instances, concurrency, async instance => {
         try {
-            const rawModel = templateModel.clone(true);
-
-            // 参数化 OBJ 使用 Y-up；户型场景使用 Z-up。必须先转换坐标轴，
-            // 再计算包围盒与贴地位置，否则模型高度会落在水平面里，看起来像倒在地上。
-            rawModel.applyMatrix4(createYUpToZUpTransform());
-
-
-            // ── 读取转换坐标轴后的模型尺寸 ───────────────────────────────
-            rawModel.updateMatrixWorld();
-            const rawBox = new THREE.Box3().setFromObject(rawModel);
-            const rawSize = rawBox.getSize(new THREE.Vector3());
-
-            // ── 翻转（CAD BlockInnerInfo，2D 俯视空间 = 世界 XY 平面）───
-            const vFlip = item.verticalFlip === true;
-            const hFlip = item.horizontalFlip === true;
-
-            const flipWrapper = new THREE.Group();
-            const rotWrapper = new THREE.Group();
-
-            const bp = item.basepoint;
-            const cadRotateDeg = typeof item.rotate === 'number' ? item.rotate : 0;
-            rotWrapper.add(rawModel);
-            flipWrapper.add(rotWrapper);
-
-            // ── 负 scale 反转面法线 → DoubleSide ───────────────────────
-            if (hFlip || vFlip) {
-                flipWrapper.traverse(child => {
-                    if (child.material) {
-                        const mats = Array.isArray(child.material) ? child.material : [child.material];
-                        mats.forEach(m => { m.side = THREE.DoubleSide; });
-                    }
+            const selection = templateResolver.select(instance);
+            if (!selection || selection.errorCode) {
+                throw Object.assign(new Error('Template resource could not be selected'), {
+                    code: selection?.errorCode || 'TEMPLATE_SELECTION_FAILED',
                 });
             }
-
-            // ── 最小保证缩放：模型若 <100 单位说明单位是米/厘米 ──────────
-            const maxModelDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
-            const baseScale = maxModelDim < 100 ? 1000 : 1;
-
-            // 统一采用 2D 的 T * R * S 语义：翻转发生在模型局部 XY 平面，
-            // 再随对象旋转到户型的世界方向。
-            const planTransform = createPlanTransform(item);
-            rawModel.position.copy(computeModelPlacementOffset(item, rawBox, baseScale));
-            planTransform.decompose(
-                flipWrapper.position,
-                rotWrapper.quaternion,
-                rotWrapper.scale,
-            );
-            rotWrapper.scale.multiplyScalar(baseScale);
-            flipWrapper.updateMatrixWorld();
-            console.log(`${LOG_PREFIX}   ${tid} basepoint=(${bp?.x?.toFixed(0) ?? '?'},${bp?.y?.toFixed(0) ?? '?'}) ` +
-                `rotate=${cadRotateDeg.toFixed(1)}° ` +
-                (hFlip ? '左右翻转 ' : '') + (vFlip ? '上下翻转 ' : '') +
-                `model=(${rawSize.x.toFixed(1)},${rawSize.y.toFixed(1)},${rawSize.z.toFixed(1)}) ` +
-                `baseScale=${baseScale}`);
-
-            // 标记 userData
-            flipWrapper.userData = {
-                type: 'parametric-softlist',
-                softlistId: item.id,
-                typeId: tid,
-            };
-            flipWrapper.traverse(child => {
-                if (child.isMesh) {
-                    child.userData.type = child.userData.type || 'parametric-softlist';
-                    child.userData.softlistId = child.userData.softlistId || item.id;
-                    child.userData.typeId = child.userData.typeId || tid;
-                }
+            const prototype = await loadLegacyPrototype(instance, selection, {
+                apiClient,
+                parseObj,
+                prototypeCacheLimit: normalizedCacheLimit(
+                    prototypeCacheLimit,
+                    DEFAULT_PROTOTYPE_CACHE_LIMIT,
+                ),
+                urlCacheLimit: normalizedCacheLimit(urlCacheLimit, DEFAULT_URL_CACHE_LIMIT),
             });
-
-            sceneGroup.add(flipWrapper);
-            flipWrapper.updateMatrixWorld(true);
-            const worldBox = new THREE.Box3().setFromObject(flipWrapper);
-            flipWrapper.userData.debugInfo = createParametricDebugInfo(
-                item,
-                templateModel.userData,
-                {
-                    rawSize,
-                    baseScale,
-                    modelOffset: rawModel.position,
-                    worldPosition: flipWrapper.getWorldPosition(new THREE.Vector3()),
-                    worldBox,
-                },
-            );
-            resultGroups.push(flipWrapper);
-            placedCount++;
-        } catch (err) {
-            console.warn(`${LOG_PREFIX} 放置失败 ${item.id}:`, err.message);
+            const root = placeContentModel(prototype, instance, selection, {
+                kind: 'parametric-obj',
+            });
+            markLegacyParametricModel(instance, root);
+            sceneGroup.add(root);
+            try {
+                await onInstancePlaced?.(instance, root);
+            } catch (error) {
+                logger.warn?.('[ParamLoader] placement observer failed', {
+                    instanceId: instance.instanceId,
+                    code: error?.code || 'OBSERVER_ERROR',
+                });
+            }
+            return root;
+        } catch (error) {
+            logger.warn?.('[ParamLoader] model failed', {
+                instanceId: instance.instanceId,
+                typeId: instance.typeId,
+                code: error?.code || 'UNKNOWN_ERROR',
+            });
+            return null;
+        } finally {
+            completed += 1;
+            try {
+                await onProgress?.(completed, instances.length);
+            } catch (error) {
+                logger.warn?.('[ParamLoader] progress observer failed', {
+                    code: error?.code || 'OBSERVER_ERROR',
+                });
+            }
         }
-    }
-
-    console.log(`${LOG_PREFIX} 完成: ${placedCount}/${softlistItems.length} 参数化模型已放入场景`);
-    if (placedCount === 0 && modelCache.size === 0) {
-        console.warn(`${LOG_PREFIX} ⚠ 无任何参数化模型！请确认: 1) 后端已启动(localhost:3100) 2) 模板TypeId匹配 3) 网络可访问 beinuan.ke.com`);
-    } else if (placedCount === 0 && modelCache.size > 0) {
-        console.warn(`${LOG_PREFIX} ⚠ 模型已加载但未放置！请检查 softlist 的 kind/typeId/footprint 字段`);
-    }
-
-    return resultGroups;
-}
-
-//==============================================================================
-// 工具函数
-//==============================================================================
-
-/** 计算 footprint 矩形两条边的真实长度（mm），不受旋转影响 */
-function computeFootprintRectSize(footprint) {
-    if (footprint.length < 3) return { x: 100, y: 100 };
-
-    // 取第一个角点 → 第二个角点的距离作为 side1
-    const p0 = footprint[0];
-    const p1 = footprint[1];
-    const side1 = Math.sqrt((p1.x - p0.x) ** 2 + (p1.y - p0.y) ** 2);
-
-    // 取第二个角点 → 第三个角点的距离作为 side2
-    const p2 = footprint[2];
-    const side2 = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
-
-    // 返回 {x: 长边, y: 短边}（对应模型的 X/Z 或 X/Y 基准方向）
-    return {
-        x: Math.max(side1, side2),
-        y: Math.min(side1, side2),
-    };
-}
-
-/** 计算 footprint 的中心点（fallback，优先用 basepoint） */
-function computeFootprintCenter(footprint) {
-    let cx = 0, cy = 0;
-    for (const p of footprint) { cx += p.x; cy += p.y; }
-    return { x: cx / footprint.length, y: cy / footprint.length };
-}
-
-export function getCacheStats() {
-    return {
-        templateEntries: templateMap?.size ?? 0,
-        cachedModels: modelCache.size,
-        pendingRequests: pendingRequests.size,
-    };
-}
-
-// 暴露到 window 方便在控制台调试
-if (typeof window !== 'undefined') {
-    window.__parametricDebug = {
-        templateMap,
-        modelCache,
-        pendingRequests,
-        getCacheStats,
-    };
+    });
+    return placed.filter(Boolean);
 }

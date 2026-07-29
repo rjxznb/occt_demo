@@ -5,7 +5,143 @@ import { WallFactory } from './WallFactory.js';
 import { DoorWindowFactory } from './DoorWindowFactory.js';
 import { FloorFactory } from './FloorFactory.js';
 import { RoomLabelFactory } from './RoomLabelFactory.js';
-import { loadParametricModels } from './ParametricModelLoader.js';
+import { loadContentModels } from './ContentModelLoader.js';
+import { createCompositeContentPlacement } from './CompositeContentPlacement.js';
+
+function fallbackKey(sourceList, sourceIndex) {
+    if (!sourceList || sourceIndex == null) return null;
+    return `${sourceList}:${sourceIndex}`;
+}
+
+export function indexDoorWindowFallbacks({ doors = [], windows = [] } = {}) {
+    const fallbacks = new Map();
+    for (const mesh of [...doors, ...windows]) {
+        const key = fallbackKey(mesh?.userData?.sourceList, mesh?.userData?.sourceIndex);
+        if (key) fallbacks.set(key, mesh);
+    }
+    return fallbacks;
+}
+
+export function hidePlacedFallback(fallbacks, instance) {
+    const key = fallbackKey(instance?.sourceList, instance?.sourceIndex);
+    const fallback = key ? fallbacks?.get(key) : null;
+    if (!fallback) return false;
+    fallback.visible = false;
+    return true;
+}
+
+export function hasIndexedFallback(fallbacks, instance) {
+    const key = fallbackKey(instance?.sourceList, instance?.sourceIndex);
+    return key ? fallbacks?.has(key) === true : false;
+}
+
+export function handlePlacedContentModel(fallbacks, instance, root) {
+    if (root?.isObject3D) root.userData.contentModelRoot = true;
+    return hidePlacedFallback(fallbacks, instance);
+}
+
+export function createContentModelPlacementHandler(fallbacks) {
+    return (instance, root) => handlePlacedContentModel(fallbacks, instance, root);
+}
+
+export function createDoorWindowRenderSets(visibleMeshes = {}, cutterMeshes = {}) {
+    return {
+        visible: {
+            doors: [],
+            windows: Array.isArray(visibleMeshes.windows) ? visibleMeshes.windows : [],
+        },
+        cutters: {
+            doors: Array.isArray(cutterMeshes.doors) ? cutterMeshes.doors : [],
+            windows: Array.isArray(cutterMeshes.windows) ? cutterMeshes.windows : [],
+        },
+    };
+}
+
+export function createDoorWindowSceneBindings(visibleMeshes = {}, cutterMeshes = {}) {
+    const renderSets = createDoorWindowRenderSets(visibleMeshes, cutterMeshes);
+    return {
+        doorMeshes: renderSets.visible.doors,
+        windowMeshes: renderSets.visible.windows,
+        visibleMeshes: [...renderSets.visible.doors, ...renderSets.visible.windows],
+        cutters: renderSets.cutters,
+        fallbackMap: indexDoorWindowFallbacks(renderSets.visible),
+    };
+}
+
+function allowlistedFailures(failures) {
+    return failures.map(failure => ({
+        sourceList: failure?.sourceList ?? null,
+        sourceIndex: failure?.sourceIndex ?? null,
+        typeId: failure?.typeId ?? null,
+        resId: failure?.resId ?? null,
+        resourceKind: failure?.resourceKind ?? null,
+        errorCode: failure?.errorCode ?? 'UNKNOWN_ERROR',
+    }));
+}
+
+function safePipelineDiagnostic(error) {
+    const code = String(error?.code || 'UNKNOWN_ERROR').replace(/[^A-Z0-9_-]/gi, '_');
+    const message = String(error?.message || 'Content model pipeline failed')
+        .replace(/https?:\/\/\S+/gi, '[redacted-url]')
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 300);
+    return `code=${code} message=${message}`;
+}
+
+function emitDiagnostic(diagnostic, stage, code) {
+    try {
+        const result = diagnostic?.(stage, code);
+        result?.catch?.(() => {});
+    } catch {
+        // Diagnostics are observability only and must never affect model loading.
+    }
+}
+
+export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, options = {}) {
+    const {
+        diagnostic = globalThis.__renderPreviewDiagnostic,
+        loadContent = loadContentModels,
+        logger = console,
+    } = options;
+
+    const instances = data?.contentModels?.contentModels ?? [];
+    const compositePlacement = createCompositeContentPlacement(
+        instances,
+        sceneGroup,
+        fallbackMap,
+    );
+    emitDiagnostic(diagnostic, 'content-load-start', 'OK');
+    const contentLoad = Promise.resolve().then(() => loadContent(
+        instances,
+        sceneGroup,
+        {
+            concurrency: 3,
+            logSummary: false,
+            getPlacementTarget: compositePlacement.getPlacementTarget,
+            hasFallback: compositePlacement.hasFallback,
+            onInstancePlaced: compositePlacement.onInstancePlaced,
+        },
+    )).then(result => {
+        const terminalResult = compositePlacement.finalize(result);
+        const summary = terminalResult?.summary ?? {};
+        const failures = Array.isArray(terminalResult?.failures)
+            ? terminalResult.failures : [];
+        emitDiagnostic(diagnostic, 'content-load-summary', 'OK');
+        logger.log?.('[ContentLoader] scene summary', summary);
+        if (failures.length) {
+            logger.warn?.('[ContentLoader] scene failures', allowlistedFailures(failures));
+        }
+        return terminalResult;
+    }).catch(error => {
+        emitDiagnostic(diagnostic, 'content-load-error', 'CONTENT_ERROR');
+        logger.warn?.(`[ContentLoader] scene pipeline failed ${safePipelineDiagnostic(error)}`, {
+            code: error?.code || 'UNKNOWN_ERROR',
+        });
+        return { summary: {}, failures: [] };
+    });
+
+    return { contentLoad };
+}
 
 // 全局共享：Evaluator 无状态，没必要每次布尔都新建
 const evaluator = new Evaluator();
@@ -307,8 +443,6 @@ export class RoomRenderer {
             let doorWindowMeshes = { doors: [], windows: [] };
             if (data.doorWindows) {
                 doorWindowMeshes = this.createDoorWindowMeshes(data.doorWindows.doors, data.doorWindows.windows);
-                result.doorMeshes = doorWindowMeshes.doors;
-                result.windowMeshes = doorWindowMeshes.windows;
             }
 
             // 3. 创建用于挖门窗的 mesh，这里得到的mesh只用于挖洞，而不用于渲染，
@@ -317,6 +451,13 @@ export class RoomRenderer {
             if (data.doorWindows) {
                 doorWindowSubMeshes = this.createDoorWindowMeshes(data.doorWindows.processed_doors, data.doorWindows.processed_windows);
             }
+            const doorWindowBindings = createDoorWindowSceneBindings(
+                doorWindowMeshes,
+                doorWindowSubMeshes,
+            );
+            doorWindowSubMeshes = doorWindowBindings.cutters;
+            result.doorMeshes = doorWindowBindings.doorMeshes;
+            result.windowMeshes = doorWindowBindings.windowMeshes;
 
             // 3. 创建房间 mesh 用于布尔运算（只做减数，不渲染）。
             //    必须在竖向上完全包住外壳（-25 ~ 2775），否则外壳底部那段挖不穿，
@@ -391,23 +532,12 @@ export class RoomRenderer {
                 });
 
                 // 单独添加门窗（不挖洞）
-                if (doorWindowMeshes.doors) {
-                    doorWindowMeshes.doors.forEach(mesh => {
-                        if (mesh && CSGOperations.isValidMesh(mesh)) {
-                            this.sceneGroup.add(mesh);
-                            wallSelector.addWall(mesh);
-                        }
-                    });
-
-                }
-                if (doorWindowMeshes.windows) {
-                    doorWindowMeshes.windows.forEach(mesh => {
-                        if (mesh && CSGOperations.isValidMesh(mesh)) {
-                            this.sceneGroup.add(mesh);
-                            wallSelector.addWall(mesh);
-                        }
-                    });
-                }
+                doorWindowBindings.visibleMeshes.forEach(mesh => {
+                    if (mesh && CSGOperations.isValidMesh(mesh)) {
+                        this.sceneGroup.add(mesh);
+                        wallSelector.addWall(mesh);
+                    }
+                });
             }
             // 因为对外墙挖洞，返回的实例对象其实已经不是原来的mesh啦，
             // 所以之前的一些userData全都不存在啦，我们需要自己再设置；
@@ -416,21 +546,12 @@ export class RoomRenderer {
                 result.outlineMesh.userData.type = "outWall";
             }
 
-            // 5.5 软装：异步加载参数化 3D 模型
-            if (data.softlists?.softlists) {
-                loadParametricModels(data.softlists.softlists, this.sceneGroup, {
-                    concurrency: 3,
-                    onProgress: (loaded, total) => {
-                        console.log(`参数化模型加载: ${loaded}/${total} 个唯一 TypeId`);
-                    },
-                }).then(paramGroups => {
-                    if (paramGroups.length > 0) {
-                        console.log(`参数化模型已放置 ${paramGroups.length} 个实例`);
-                    }
-                }).catch(err => {
-                    console.warn('参数化模型加载失败（后端可能未启动）:', err.message);
-                });
-            }
+            // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
+            startSceneContentModelLoads(
+                data,
+                this.sceneGroup,
+                doorWindowBindings.fallbackMap,
+            );
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
             if (data.rooms?.roomInfo) {
