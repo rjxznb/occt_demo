@@ -19,26 +19,6 @@ export class DragDropManager {
     init() {
         this.setupDropZone();
         this.createDragPreview();
-        
-        // 添加测试按钮，用于验证模型创建功能
-        if (window.location.hash === '#debug') {
-            this.addDebugControls();
-        }
-    }
-
-    addDebugControls() {
-        const debugButton = document.createElement('button');
-        debugButton.textContent = '测试创建立方体';
-        debugButton.style.position = 'fixed';
-        debugButton.style.bottom = '20px';
-        debugButton.style.right = '20px';
-        debugButton.style.zIndex = '3000';
-        debugButton.onclick = () => {
-            const testPosition = new THREE.Vector3(0, 1, 0);
-            const testModel = { name: '测试立方体', type: 'box' };
-            this.createModel(testModel, testPosition);
-        };
-        document.body.appendChild(debugButton);
     }
 
     setupDropZone() {

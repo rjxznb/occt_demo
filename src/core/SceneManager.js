@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { AutoRotationManager } from '../components/AutoRotationManager.js';
+import { configureOrbitControls } from './OrbitControlPolicy.js';
 
 // 主光源方向（场景为 Z 轴向上）。只表示方向，实际距离由场景尺度决定。
 const KEY_LIGHT_DIR = new THREE.Vector3(100, 80, 120).normalize();
@@ -80,8 +81,7 @@ export class SceneManager {
 
         // 创建控制器
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.05;
+        configureOrbitControls(this.controls);
         this.controls.target.set(0, 0, 0);
         this.controls.maxPolarAngle = Math.PI * 0.85; // 限制俯仰角度
         this.controls.minDistance = 50;    // 最近距离
