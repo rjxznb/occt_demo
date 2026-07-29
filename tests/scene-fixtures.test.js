@@ -94,7 +94,10 @@ test('fixture=1408 appends one asymmetric U-window without mutating the drawing'
 });
 
 test('unrelated fixture values leave the drawing untouched', async () => {
-    for (const search of ['?fixture=13130', '?fixture=14080', '?fixture=U-window']) {
+    for (const search of [
+        '?fixture=13130', '?fixture=14080', '?fixture=U-window',
+        '?fixture=1403020', '?fixture=ue-special',
+    ]) {
         const drawing = {
             door_list: [{ TypeId: '1302' }],
             window_list: [{ TypeId: '1401' }],

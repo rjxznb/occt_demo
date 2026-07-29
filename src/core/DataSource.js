@@ -87,7 +87,12 @@ class SceneFixtureDataSource {
 
 export function withSceneFixture(source, search = '') {
     const fixtureName = new URLSearchParams(String(search).replace(/^\?/, '')).get('fixture');
-    return fixtureName === '1313' || fixtureName === '1408'
+    const supportedFixtures = new Set([
+        '1313', '1408',
+        '1402', '140302', '1405', '1406', '140e', '140f', '1305', '1311',
+        'ue-specials',
+    ]);
+    return supportedFixtures.has(fixtureName)
         ? new SceneFixtureDataSource(source, fixtureName)
         : source;
 }
