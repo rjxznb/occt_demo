@@ -57,34 +57,25 @@
         }
 
         #fps-counter {
-            position: fixed;
-            top: 20px;
-            right: 200px;
             color: #00ff00;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 8px 12px;
+            background: rgba(0, 255, 120, 0.08);
+            padding: 7px 9px;
             border-radius: 6px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 255, 0, 0.3);
-            z-index: 1000;
+            border: 1px solid rgba(0, 255, 120, 0.24);
         }
 
         #auto-rotation-status {
-            position: fixed;
-            top: 60px;
-            right: 200px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 7px 9px;
             border-radius: 6px;
             font-family: 'Courier New', monospace;
             font-size: 11px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            z-index: 1000;
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: #ccc;
-            min-width: 120px;
         }
 
         .rotation-indicator {
@@ -115,23 +106,28 @@
             position: fixed;
             top: 20px;
             right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 16px;
-            border-radius: 8px;
+            width: 208px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            background: rgba(20, 24, 30, 0.88);
+            padding: 14px;
+            border-radius: 10px;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
             z-index: 1000;
+        }
+
+        .viewer-status-row {
+            display: grid;
+            gap: 6px;
         }
 
         .control-group {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            margin-bottom: 16px;
-        }
-
-        .control-group:last-child {
-            margin-bottom: 0;
         }
 
         .control-label {
@@ -473,11 +469,23 @@
             background: #00897B !important;
             border-color: #26A69A !important;
             color: white !important;
-            margin-top: 8px;
         }
         .template-btn:hover {
             background: #00796B !important;
             border-color: #009688 !important;
+        }
+
+        .primary-action-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .primary-action-grid button {
+            min-height: 42px;
+            padding: 8px 6px;
+            font-size: 12px;
+            line-height: 1.25;
         }
 
         .view-angle-grid {
@@ -508,38 +516,6 @@
             font-size: 12px;
             color: #fff;
             backdrop-filter: blur(10px);
-        }
-
-        /* 快捷键提示样式 */
-        .shortcuts-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            font-size: 11px;
-            color: #ccc;
-            background: rgba(0, 0, 0, 0.3);
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .shortcut-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 2px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .shortcut-item:last-child {
-            border-bottom: none;
-        }
-
-        .shortcut-item:hover {
-            color: #0088ff;
-            background: rgba(0, 136, 255, 0.1);
-            border-radius: 4px;
-            padding: 2px 4px;
         }
 
         /* 右键上下文菜单样式 */
@@ -1010,16 +986,17 @@
         <div>加载中...</div>
     </div>
 
-    <div id="fps-counter">
-        <div>FPS: 0</div>
-    </div>
-
-    <div id="auto-rotation-status">
-        <span class="rotation-indicator" id="rotation-indicator"></span>
-        <span id="rotation-status-text">自动旋转: 禁用</span>
-    </div>
-
     <div id="controls">
+        <div class="viewer-status-row">
+            <div id="fps-counter">
+                <div>FPS: 0</div>
+            </div>
+            <div id="auto-rotation-status">
+                <span class="rotation-indicator" id="rotation-indicator"></span>
+                <span id="rotation-status-text">自动旋转: 禁用</span>
+            </div>
+        </div>
+
         <div class="control-group">
             <div class="control-label">操作模式</div>
             <button id="mode-toggle" class="mode-view">🔍 查看模式</button>
@@ -1027,8 +1004,10 @@
         
         <div class="control-group">
             <div class="control-label">资源管理</div>
-            <button id="resource-toggle" class="resource-btn">📚 资源库</button>
-            <button id="template-toggle" class="template-btn">🎨 应用模板</button>
+            <div class="primary-action-grid">
+                <button id="resource-toggle" class="resource-btn">📚 资源库</button>
+                <button id="template-toggle" class="template-btn">🎨 应用模板</button>
+            </div>
         </div>
         
         <div class="control-group" id="view-angle-group">
@@ -1041,18 +1020,6 @@
             </div>
         </div>
 
-        <div class="control-group">
-            <div class="control-label">编辑快捷键</div>
-            <div class="shortcuts-info">
-                <div class="shortcut-item">🖱️ 点击模型选中</div>
-                <div class="shortcut-item">🖱️ 右键弹出工具栏</div>
-                <div class="shortcut-item">G - 移动模式</div>
-                <div class="shortcut-item">R - 旋转模式</div>
-                <div class="shortcut-item">S - 缩放模式</div>
-                <div class="shortcut-item">Del - 删除模型</div>
-                <div class="shortcut-item">Esc - 取消选择</div>
-            </div>
-        </div>
     </div>
 
     <!-- 右键上下文菜单 -->
