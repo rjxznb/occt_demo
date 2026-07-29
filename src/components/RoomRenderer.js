@@ -129,7 +129,11 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         emitDiagnostic(diagnostic, 'content-load-summary', 'OK');
         logger.log?.('[ContentLoader] scene summary', summary);
         if (failures.length) {
-            logger.warn?.('[ContentLoader] scene failures', allowlistedFailures(failures));
+            const safeFailures = allowlistedFailures(failures);
+            logger.warn?.(
+                `[ContentLoader] scene failures ${JSON.stringify(safeFailures)}`,
+                safeFailures,
+            );
         }
         return terminalResult;
     }).catch(error => {

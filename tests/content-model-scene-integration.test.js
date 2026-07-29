@@ -316,10 +316,15 @@ test('scene failure logs contain only the checkpoint allowlist', async () => {
     });
     await loads.contentLoad;
 
-    const failureLog = warnings.find(([label]) => label === '[ContentLoader] scene failures');
+    const failureLog = warnings.find(([label]) => label.startsWith(
+        '[ContentLoader] scene failures ',
+    ));
     assert.deepEqual(Object.keys(failureLog[1][0]).sort(), [
         'errorCode', 'resId', 'resourceKind', 'sourceIndex', 'sourceList', 'typeId',
     ]);
+    assert.match(failureLog[0], /"typeId":"1302"/);
+    assert.match(failureLog[0], /"errorCode":"STATIC_MODEL_LOAD_FAILED"/);
+    assert.doesNotMatch(failureLog[0], /secret\.test|sourceUrl/);
 });
 
 test('scene pipeline failures expose a safe diagnostic message in the log label', async () => {
