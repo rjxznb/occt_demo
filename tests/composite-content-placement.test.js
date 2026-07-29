@@ -17,6 +17,14 @@ function child(index, count = 2) {
     };
 }
 
+function railingChild(index, count = 2) {
+    return {
+        ...child(index, count),
+        typeId: index === 1 ? '140e02' : '140e01',
+        generatedFromTypeId: '140e',
+    };
+}
+
 function fallbackMap() {
     const fallback = new THREE.Mesh();
     fallback.visible = true;
@@ -147,4 +155,29 @@ test('ordinary content keeps immediate room insertion and fallback hiding behavi
     assert.deepEqual(result.groups, [root]);
     assert.equal(result.summary.placed, 1);
     assert.equal(result.summary.fallbackVisible, 0);
+});
+
+test('commits generated 140e railing children through the same atomic stage', () => {
+    const scene = new THREE.Group();
+    const { fallback, map } = fallbackMap();
+    const instances = [railingChild(0), railingChild(1)];
+    const coordinator = createCompositeContentPlacement(instances, scene, map);
+    const roots = instances.map(() => new THREE.Group());
+
+    instances.forEach((instance, index) => {
+        const target = coordinator.getPlacementTarget(instance);
+        assert.notEqual(target, scene);
+        target.add(roots[index]);
+        coordinator.onInstancePlaced(instance, roots[index]);
+    });
+    const result = coordinator.finalize({
+        groups: roots,
+        summary: { placed: 2, fallbackVisible: 0 },
+        failures: [],
+    });
+
+    assert.equal(scene.children.length, 1);
+    assert.deepEqual(scene.children[0].children, roots);
+    assert.equal(fallback.visible, false);
+    assert.deepEqual(result.groups, roots);
 });

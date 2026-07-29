@@ -2,7 +2,7 @@ import { Shape } from "three";
 import * as Render from "./colorplane.js";
 import { freestyle } from "../config/freestyle.js";
 import { collectContentModelInstances } from '../components/ContentModelRegistry.js';
-import { expandFreeWindowInstances } from '../components/FreeWindowSegmentAdapter.js';
+import { expandCompositeContentInstances } from '../components/FreeWindowSegmentAdapter.js';
 
 // 解析json字符串为对象，并且返回所有解析后的数据；
 export default function ParseJson(json){
@@ -425,7 +425,7 @@ export default function ParseJson(json){
     });
 
     const discoveredContentModels = collectContentModelInstances(json);
-    parse_data.content_models = expandFreeWindowInstances(discoveredContentModels);
+    parse_data.content_models = expandCompositeContentInstances(discoveredContentModels);
     return parse_data;
 }
 

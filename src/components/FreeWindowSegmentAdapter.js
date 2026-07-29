@@ -143,14 +143,14 @@ function sourceHeight(instance) {
         ?? 0;
 }
 
-function commonChildFields(instance, index, count, typeId, cadPath) {
+function commonChildFields(instance, index, count, typeId, parentTypeId, cadPath) {
     return {
         ...instance,
         instanceId: `${instance.instanceId}#segment:${index}`,
         parentInstanceId: instance.instanceId,
         compositeSegmentIndex: index,
         compositeSegmentCount: count,
-        generatedFromTypeId: '140d02',
+        generatedFromTypeId: parentTypeId,
         typeId,
         cadPath,
         footprint: sampleCadPath(cadPath),
@@ -162,11 +162,11 @@ function commonChildFields(instance, index, count, typeId, cadPath) {
     };
 }
 
-function createStraightChild(instance, index, count, cadPath) {
+function createStraightChild(instance, index, count, typeId, parentTypeId, cadPath) {
     const width = distance(cadPath[0], cadPath[1]);
     const thickness = distance(cadPath[1], cadPath[2]);
     const height = sourceHeight(instance);
-    const child = commonChildFields(instance, index, count, '1401', cadPath);
+    const child = commonChildFields(instance, index, count, typeId, parentTypeId, cadPath);
     child.basePoint = {
         x: cadPath[0].x,
         y: cadPath[0].y,
@@ -187,11 +187,11 @@ function createStraightChild(instance, index, count, cadPath) {
     return child;
 }
 
-function createArcChild(instance, index, count, cadPath) {
+function createArcChild(instance, index, count, typeId, parentTypeId, cadPath) {
     const inner = describeBulgeArc(cadPath[3], cadPath[0]);
     const outer = describeBulgeArc(cadPath[1], cadPath[2]);
     if (!inner || !outer) return null;
-    const child = commonChildFields(instance, index, count, '140c', cadPath);
+    const child = commonChildFields(instance, index, count, typeId, parentTypeId, cadPath);
     child.size = {
         x: inner.chordLength,
         y: Math.abs(inner.radius - outer.radius),
@@ -200,7 +200,7 @@ function createArcChild(instance, index, count, cadPath) {
     return child;
 }
 
-function expandFreeWindow(instance) {
+function expandPairedPath(instance, { parentTypeId, straightTypeId, arcTypeId }) {
     const path = normalizePath(instance?.cadPath);
     if (!path || path.length < 4 || path.length % 2 !== 0) return null;
 
@@ -225,16 +225,32 @@ function expandFreeWindow(instance) {
     if (count === 0) return null;
     const children = adjusted.map(({ isArc, cadPath }, index) => (
         isArc
-            ? createArcChild(instance, index, count, cadPath)
-            : createStraightChild(instance, index, count, cadPath)
+            ? createArcChild(instance, index, count, arcTypeId, parentTypeId, cadPath)
+            : createStraightChild(instance, index, count, straightTypeId, parentTypeId, cadPath)
     ));
     return children.every(Boolean) ? children : null;
 }
 
-export function expandFreeWindowInstances(instances) {
+export function expandCompositeContentInstances(instances) {
     if (!Array.isArray(instances)) return [];
     return instances.flatMap(instance => {
-        if (String(instance?.typeId ?? '').trim() !== '140d02') return [instance];
-        return expandFreeWindow(instance) ?? [instance];
+        const typeId = String(instance?.typeId ?? '').trim();
+        if (typeId === '140d02') {
+            return expandPairedPath(instance, {
+                parentTypeId: '140d02',
+                straightTypeId: '1401',
+                arcTypeId: '140c',
+            }) ?? [instance];
+        }
+        if (typeId === '140e') {
+            return expandPairedPath(instance, {
+                parentTypeId: '140e',
+                straightTypeId: '140e01',
+                arcTypeId: '140e02',
+            }) ?? [instance];
+        }
+        return [instance];
     });
 }
+
+export const expandFreeWindowInstances = expandCompositeContentInstances;

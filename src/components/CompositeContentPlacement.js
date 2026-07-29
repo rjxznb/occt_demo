@@ -11,7 +11,8 @@ function fallbackFor(fallbacks, instance) {
 }
 
 function isCompositeChild(instance) {
-    return instance?.generatedFromTypeId === '140d02'
+    return typeof instance?.generatedFromTypeId === 'string'
+        && instance.generatedFromTypeId.length > 0
         && typeof instance?.parentInstanceId === 'string'
         && instance.parentInstanceId.length > 0;
 }

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { expandFreeWindowInstances } from '../src/components/FreeWindowSegmentAdapter.js';
+import {
+    expandCompositeContentInstances,
+    expandFreeWindowInstances,
+} from '../src/components/FreeWindowSegmentAdapter.js';
 
 function freeWindow(extra = {}) {
     return {
@@ -29,6 +32,17 @@ function freeWindow(extra = {}) {
         rawBlockInnerInfo: { 高度: 1500, 离地高度: 900 },
         ...extra,
     };
+}
+
+function railing(extra = {}) {
+    return freeWindow({
+        instanceId: 'window_list:fixture-140e',
+        sourceIndex: 7,
+        typeId: '140e',
+        groundHeight: 300,
+        rawBlockInnerInfo: { 楂樺害: 1050, 绂诲湴楂樺害: 300 },
+        ...extra,
+    });
 }
 
 test('returns ordinary content by identity without cloning or expansion', () => {
@@ -106,6 +120,29 @@ test('generated children carry original identity and neutral world-space transfo
     assert.equal(children[1].rotationDegrees, 0);
 });
 
+test('expands a 140e parent into ordered straight and arc railing children', () => {
+    const [straight, arc] = expandCompositeContentInstances([railing()]);
+
+    assert.deepEqual([straight.typeId, arc.typeId], ['140e01', '140e02']);
+    assert.deepEqual([straight.generatedFromTypeId, arc.generatedFromTypeId], ['140e', '140e']);
+    assert.deepEqual([straight.compositeSegmentIndex, arc.compositeSegmentIndex], [0, 1]);
+    assert.equal(straight.parentInstanceId, 'window_list:fixture-140e');
+    assert.equal(arc.parentInstanceId, 'window_list:fixture-140e');
+    assert.equal(straight.groundHeight, 300);
+    assert.equal(straight.rawBlockInnerInfo.楂樺害, 1050);
+});
+
+test('returns invalid 140e geometry as its untouched parent without partial children', () => {
+    const parent = railing({ cadPath: [{ x: 0, y: 0, z: 0, bulge: 0 }] });
+
+    const result = expandCompositeContentInstances([parent]);
+
+    assert.deepEqual(result, [parent]);
+    assert.equal(result[0], parent);
+    assert.equal(result.some(item => item.parentInstanceId), false);
+});
+
 test('returns an empty list for non-array input', () => {
     assert.deepEqual(expandFreeWindowInstances(null), []);
+    assert.deepEqual(expandCompositeContentInstances(null), []);
 });
