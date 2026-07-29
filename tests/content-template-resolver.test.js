@@ -55,6 +55,20 @@ test('keeps direct template TypeIds before only the documented 1301 and 1303 fal
     }, direct), '7314');
 });
 
+test('maps generated straight railings to the 140e template only when direct metadata is absent', () => {
+    const aliasOnly = createTemplateCatalog({ AllItemInfo: [entry('140e', 1, [
+        { ResId: 'straight-railing', X: 0, Y: 0, Z: 0 },
+    ])] });
+    const direct = createTemplateCatalog({ AllItemInfo: [
+        entry('140e', 1, []),
+        entry('140e01', 1, [{ ResId: 'direct-railing', X: 0, Y: 0, Z: 0 }]),
+    ] });
+
+    assert.equal(mapCadTypeId({ typeId: '140e01' }, aliasOnly), '140e');
+    assert.equal(mapCadTypeId({ typeId: '140e01' }, direct), '140e01');
+    assert.equal(mapCadTypeId({ typeId: '140e02' }, aliasOnly), '140e02');
+});
+
 test('selects the UE minimum area-difference sample after mm-to-cm conversion', () => {
     const local = createTemplateCatalog({ AllItemInfo: [entry('chair', 0, [
         { ResId: 'small', X: 50, Y: 50, Z: 80 },

@@ -1,3 +1,5 @@
+import { templateTypeIdAliasFor } from './ContentTypeRules.js';
+
 export const STYLE_ITEM = Object.freeze({
     MOVEABLE: 0, CABINET: 1, CUPBOARD: 2, TABLE: 3,
     GROUP: 4, LAMP: 5, PAINTING: 6, HARD: 7, MATERIAL: 8, WINDOW: 9,
@@ -55,6 +57,8 @@ export function mapCadTypeId(instance, catalog) {
     const style = instance?.rawBlockInnerInfo?.['\u6837\u5f0f'];
     if (CABINET_STYLE_TYPE_IDS.has(style)) return CABINET_STYLE_TYPE_IDS.get(style);
     if (catalog?.has(typeId)) return typeId;
+    const aliasedTypeId = templateTypeIdAliasFor(typeId);
+    if (aliasedTypeId !== typeId && catalog?.has(aliasedTypeId)) return aliasedTypeId;
     if (typeId === '1301') return catalog?.has('1302') ? '1302' : (catalog?.has('7317') ? '7317' : typeId);
     if (typeId === '1303' && catalog?.has('7318')) return '7318';
     return typeId;
