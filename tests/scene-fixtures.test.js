@@ -62,7 +62,7 @@ test('fixture=1408 appends one asymmetric U-window without mutating the drawing'
 
     assert.equal(result.window_list.length, 2);
     assert.equal(fixture.TypeId, '1408');
-    assert.equal(fixture.BasePoint, 'X=3631.313676 Y=-4728.045438 Z=0.000000');
+    assert.equal(fixture.BasePoint, 'X=3631.313676 Y=-4488.045438 Z=0.000000');
     assert.equal(fixture.Size, 'X=2870.000000 Y=1030.000000');
     assert.equal(fixture.OutRotateRadian, 180);
     assert.deepEqual(fixture.BlockInnerInfo, {
@@ -81,9 +81,11 @@ test('fixture=1408 appends one asymmetric U-window without mutating the drawing'
     });
     assert.equal(fixture.Points.length, 8);
     assert.equal(fixture.Points[0],
-        'X=3631.313676 Y=-4728.045438 Z=0.000000 B=0.000000');
+        'X=3631.313676 Y=-4488.045438 Z=0.000000 B=0.000000');
+    assert.equal(fixture.Points[4],
+        'X=461.313676 Y=-4728.045438 Z=0.000000 B=0.000000');
     assert.equal(fixture.Points[6],
-        'X=3411.313676 Y=-5778.045438 Z=0.000000 B=0.000000');
+        'X=3411.313676 Y=-5538.045438 Z=0.000000 B=0.000000');
     assert.notEqual(result, drawing);
     assert.notEqual(result.window_list, drawing.window_list);
     assert.deepEqual(drawing.window_list, [originalWindow]);
