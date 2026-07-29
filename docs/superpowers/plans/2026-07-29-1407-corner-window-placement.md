@@ -52,7 +52,7 @@ This test catches removal, renaming, or omission of the drawing-level wall-thick
 Run:
 
 ```powershell
-node --test --test-name-pattern=external-wall-thickness tests/content-model-registry.test.js
+node --test --test-name-pattern="external wall thickness" tests/content-model-registry.test.js
 ```
 
 Expected: FAIL because `item.externalWallThickness` is `undefined`, not `240`.
@@ -101,7 +101,7 @@ Add the normalized field to the existing return object between `groundHeight` an
 Run:
 
 ```powershell
-node --test --test-name-pattern=external-wall-thickness tests/content-model-registry.test.js
+node --test --test-name-pattern="external wall thickness" tests/content-model-registry.test.js
 node --test tests/content-model-registry.test.js
 ```
 

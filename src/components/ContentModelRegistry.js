@@ -1,5 +1,6 @@
 export function collectContentModelInstances(json) {
     const result = [];
+    const externalWallThickness = finiteNumber(json?.out_wall_thickness);
     for (const [sourceList, records] of Object.entries(json ?? {})) {
         if (!sourceList.endsWith('_list') || !Array.isArray(records)) continue;
 
@@ -8,7 +9,12 @@ export function collectContentModelInstances(json) {
             category: sourceList.slice(0, -'_list'.length),
         };
         records.forEach((record, sourceIndex) => {
-            const item = normalizeRecord(record, descriptor, sourceIndex);
+            const item = normalizeRecord(
+                record,
+                descriptor,
+                sourceIndex,
+                externalWallThickness,
+            );
             if (item) result.push(item);
         });
     }
@@ -91,7 +97,7 @@ function deriveFootprintSize(footprint, blockInnerInfo) {
     };
 }
 
-function normalizeRecord(record, descriptor, sourceIndex) {
+function normalizeRecord(record, descriptor, sourceIndex, externalWallThickness) {
     if (!record || typeof record !== 'object') return null;
 
     const typeId = record.TypeId == null ? '' : String(record.TypeId).trim();
@@ -134,6 +140,7 @@ function normalizeRecord(record, descriptor, sourceIndex) {
         horizontalFlip: readFlip(record, blockInnerInfo, '左右翻转', 'HorizontalFlip'),
         verticalFlip: readFlip(record, blockInnerInfo, '上下翻转', 'VerticalFlip'),
         groundHeight,
+        externalWallThickness,
         rawBlockInnerInfo,
     };
 }

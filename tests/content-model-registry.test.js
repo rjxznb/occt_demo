@@ -44,6 +44,15 @@ test('discovers every array-valued *_list record with a TypeId', () => {
     ]);
 });
 
+test('preserves drawing-level external wall thickness on normalized instances', () => {
+    const [item] = collectContentModelInstances({
+        out_wall_thickness: 240,
+        window_list: [block('1407')],
+    });
+
+    assert.equal(item.externalWallThickness, 240);
+});
+
 test('retains zero-size irregular candidates for later local-geometry classification', () => {
     const [item] = collectContentModelInstances({
         window_list: [block('140d02', {
