@@ -79,6 +79,64 @@ const cornerWindowResource = {
     contentHash: 'corner-window',
 };
 
+function makeCornerDoorPrototype() {
+    const prototype = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(1500, 2200, 1200);
+    geometry.translate(750, 1100, 600);
+    prototype.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+
+    const origin = new THREE.Object3D();
+    origin.name = 'cornerDoorOrigin';
+    prototype.add(origin);
+
+    const xAxis = new THREE.Object3D();
+    xAxis.name = 'cornerDoorXAxis';
+    xAxis.position.x = 100;
+    prototype.add(xAxis);
+    return prototype;
+}
+
+const cornerDoorSelection = {
+    ...selection,
+    typeId: '1313',
+    typeName: 'L型推拉门',
+    resId: '2412393',
+    referenceSize: { x: 0, y: 0, z: 220 },
+    xMirror: false,
+};
+
+const cornerDoorResource = {
+    kind: 'parametric-obj',
+    resourceType: 8,
+    modelType: 0,
+    contentHash: 'corner-door',
+};
+
+function cornerDoorInstance(overrides = {}) {
+    return {
+        ...instance,
+        instanceId: 'door_list:fixture-1313',
+        sourceList: 'door_list',
+        category: 'door',
+        typeId: '1313',
+        basePoint: { x: 1000, y: 2000, z: 0 },
+        footprint: [
+            { x: 1000, y: 2000 },
+            { x: 1000, y: 3200 },
+            { x: 760, y: 3200 },
+            { x: 760, y: 1820 },
+            { x: 2500, y: 1820 },
+            { x: 2500, y: 2000 },
+        ],
+        size: { x: 1500, y: 1200, z: 2200 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        groundHeight: 0,
+        ...overrides,
+    };
+}
+
 const cornerWindowFixtures = [
     {
         instance: {
@@ -211,6 +269,52 @@ test('invalid 1407 geometry keeps generic placement without OBJ axis compensatio
     );
 
     assert.equal(root.userData.debugInfo.transform.verticalFlip, false);
+});
+
+test('1313 aligns the UE artificial L-box center after subtracting 90 degrees', () => {
+    const root = placeContentModel(
+        makeCornerDoorPrototype(),
+        cornerDoorInstance(),
+        cornerDoorSelection,
+        cornerDoorResource,
+    );
+    root.updateMatrixWorld(true);
+
+    const origin = root.getObjectByName('cornerDoorOrigin')
+        .getWorldPosition(new THREE.Vector3());
+    const xDirection = root.getObjectByName('cornerDoorXAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+
+    assertNear(origin.x, 1030, '1313 model-origin world x');
+    assertNear(origin.y, 3260, '1313 model-origin world y');
+    assertNear(origin.z, 0, '1313 model-origin world z');
+    assertNear(xDirection.x, 0, '1313 local X world x');
+    assertNear(xDirection.y, -1, '1313 local X world y');
+    assertNear(root.userData.debugInfo.transform.rotationDegrees, -90,
+        '1313 effective rotation');
+});
+
+test('1313 keeps its artificial L-box center aligned after a horizontal flip', () => {
+    const root = placeContentModel(
+        makeCornerDoorPrototype(),
+        cornerDoorInstance({
+            instanceId: 'door_list:fixture-1313-flipped',
+            horizontalFlip: true,
+        }),
+        cornerDoorSelection,
+        cornerDoorResource,
+    );
+    root.updateMatrixWorld(true);
+
+    const origin = root.getObjectByName('cornerDoorOrigin')
+        .getWorldPosition(new THREE.Vector3());
+    const xDirection = root.getObjectByName('cornerDoorXAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+
+    assertNear(origin.x, 1030, 'flipped 1313 model-origin world x');
+    assertNear(origin.y, 1760, 'flipped 1313 model-origin world y');
+    assertNear(xDirection.x, 0, 'flipped 1313 local X world x');
+    assertNear(xDirection.y, 1, 'flipped 1313 local X world y');
 });
 
 test('Y-up model height becomes positive world Z', () => {

@@ -60,6 +60,39 @@ function resolveCornerWindowPlacement(instance) {
     };
 }
 
+function resolveCornerDoorPlacement(instance, horizontalFlip, verticalFlip) {
+    const sourceRotation = rotationDegreesOf(instance);
+    const footprint = footprintMetrics(
+        instance?.footprint,
+        sourceRotation,
+        basePointOf(instance),
+    );
+    const sizeX = positiveNumber(instance?.size?.x);
+    const sizeY = positiveNumber(instance?.size?.y);
+    if (!footprint?.boundsCenter || !sizeX || !sizeY) return null;
+
+    const rotationDegrees = sourceRotation - 90;
+    const rotation = THREE.MathUtils.degToRad(rotationDegrees);
+    const localCenterX = sizeX / 2 * (horizontalFlip ? -1 : 1);
+    const localCenterY = sizeY / 2 * (verticalFlip ? -1 : 1);
+    const rotatedCenterX = localCenterX * Math.cos(rotation)
+        - localCenterY * Math.sin(rotation);
+    const rotatedCenterY = localCenterX * Math.sin(rotation)
+        + localCenterY * Math.cos(rotation);
+    const sourceBasePoint = basePointOf(instance);
+
+    return {
+        ...instance,
+        basePoint: {
+            x: footprint.boundsCenter.x - rotatedCenterX,
+            y: footprint.boundsCenter.y - rotatedCenterY,
+            z: finiteNumber(sourceBasePoint.z),
+        },
+        footprint: [],
+        rotationDegrees,
+    };
+}
+
 function resolvePlacementPlan(instance, selection) {
     if (String(instance?.typeId ?? '').trim() === '140c') {
         const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
@@ -90,6 +123,24 @@ function resolvePlacementPlan(instance, selection) {
 
     const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip)
         !== Boolean(selection?.xMirror);
+    if (String(instance?.typeId ?? '').trim() === '1313') {
+        const cornerInstance = resolveCornerDoorPlacement(
+            instance,
+            effectiveHorizontalFlip,
+            Boolean(instance?.verticalFlip),
+        );
+        if (cornerInstance) {
+            return {
+                instance: {
+                    ...cornerInstance,
+                    horizontalFlip: effectiveHorizontalFlip,
+                },
+                effectiveHorizontalFlip,
+                anchor: 'model-origin',
+                arc: null,
+            };
+        }
+    }
     if (String(instance?.typeId ?? '').trim() === '1407') {
         const cornerInstance = resolveCornerWindowPlacement(instance);
         if (cornerInstance) {
