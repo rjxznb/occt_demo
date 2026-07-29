@@ -186,7 +186,7 @@ function approximatelyMatches(actual, expected) {
     return Math.abs(actual - expected) <= tolerance;
 }
 
-function resolveCornerSides(instance, blockInnerInfo) {
+export function resolveCornerSides(instance, blockInnerInfo) {
     const length = finiteNumber(blockInnerInfo.长);
     const width = finiteNumber(blockInnerInfo.宽);
     const outerLength = finiteNumber(blockInnerInfo.外边长);

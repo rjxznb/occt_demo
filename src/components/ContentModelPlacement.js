@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { describeBulgeArc } from './ArcWindowGeometry.js';
+import { contentTypeRuleFor } from './ContentTypeRules.js';
+import { resolveCornerSides } from './ParametricParameterResolver.js';
 
 const SIZE_EPSILON = 1e-9;
 const FOOTPRINT_AREA_RATIO_EPSILON = 1e-8;
@@ -137,6 +139,72 @@ function resolveUWindowPlacement(instance, horizontalFlip, verticalFlip) {
     };
 }
 
+function resolveArtificialBoxPlacement(
+    instance,
+    horizontalFlip,
+    verticalFlip,
+    localBoxMin,
+    localBoxMax,
+) {
+    const sourceRotation = rotationDegreesOf(instance);
+    const footprint = footprintMetrics(
+        instance?.footprint,
+        sourceRotation,
+        basePointOf(instance),
+    );
+    const values = [localBoxMin?.x, localBoxMin?.y, localBoxMax?.x, localBoxMax?.y];
+    if (!footprint?.boundsCenter || !values.every(Number.isFinite)) return null;
+
+    const localCenterX = (localBoxMin.x + localBoxMax.x) / 2
+        * (horizontalFlip ? -1 : 1);
+    const localCenterY = (localBoxMin.y + localBoxMax.y) / 2
+        * (verticalFlip ? -1 : 1);
+    const rotation = THREE.MathUtils.degToRad(sourceRotation);
+    const rotatedCenterX = localCenterX * Math.cos(rotation)
+        - localCenterY * Math.sin(rotation);
+    const rotatedCenterY = localCenterX * Math.sin(rotation)
+        + localCenterY * Math.cos(rotation);
+    const sourceBasePoint = basePointOf(instance);
+    return {
+        ...instance,
+        basePoint: {
+            x: footprint.boundsCenter.x - rotatedCenterX,
+            y: footprint.boundsCenter.y - rotatedCenterY,
+            z: finiteNumber(sourceBasePoint.z),
+        },
+        footprint: [],
+    };
+}
+
+function resolveBayWindowPlacement(instance, horizontalFlip, verticalFlip) {
+    const sizeX = positiveNumber(instance?.size?.x);
+    const sizeY = positiveNumber(instance?.size?.y);
+    if (!sizeX || !sizeY) return null;
+    return resolveArtificialBoxPlacement(
+        instance,
+        horizontalFlip,
+        verticalFlip,
+        { x: -sizeX / 2, y: sizeY },
+        { x: sizeX / 2, y: 0 },
+    );
+}
+
+function resolveCornerBayWindowPlacement(instance, horizontalFlip, verticalFlip) {
+    const sides = resolveCornerSides(instance, instance?.rawBlockInnerInfo);
+    const leftWidth = positiveNumber(sides.leftWidth);
+    const rightWidth = positiveNumber(sides.rightWidth);
+    const leftWallThickness = positiveNumber(sides.leftWallThickness);
+    const rightWallThickness = positiveNumber(sides.rightWallThickness);
+    if (!leftWidth || !rightWidth || !leftWallThickness || !rightWallThickness) return null;
+    return resolveArtificialBoxPlacement(
+        instance,
+        horizontalFlip,
+        verticalFlip,
+        { x: 0, y: rightWidth + rightWallThickness },
+        { x: leftWidth + leftWallThickness, y: 0 },
+    );
+}
+
 function resolvePlacementPlan(instance, selection) {
     const typeId = String(instance?.typeId ?? '').trim();
     if (typeId === '140c' || typeId === '140e02') {
@@ -173,6 +241,47 @@ function resolvePlacementPlan(instance, selection) {
 
     const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip)
         !== Boolean(selection?.xMirror);
+    const family = contentTypeRuleFor(typeId)?.family ?? null;
+    if (family === 'bay-window') {
+        const verticalFlip = Boolean(instance?.verticalFlip);
+        const bayWindowInstance = resolveBayWindowPlacement(
+            instance,
+            effectiveHorizontalFlip,
+            verticalFlip,
+        );
+        if (bayWindowInstance) {
+            return {
+                instance: {
+                    ...bayWindowInstance,
+                    horizontalFlip: effectiveHorizontalFlip,
+                    verticalFlip,
+                },
+                effectiveHorizontalFlip,
+                anchor: 'model-origin',
+                arc: null,
+            };
+        }
+    }
+    if (family === 'corner-bay-window') {
+        const verticalFlip = Boolean(instance?.verticalFlip);
+        const cornerBayInstance = resolveCornerBayWindowPlacement(
+            instance,
+            effectiveHorizontalFlip,
+            verticalFlip,
+        );
+        if (cornerBayInstance) {
+            return {
+                instance: {
+                    ...cornerBayInstance,
+                    horizontalFlip: effectiveHorizontalFlip,
+                    verticalFlip,
+                },
+                effectiveHorizontalFlip,
+                anchor: 'model-origin',
+                arc: null,
+            };
+        }
+    }
     if (String(instance?.typeId ?? '').trim() === '1408') {
         const verticalFlip = Boolean(instance?.verticalFlip);
         const uWindowInstance = resolveUWindowPlacement(

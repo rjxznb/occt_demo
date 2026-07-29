@@ -439,6 +439,121 @@ test('1408 placement compensates the artificial center after both plan flips', (
     assert.equal(root.userData.debugInfo.transform.verticalFlip, true);
 });
 
+test('1403, 140302, 140303, and 1404 align the UE bay-window artificial center', () => {
+    for (const typeId of ['1403', '140302', '140303', '1404']) {
+        const bayInstance = {
+            ...instance,
+            instanceId: `window_list:fixture-${typeId}`,
+            sourceList: 'window_list',
+            sourceIndex: 8,
+            category: 'window',
+            typeId,
+            basePoint: { x: 0, y: 0, z: 0 },
+            footprint: [
+                { x: 0, y: 200 }, { x: 2000, y: 200 },
+                { x: 2000, y: 800 }, { x: 0, y: 800 },
+            ],
+            size: { x: 2000, y: 600, z: 1200 },
+            rotationDegrees: 0,
+            horizontalFlip: false,
+            verticalFlip: false,
+            groundHeight: 900,
+        };
+        const root = placeContentModel(
+            makeCornerWindowPrototype(),
+            bayInstance,
+            { ...cornerWindowSelection, typeId, xMirror: false },
+            cornerWindowResource,
+        );
+        root.updateMatrixWorld(true);
+        const origin = root.getObjectByName('cornerOrigin')
+            .getWorldPosition(new THREE.Vector3());
+
+        assertNear(origin.x, 1000, `${typeId} model-origin world x`);
+        assertNear(origin.y, 200, `${typeId} model-origin world y`);
+        assertNear(origin.z, 900, `${typeId} model-origin world z`);
+    }
+});
+
+test('140302 compensates the bay-window artificial center after vertical flip', () => {
+    const root = placeContentModel(
+        makeCornerWindowPrototype(),
+        {
+            ...instance,
+            instanceId: 'window_list:fixture-140302-flipped',
+            sourceList: 'window_list',
+            category: 'window',
+            typeId: '140302',
+            basePoint: { x: 0, y: 0, z: 0 },
+            footprint: [
+                { x: 0, y: 200 }, { x: 2000, y: 200 },
+                { x: 2000, y: 800 }, { x: 0, y: 800 },
+            ],
+            size: { x: 2000, y: 600, z: 1200 },
+            rotationDegrees: 0,
+            horizontalFlip: false,
+            verticalFlip: true,
+            groundHeight: 900,
+        },
+        { ...cornerWindowSelection, typeId: '140302', xMirror: false },
+        cornerWindowResource,
+    );
+    root.updateMatrixWorld(true);
+    const origin = root.getObjectByName('cornerOrigin')
+        .getWorldPosition(new THREE.Vector3());
+
+    assertNear(origin.x, 1000, 'flipped bay model-origin world x');
+    assertNear(origin.y, 800, 'flipped bay model-origin world y');
+});
+
+test('1406 aligns winding-aware left and right artificial spans after plan flips', () => {
+    const cornerBayInstance = overrides => ({
+        ...instance,
+        instanceId: 'window_list:fixture-1406',
+        sourceList: 'window_list',
+        category: 'window',
+        typeId: '1406',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 }, { x: 0, y: 1200 },
+            { x: -240, y: 1200 }, { x: -240, y: -180 },
+            { x: 900, y: -180 }, { x: 900, y: 0 },
+        ],
+        size: { x: 900, y: 1200, z: 1500 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        groundHeight: 900,
+        rawBlockInnerInfo: {
+            ['\u957f']: 900,
+            ['\u5bbd']: 1200,
+            ['\u5916\u8fb9\u957f']: 180,
+            ['\u5916\u8fb9\u5bbd']: 240,
+            ['\u9ad8\u5ea6']: 1500,
+        },
+        ...overrides,
+    });
+    const place = overrides => placeContentModel(
+        makeCornerWindowPrototype(),
+        cornerBayInstance(overrides),
+        { ...cornerWindowSelection, typeId: '1406', xMirror: false },
+        cornerWindowResource,
+    );
+    const normal = place({});
+    const flipped = place({ horizontalFlip: true, verticalFlip: true });
+    normal.updateMatrixWorld(true);
+    flipped.updateMatrixWorld(true);
+    const normalOrigin = normal.getObjectByName('cornerOrigin')
+        .getWorldPosition(new THREE.Vector3());
+    const flippedOrigin = flipped.getObjectByName('cornerOrigin')
+        .getWorldPosition(new THREE.Vector3());
+
+    assertNear(normalOrigin.x, -390, '1406 model-origin world x');
+    assertNear(normalOrigin.y, -30, '1406 model-origin world y');
+    assertNear(flippedOrigin.x, 1050, 'flipped 1406 model-origin world x');
+    assertNear(flippedOrigin.y, 1050, 'flipped 1406 model-origin world y');
+});
+
 test('invalid 1408 geometry keeps the generic bounds-center fallback visible', () => {
     const root = placeContentModel(
         makeUWindowPrototype(),
