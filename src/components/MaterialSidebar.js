@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+    hideSidebar,
+    resizeSidebar,
+    showSidebar,
+} from './SidebarPresentation.js';
 
 export class MaterialSidebar {
     constructor(sceneManager) {
@@ -144,8 +149,7 @@ export class MaterialSidebar {
             const deltaX = this.startX - e.clientX; // 向左拖拽为正值
             const newWidth = Math.min(this.maxWidth, Math.max(this.minWidth, this.startWidth + deltaX));
             
-            this.sidebar.style.width = newWidth + 'px';
-            this.sidebar.style.right = this.isVisible ? '0px' : `-${newWidth}px`;
+            resizeSidebar(this.sidebar, newWidth);
         });
 
         document.addEventListener('mouseup', () => {
@@ -162,7 +166,7 @@ export class MaterialSidebar {
             this.maxWidth = window.innerWidth * 0.5;
             const currentWidth = parseInt(window.getComputedStyle(this.sidebar).width, 10);
             if (currentWidth > this.maxWidth) {
-                this.sidebar.style.width = this.maxWidth + 'px';
+                resizeSidebar(this.sidebar, this.maxWidth);
             }
         });
     }
@@ -398,13 +402,15 @@ export class MaterialSidebar {
     }
 
     show() {
+        this.expand();
         this.isVisible = true;
-        this.sidebar.classList.add('visible');
+        showSidebar(this.sidebar);
     }
 
     hide() {
         this.isVisible = false;
-        this.sidebar.classList.remove('visible');
+        this.isResizing = false;
+        hideSidebar(this.sidebar);
     }
 
     toggle() {
