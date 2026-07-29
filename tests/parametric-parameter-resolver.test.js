@@ -416,13 +416,14 @@ test('140f keeps door-window source values and derives UE total height', () => {
         },
     }, selection({}));
 
-    assert.equal(valueOf(parameters, '\u7c7b\u578b'), '\u843d\u5730\u7a97\u6709\u526f\u7a97');
+    assert.equal(valueOf(parameters, '\u7c7b\u578b'), '\u843d\u5730\u7a97');
     assert.equal(valueOf(parameters, '\u95e8\u9ad8'), 2100);
     assert.equal(valueOf(parameters, '\u7a97\u9ad8'), 600);
     assert.equal(valueOf(parameters, '\u526f\u7a97\u9ad8\u5ea6'), 300);
     assert.equal(valueOf(parameters, '\u5916\u8fb9\u957f'), 900);
     assert.equal(valueOf(parameters, '\u957f\u5ea6'), 2400);
     assert.equal(valueOf(parameters, '\u603b\u9ad8\u5ea6'), 2700);
+    assert.equal(valueOf(noSubWindow, '\u7c7b\u578b'), '\u975e\u843d\u5730\u7a97_\u65e0\u526f\u7a97');
     assert.equal(valueOf(noSubWindow, '\u603b\u9ad8\u5ea6'), 2100);
 });
 

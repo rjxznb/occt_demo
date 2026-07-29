@@ -64,8 +64,18 @@ function addBayWindowParameters(target, instance, blockInnerInfo) {
         : '\u53f3\u4fa7\u6321\u677f');
 }
 
+function normalizeDoorWindowType(value) {
+    if (typeof value !== 'string') return value;
+    const baseType = value.includes('\u975e\u843d\u5730\u7a97')
+        ? '\u975e\u843d\u5730\u7a97'
+        : '\u843d\u5730\u7a97';
+    return value.includes('\u65e0\u526f\u7a97')
+        ? `${baseType}_\u65e0\u526f\u7a97`
+        : baseType;
+}
+
 function addDoorWindowParameters(target, blockInnerInfo) {
-    const type = blockInnerInfo['\u7c7b\u578b'];
+    const type = normalizeDoorWindowType(blockInnerInfo['\u7c7b\u578b']);
     const doorHeight = finiteNumber(blockInnerInfo['\u95e8\u9ad8']);
     const windowHeight = finiteNumber(blockInnerInfo['\u7a97\u9ad8']);
     setText(target, '\u7c7b\u578b', type);
