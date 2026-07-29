@@ -94,7 +94,11 @@ function resolvePlacementPlan(instance, selection) {
         const cornerInstance = resolveCornerWindowPlacement(instance);
         if (cornerInstance) {
             return {
-                instance: { ...cornerInstance, horizontalFlip: effectiveHorizontalFlip },
+                instance: {
+                    ...cornerInstance,
+                    horizontalFlip: effectiveHorizontalFlip,
+                    verticalFlip: !Boolean(instance?.verticalFlip),
+                },
                 effectiveHorizontalFlip,
                 anchor: 'model-origin',
                 arc: null,
@@ -367,6 +371,9 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
     const effectiveHorizontalFlip = typeof placement.effectiveHorizontalFlip === 'boolean'
         ? placement.effectiveHorizontalFlip
         : Boolean(instance?.horizontalFlip) !== Boolean(selection?.xMirror);
+    const effectiveVerticalFlip = typeof placement.effectiveVerticalFlip === 'boolean'
+        ? placement.effectiveVerticalFlip
+        : instance?.verticalFlip === true;
     const arc = placement.arc;
     return {
         instanceId: instance?.instanceId ?? null,
@@ -411,7 +418,7 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
                 rotationDegreesOf(instance),
             ),
             horizontalFlip: effectiveHorizontalFlip,
-            verticalFlip: instance?.verticalFlip === true,
+            verticalFlip: effectiveVerticalFlip,
             templateXMirror: selection?.xMirror === true,
         },
         placement: {
@@ -442,6 +449,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     const placementPlan = resolvePlacementPlan(instance, selection);
     const effectiveInstance = placementPlan.instance;
     const effectiveHorizontalFlip = placementPlan.effectiveHorizontalFlip;
+    const effectiveVerticalFlip = effectiveInstance?.verticalFlip === true;
     const clonedPrototype = clonePrototype(prototype);
     const axisConvertedPrototype = new THREE.Group();
     axisConvertedPrototype.name = 'axisConvertedPrototype';
@@ -471,7 +479,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     planFlip.name = 'planFlip';
     planFlip.scale.set(
         effectiveHorizontalFlip ? -1 : 1,
-        effectiveInstance?.verticalFlip === true ? -1 : 1,
+        effectiveVerticalFlip ? -1 : 1,
         1,
     );
     planFlip.add(sizeScale);
@@ -496,7 +504,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     );
     contentRoot.add(planRotation);
 
-    if (effectiveHorizontalFlip || effectiveInstance?.verticalFlip === true) {
+    if (effectiveHorizontalFlip || effectiveVerticalFlip) {
         markDoubleSide(clonedPrototype);
     }
 
@@ -525,6 +533,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
         worldPosition: contentRoot.getWorldPosition(new THREE.Vector3()),
         worldBox: new THREE.Box3().setFromObject(contentRoot),
         effectiveHorizontalFlip,
+        effectiveVerticalFlip,
         rotationDegrees: rotationDegreesOf(effectiveInstance),
         arc: placementPlan.arc,
     };

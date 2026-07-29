@@ -49,6 +49,17 @@ function makeCornerWindowPrototype() {
     const origin = new THREE.Object3D();
     origin.name = 'cornerOrigin';
     prototype.add(origin);
+
+    const xAxis = new THREE.Object3D();
+    xAxis.name = 'cornerXAxis';
+    xAxis.position.x = 100;
+    prototype.add(xAxis);
+
+    const yAxis = new THREE.Object3D();
+    yAxis.name = 'cornerYAxis';
+    // Source OBJ is Y-up. Source +Z becomes plan -Y after Y-up -> Z-up conversion.
+    yAxis.position.z = 100;
+    prototype.add(yAxis);
     return prototype;
 }
 
@@ -151,6 +162,55 @@ test('1407 models anchor their source origin at the UE L-corner pivot', () => {
         assertNear(origin.z, 900, `${current.instanceId} pivot z`);
         assertNear(box.min.z, 900, `${current.instanceId} sill height`);
     }
+});
+
+test('1407 placement maps the parameterized OBJ axes to UE local positive X and Y', () => {
+    const expectedDirections = [
+        { x: { x: 1, y: 0 }, y: { x: 0, y: 1 } },
+        { x: { x: 0, y: 1 }, y: { x: -1, y: 0 } },
+    ];
+
+    cornerWindowFixtures.forEach(({ instance: current }, index) => {
+        const root = placeContentModel(
+            makeCornerWindowPrototype(),
+            current,
+            cornerWindowSelection,
+            cornerWindowResource,
+        );
+        root.updateMatrixWorld(true);
+        const origin = root.getObjectByName('cornerOrigin')
+            .getWorldPosition(new THREE.Vector3());
+        const xDirection = root.getObjectByName('cornerXAxis')
+            .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+        const yDirection = root.getObjectByName('cornerYAxis')
+            .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+
+        assertNear(xDirection.x, expectedDirections[index].x.x,
+            `${current.instanceId} local X world x`);
+        assertNear(xDirection.y, expectedDirections[index].x.y,
+            `${current.instanceId} local X world y`);
+        assertNear(yDirection.x, expectedDirections[index].y.x,
+            `${current.instanceId} local Y world x`);
+        assertNear(yDirection.y, expectedDirections[index].y.y,
+            `${current.instanceId} local Y world y`);
+        assert.equal(root.userData.debugInfo.transform.verticalFlip, true);
+    });
+});
+
+test('invalid 1407 geometry keeps generic placement without OBJ axis compensation', () => {
+    const malformed = {
+        ...cornerWindowFixtures[0].instance,
+        footprint: [],
+        externalWallThickness: null,
+    };
+    const root = placeContentModel(
+        makeCornerWindowPrototype(),
+        malformed,
+        cornerWindowSelection,
+        cornerWindowResource,
+    );
+
+    assert.equal(root.userData.debugInfo.transform.verticalFlip, false);
 });
 
 test('Y-up model height becomes positive world Z', () => {
