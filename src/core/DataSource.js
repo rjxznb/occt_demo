@@ -13,6 +13,8 @@
  * 原始 .dxf 用不上——拉伸逻辑不在 DXF 里，浏览器无法自行还原。
  */
 
+import { applySceneFixture } from '../dev/SceneFixtures.js';
+
 /** 内置示例数据：public/data/ 下随仓库分发的那一套 */
 export class BundledDataSource {
     constructor(drawingUrl = '/data/Drawing2.json', softlistDir = '/data/parsed_dxf') {
@@ -64,6 +66,28 @@ export class LocalFileDataSource {
         }
         return readJsonFile(file);
     }
+}
+
+class SceneFixtureDataSource {
+    constructor(source, fixtureName) {
+        this.source = source;
+        this.fixtureName = fixtureName;
+        this.name = source?.name;
+        this.softlistDir = source?.softlistDir;
+    }
+
+    async loadDrawing() {
+        return applySceneFixture(await this.source.loadDrawing(), this.fixtureName);
+    }
+
+    async loadSoftlist(id) {
+        return this.source.loadSoftlist(id);
+    }
+}
+
+export function withSceneFixture(source, search = '') {
+    const fixtureName = new URLSearchParams(String(search).replace(/^\?/, '')).get('fixture');
+    return fixtureName === '1313' ? new SceneFixtureDataSource(source, fixtureName) : source;
 }
 
 async function readJsonFile(file) {

@@ -6,7 +6,7 @@ import { MaterialSidebar } from './components/MaterialSidebar.js';
 import { DragDropManager } from './components/DragDropManager.js';
 import { SelectionManager } from './components/SelectionManager.js';
 import { geometryService } from './core/GeometryService.js';
-import { BundledDataSource } from './core/DataSource.js';
+import { BundledDataSource, withSceneFixture } from './core/DataSource.js';
 import { TemplatePicker } from './components/TemplatePicker.js';
 import { RoomInfoView } from './components/RoomInfoView.js';
 
@@ -347,7 +347,8 @@ class OCCTApp3D {
 // 启动：直接用内置示例数据（相对路径，兼容 iframe 内嵌），不再弹数据源选择
 document.addEventListener('DOMContentLoaded', () => {
     globalThis.__renderPreviewDiagnostic?.('app-boot', 'OK');
-    geometryService.setDataSource(new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf'));
+    const bundledData = new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf');
+    geometryService.setDataSource(withSceneFixture(bundledData, window.location.search));
     window.occtApp = new OCCTApp3D();
 });
 
