@@ -44,10 +44,10 @@ function resolvePlacementPlan(instance, selection) {
                     z: finiteNumber(sourceBasePoint.z),
                 },
                 footprint: [],
-                // UE aligns FVector::RightVector (+Y), not local +X, to the
-                // apex-to-center direction. Rotating +Y to heading requires
-                // subtracting 90 degrees from the geometric heading.
-                rotationDegrees: arc.headingDegrees - 90,
+                // The imported 140c asset faces opposite the apex-to-center
+                // direction. Rotating its local +Y to that outward heading
+                // requires adding 90 degrees to the geometric heading.
+                rotationDegrees: arc.headingDegrees + 90,
                 horizontalFlip: false,
                 verticalFlip: false,
             },

@@ -218,7 +218,7 @@ test('a generated 1401 window stays upright without applying CAD dimensions twic
     assertNear(box.min.z, 890, 'generated window sill height');
 });
 
-test('generated 140c windows anchor at the arc apex and point UE local right at the circle center', () => {
+test('generated 140c windows anchor at the arc apex and face away from the circle center', () => {
     const fixtures = [
         {
             innerStart: { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
@@ -299,8 +299,8 @@ test('generated 140c windows anchor at the arc apex and point UE local right at 
             .getWorldPosition(new THREE.Vector3());
         const actualDirection = rightAxis.sub(origin).normalize();
         const expectedDirection = new THREE.Vector3(
-            fixture.center.x - fixture.apex.x,
-            fixture.center.y - fixture.apex.y,
+            fixture.apex.x - fixture.center.x,
+            fixture.apex.y - fixture.center.y,
             0,
         ).normalize();
         const box = worldBox(root);
@@ -315,7 +315,7 @@ test('generated 140c windows anchor at the arc apex and point UE local right at 
         assertNear(box.getSize(new THREE.Vector3()).z, 150, 'arc model stays upright');
         assert.deepEqual(root.userData.debugInfo.placement.targetScale, { x: 1, y: 1, z: 1 });
         assertNear(root.userData.debugInfo.transform.rotationDegrees,
-            fixture.heading - 90, 'debug rotation');
+            fixture.heading + 90, 'debug rotation');
     }
 });
 
