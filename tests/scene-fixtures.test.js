@@ -32,11 +32,16 @@ test('fixture=1313 appends one complete CAD door record without mutating the dra
 
     assert.equal(result.door_list.length, 2);
     assert.equal(fixture.TypeId, '1313');
-    assert.equal(fixture.Size, 'X=1500.000000 Y=1200.000000');
+    assert.equal(fixture.BasePoint, 'X=-1498.686324 Y=-5448.045438 Z=0.000000');
+    assert.equal(fixture.Size, 'X=1200.000000 Y=1500.000000');
+    assert.equal(fixture.BlockInnerInfo.长, 1200);
+    assert.equal(fixture.BlockInnerInfo.宽, 1500);
     assert.equal(fixture.BlockInnerInfo.高度, 2200);
     assert.equal(fixture.BlockInnerInfo.外边长, 180);
     assert.equal(fixture.BlockInnerInfo.外边宽, 240);
     assert.equal(fixture.Points.length, 6);
+    assert.equal(fixture.Points[0],
+        'X=-1498.686324 Y=-5448.045438 Z=0.000000 B=0.000000');
     assert.notEqual(result, drawing);
     assert.notEqual(result.door_list, drawing.door_list);
     assert.deepEqual(drawing.door_list, [originalDoor]);
