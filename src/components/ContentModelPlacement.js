@@ -205,6 +205,73 @@ function resolveCornerBayWindowPlacement(instance, horizontalFlip, verticalFlip)
     );
 }
 
+function rotatedPlanOffset(localX, localY, rotationDegrees) {
+    const angle = THREE.MathUtils.degToRad(rotationDegrees);
+    return {
+        x: localX * Math.cos(angle) - localY * Math.sin(angle),
+        y: localX * Math.sin(angle) + localY * Math.cos(angle),
+    };
+}
+
+function shiftPlacementFootprint(instance, offset) {
+    if (!Array.isArray(instance?.footprint) || instance.footprint.length < 3
+        || !Number.isFinite(offset?.x) || !Number.isFinite(offset?.y)) return null;
+    return {
+        ...instance,
+        footprint: instance.footprint.map(point => ({
+            ...point,
+            x: finiteNumber(point?.x) + offset.x,
+            y: finiteNumber(point?.y) + offset.y,
+        })),
+    };
+}
+
+function resolveArcBayWindowPlacement(instance) {
+    const sizeX = positiveNumber(instance?.size?.x);
+    if (!sizeX) return null;
+    return shiftPlacementFootprint(instance, rotatedPlanOffset(
+        0,
+        sizeX / 4,
+        rotationDegreesOf(instance),
+    ));
+}
+
+function resolveBarnDoorPlacement(instance) {
+    const sizeX = positiveNumber(instance?.size?.x);
+    const sizeY = positiveNumber(instance?.size?.y);
+    if (!sizeX || !sizeY) return null;
+    const outScaleX = finiteNumber(instance?.outScale?.x, 1);
+    const outScaleY = finiteNumber(instance?.outScale?.y, 1);
+    const moveDirX = outScaleX < 0 ? 1 : -1;
+    const moveDirY = outScaleY < 0 ? 1 : -1;
+    return shiftPlacementFootprint(instance, rotatedPlanOffset(
+        -moveDirX * sizeX / 2,
+        moveDirY * sizeY / 2,
+        rotationDegreesOf(instance),
+    ));
+}
+
+function resolvePocketDoorPlacement(instance) {
+    const outerEdgeLength = positiveNumber(
+        instance?.rawBlockInnerInfo?.['\u5916\u8fb9\u957f'],
+    );
+    if (!outerEdgeLength) return null;
+    return shiftPlacementFootprint(instance, {
+        x: (outerEdgeLength - 100) / 2,
+        y: 0,
+    });
+}
+
+function doorWindowTotalHeight(blockInnerInfo = {}) {
+    const type = blockInnerInfo['\u7c7b\u578b'];
+    const doorHeight = positiveNumber(blockInnerInfo['\u95e8\u9ad8']);
+    const windowHeight = positiveNumber(blockInnerInfo['\u7a97\u9ad8']);
+    if (typeof type !== 'string' || !doorHeight || !windowHeight) return 0;
+    return type.includes('\u65e0\u526f\u7a97')
+        ? doorHeight
+        : doorHeight + windowHeight;
+}
+
 function resolvePlacementPlan(instance, selection) {
     const typeId = String(instance?.typeId ?? '').trim();
     if (typeId === '140c' || typeId === '140e02') {
@@ -242,6 +309,54 @@ function resolvePlacementPlan(instance, selection) {
     const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip)
         !== Boolean(selection?.xMirror);
     const family = contentTypeRuleFor(typeId)?.family ?? null;
+    if (family === 'arc-bay-window') {
+        const arcBayInstance = resolveArcBayWindowPlacement(instance);
+        if (arcBayInstance) {
+            return {
+                instance: { ...arcBayInstance, horizontalFlip: effectiveHorizontalFlip },
+                effectiveHorizontalFlip,
+                anchor: 'bounds-center',
+                arc: null,
+            };
+        }
+    }
+    if (family === 'barn-door') {
+        const barnDoorInstance = resolveBarnDoorPlacement(instance);
+        if (barnDoorInstance) {
+            return {
+                instance: { ...barnDoorInstance, horizontalFlip: effectiveHorizontalFlip },
+                effectiveHorizontalFlip,
+                anchor: 'bounds-center',
+                arc: null,
+            };
+        }
+    }
+    if (family === 'pocket-door') {
+        const pocketDoorInstance = resolvePocketDoorPlacement(instance);
+        if (pocketDoorInstance) {
+            return {
+                instance: { ...pocketDoorInstance, horizontalFlip: effectiveHorizontalFlip },
+                effectiveHorizontalFlip,
+                anchor: 'bounds-center',
+                arc: null,
+            };
+        }
+    }
+    if (family === 'door-window') {
+        const totalHeight = doorWindowTotalHeight(instance?.rawBlockInnerInfo);
+        if (totalHeight) {
+            return {
+                instance: {
+                    ...instance,
+                    horizontalFlip: effectiveHorizontalFlip,
+                    size: { ...(instance?.size ?? {}), z: totalHeight },
+                },
+                effectiveHorizontalFlip,
+                anchor: 'bounds-center',
+                arc: null,
+            };
+        }
+    }
     if (family === 'bay-window') {
         const verticalFlip = Boolean(instance?.verticalFlip);
         const bayWindowInstance = resolveBayWindowPlacement(
@@ -539,6 +654,52 @@ export function computeTargetScale(instance, selection, modelBox, resourceKind) 
     if (resourceKind === 'parametric-obj') {
         const unitScale = inferParametricUnitScale(modelSize, selection?.referenceSize);
         return new THREE.Vector3(unitScale, unitScale, unitScale);
+    }
+
+    const family = contentTypeRuleFor(instance?.typeId)?.family ?? null;
+    if (family === 'barn-door') {
+        const sizeX = positiveNumber(instance?.size?.x);
+        const sizeY = positiveNumber(instance?.size?.y);
+        const sizeZ = positiveNumber(instance?.size?.z);
+        if (!sizeX || !sizeY || !sizeZ) {
+            throw modelSizeError('Barn-door target dimensions could not be resolved');
+        }
+        return new THREE.Vector3(
+            (sizeX * 2 + 500) / modelSize.x,
+            (sizeY + 50) / modelSize.y,
+            (sizeZ + 150) / modelSize.z,
+        );
+    }
+    if (family === 'pocket-door') {
+        const sizeX = positiveNumber(instance?.size?.x);
+        const sizeY = positiveNumber(instance?.size?.y);
+        const sizeZ = positiveNumber(instance?.size?.z);
+        const outerEdgeLength = positiveNumber(
+            instance?.rawBlockInnerInfo?.['\u5916\u8fb9\u957f'],
+        );
+        const adjustedWidth = sizeX - outerEdgeLength + 100;
+        if (!sizeX || !sizeY || !sizeZ || !outerEdgeLength
+            || !(adjustedWidth > SIZE_EPSILON)) {
+            throw modelSizeError('Pocket-door target dimensions could not be resolved');
+        }
+        return new THREE.Vector3(
+            adjustedWidth / modelSize.x,
+            sizeY / modelSize.y,
+            sizeZ / modelSize.z,
+        );
+    }
+    if (family === 'arc-bay-window') {
+        const targetSize = targetSceneSize(instance, selection);
+        const sourceYScale = Math.abs(finiteNumber(instance?.outScale?.y, 1));
+        if (!(targetSize.x > SIZE_EPSILON) || !(targetSize.z > SIZE_EPSILON)
+            || !(sourceYScale > SIZE_EPSILON)) {
+            throw modelSizeError('Arc-bay target dimensions could not be resolved');
+        }
+        return new THREE.Vector3(
+            targetSize.x / modelSize.x,
+            sourceYScale,
+            targetSize.z / modelSize.z,
+        );
     }
 
     const targetSize = targetSceneSize(instance, selection);

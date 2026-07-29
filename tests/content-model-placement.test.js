@@ -590,6 +590,161 @@ test('static scaling falls back from template centimeters to scene millimeters',
     assert.deepEqual(scale.toArray(), [10, 10, 10]);
 });
 
+test('1405 keeps parametric unit normalization and shifts to the UE arc-bay center', () => {
+    const arcBayInstance = {
+        ...instance,
+        instanceId: 'window_list:fixture-1405',
+        sourceList: 'window_list',
+        category: 'window',
+        typeId: '1405',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: -800, y: -300 }, { x: 800, y: -300 },
+            { x: 800, y: 300 }, { x: -800, y: 300 },
+        ],
+        size: { x: 1600, y: 600, z: 1200 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        outScale: { x: 1, y: 1, z: 1 },
+        groundHeight: 900,
+    };
+    const root = placeContentModel(makePrototype(), arcBayInstance, {
+        ...selection,
+        typeId: '1405',
+        referenceSize: { x: 20, y: 20, z: 80 },
+    }, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0,
+        contentHash: 'arc-bay',
+    });
+    const box = worldBox(root);
+    const center = box.getCenter(new THREE.Vector3());
+
+    assert.deepEqual(root.userData.debugInfo.placement.targetScale, { x: 10, y: 10, z: 10 });
+    assertNear(center.x, 0, '1405 center x');
+    assertNear(center.y, 400, '1405 UE local-right center offset');
+    assertNear(box.min.z, 900, '1405 ground height');
+});
+
+test('1305 ports the UE barn-door tuned size and wall-side offset', () => {
+    const barnDoor = {
+        ...instance,
+        instanceId: 'door_list:fixture-1305',
+        sourceList: 'door_list',
+        category: 'door',
+        typeId: '1305',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: -400, y: -50 }, { x: 400, y: -50 },
+            { x: 400, y: 50 }, { x: -400, y: 50 },
+        ],
+        size: { x: 800, y: 100, z: 2100 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        outScale: { x: 1, y: 1, z: 1 },
+        groundHeight: 0,
+    };
+    const root = placeContentModel(makePrototype(), barnDoor, {
+        ...selection,
+        typeId: '7319',
+        referenceSize: { x: 82.3, y: 8.4, z: 209.7 },
+    }, staticResource);
+    const box = worldBox(root);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    assertNear(size.x, 2100, '1305 tuned world width');
+    assertNear(size.y, 150, '1305 tuned world depth');
+    assertNear(size.z, 2250, '1305 tuned world height');
+    assertNear(center.x, 400, '1305 wall-side center x');
+    assertNear(center.y, -50, '1305 wall-side center y');
+});
+
+test('1311 subtracts outer edge length and adds the UE 100mm clearance', () => {
+    const pocketDoor = {
+        ...instance,
+        instanceId: 'door_list:fixture-1311',
+        sourceList: 'door_list',
+        category: 'door',
+        typeId: '1311',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: -450, y: -60 }, { x: 450, y: -60 },
+            { x: 450, y: 60 }, { x: -450, y: 60 },
+        ],
+        size: { x: 900, y: 120, z: 2100 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        outScale: { x: 1, y: 1, z: 1 },
+        groundHeight: 0,
+        rawBlockInnerInfo: { ['\u5916\u8fb9\u957f']: 200 },
+    };
+    const root = placeContentModel(makePrototype(), pocketDoor, {
+        ...selection,
+        typeId: '7323',
+        referenceSize: { x: 90.4, y: 3, z: 203.1 },
+    }, staticResource);
+    const box = worldBox(root);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+
+    assertNear(size.x, 800, '1311 adjusted opening width');
+    assertNear(size.y, 120, '1311 world depth');
+    assertNear(size.z, 2100, '1311 world height');
+    assertNear(center.x, 50, '1311 UE center adjustment');
+});
+
+test('1311 rejects a non-positive adjusted opening width', () => {
+    assert.throws(() => computeTargetScale({
+        ...instance,
+        typeId: '1311',
+        footprint: [],
+        size: { x: 500, y: 120, z: 2100 },
+        rawBlockInnerInfo: { ['\u5916\u8fb9\u957f']: 700 },
+    }, selection, new THREE.Box3(
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(20, 20, 80),
+    ), 'static-glb'), error => error?.code === 'MODEL_SIZE_UNRESOLVED');
+});
+
+test('140f static fallback uses the derived UE total height', () => {
+    const doorWindow = {
+        ...instance,
+        instanceId: 'window_list:fixture-140f',
+        sourceList: 'window_list',
+        category: 'window',
+        typeId: '140f',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: -1200, y: -120 }, { x: 1200, y: -120 },
+            { x: 1200, y: 120 }, { x: -1200, y: 120 },
+        ],
+        size: { x: 2400, y: 240, z: 0 },
+        rotationDegrees: 0,
+        horizontalFlip: false,
+        verticalFlip: false,
+        outScale: { x: 1, y: 1, z: 1 },
+        groundHeight: 0,
+        rawBlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u843d\u5730\u7a97\u6709\u526f\u7a97',
+            ['\u95e8\u9ad8']: 2100,
+            ['\u7a97\u9ad8']: 600,
+        },
+    };
+    const root = placeContentModel(makePrototype(), doorWindow, {
+        ...selection,
+        typeId: '140f',
+        referenceSize: { x: 0, y: 0, z: 10 },
+    }, staticResource);
+    const size = worldBox(root).getSize(new THREE.Vector3());
+
+    assertNear(size.x, 2400, '140f world width');
+    assertNear(size.y, 240, '140f world depth');
+    assertNear(size.z, 2700, '140f derived total height');
+});
+
 test('footprint dimensions do not receive CAD outScale twice', () => {
     const scale = computeTargetScale({
         ...instance,
