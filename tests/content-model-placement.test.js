@@ -853,6 +853,29 @@ test('parameterized OBJ uses a uniform unit normalization instead of forcing the
     assert.deepEqual(scale.toArray(), [10, 10, 10]);
 });
 
+test('placed window glass is transparent without mutating the cached prototype material', () => {
+    const prototype = makePrototype();
+    prototype.material.name = 'Glass_Clear';
+    const originalMaterial = prototype.material;
+    const placed = placeContentModel(prototype, {
+        ...instance,
+        instanceId: 'window_list:glass',
+        sourceList: 'window_list',
+        category: 'window',
+        typeId: '1401',
+    }, selection, staticResource);
+    let placedMesh = null;
+    placed.traverse(child => {
+        if (child.isMesh) placedMesh = child;
+    });
+
+    assert.ok(placedMesh);
+    assert.equal(placedMesh.material.transparent, true);
+    assert.equal(placedMesh.material.opacity, 0.32);
+    assert.equal(placedMesh.material.depthWrite, false);
+    assert.equal(originalMaterial.transparent, false);
+});
+
 test('a generated 1401 window stays upright without applying CAD dimensions twice', () => {
     const windowInstance = {
         ...instance,

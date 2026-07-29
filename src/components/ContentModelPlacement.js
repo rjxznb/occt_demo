@@ -3,6 +3,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { describeBulgeArc } from './ArcWindowGeometry.js';
 import { contentTypeRuleFor } from './ContentTypeRules.js';
 import { resolveCornerSides } from './ParametricParameterResolver.js';
+import { applyWindowGlassMaterials } from './WindowGlassMaterial.js';
 
 const SIZE_EPSILON = 1e-9;
 const FOOTPRINT_AREA_RATIO_EPSILON = 1e-8;
@@ -843,6 +844,7 @@ export function placeContentModel(prototype, instance, selection = {}, resource 
     const effectiveHorizontalFlip = placementPlan.effectiveHorizontalFlip;
     const effectiveVerticalFlip = effectiveInstance?.verticalFlip === true;
     const clonedPrototype = clonePrototype(prototype);
+    applyWindowGlassMaterials(clonedPrototype, instance);
     const axisConvertedPrototype = new THREE.Group();
     axisConvertedPrototype.name = 'axisConvertedPrototype';
     axisConvertedPrototype.add(clonedPrototype);
