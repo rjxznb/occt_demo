@@ -90,6 +90,20 @@ function addArcWindowParameters(target, instance, blockInnerInfo) {
     setFinite(target, '高度', blockInnerInfo.高度);
 }
 
+function addArcRailingParameters(target, instance, blockInnerInfo) {
+    const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
+    const arc = path.length === 4 ? describeBulgeArc(path[3], path[0]) : null;
+    if (!arc) return;
+    setFinite(target, '\u5f26\u957f', arc.chordLength);
+    setFinite(target, '\u62f1\u9ad8', arc.sagitta);
+    setFinite(target, '\u7a97\u6247\u6570\u91cf', Math.max(1, Math.ceil(arc.arcLength / 600)));
+    setFinite(target, '\u534a\u5f84', arc.radius + 25);
+    setText(target, '\u4f18\u52a3\u5f27', Math.abs(arc.signedSweepRadians) > Math.PI
+        ? '\u4f18\u5f27'
+        : '\u52a3\u5f27');
+    setFinite(target, '\u9ad8\u5ea6', blockInnerInfo['\u9ad8\u5ea6']);
+}
+
 function addUWindowParameters(target, instance, blockInnerInfo) {
     setFinite(target, '宽度', blockInnerInfo.长);
     setFinite(target, '深度', blockInnerInfo.下厚);
@@ -231,6 +245,7 @@ export function resolveParametricParameters(instance, selection) {
         || family === 'bay-window'
         || family === 'arc-bay-window'
         || family === 'corner-bay-window'
+        || family === 'arc-railing'
         || family === 'door-window';
 
     if (typeId === '1313') addCornerOpeningParameters(target, instance, blockInnerInfo, false);
@@ -245,6 +260,7 @@ export function resolveParametricParameters(instance, selection) {
     if (family === 'corner-bay-window') {
         addCornerOpeningParameters(target, instance, blockInnerInfo, true);
     }
+    if (family === 'arc-railing') addArcRailingParameters(target, instance, blockInnerInfo);
     if (family === 'door-window') addDoorWindowParameters(target, blockInnerInfo);
     if (hasTypeAdapter) {
         addNumericTemplateDefaults(target, selection, true);

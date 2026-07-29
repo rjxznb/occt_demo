@@ -138,23 +138,29 @@ function resolveUWindowPlacement(instance, horizontalFlip, verticalFlip) {
 }
 
 function resolvePlacementPlan(instance, selection) {
-    if (String(instance?.typeId ?? '').trim() === '140c') {
+    const typeId = String(instance?.typeId ?? '').trim();
+    if (typeId === '140c' || typeId === '140e02') {
         const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
         const arc = path.length === 4 ? describeBulgeArc(path[3], path[0]) : null;
-        if (!arc) throw modelSizeError('Arc-window placement geometry is invalid');
+        if (!arc) throw modelSizeError('Arc content placement geometry is invalid');
         const sourceBasePoint = basePointOf(instance);
+        const arcBasePoint = typeId === '140e02'
+            ? {
+                x: (path[3].x + path[0].x) / 2,
+                y: (path[3].y + path[0].y) / 2,
+            }
+            : arc.apex;
         return {
             instance: {
                 ...instance,
                 basePoint: {
-                    x: arc.apex.x,
-                    y: arc.apex.y,
+                    x: arcBasePoint.x,
+                    y: arcBasePoint.y,
                     z: finiteNumber(sourceBasePoint.z),
                 },
                 footprint: [],
-                // The imported 140c asset faces opposite the apex-to-center
-                // direction. Rotating its local +Y to that outward heading
-                // requires adding 90 degrees to the geometric heading.
+                // Imported arc-window and arc-railing assets share the UE
+                // horizontal facing convention after Y-up to Z-up conversion.
                 rotationDegrees: arc.headingDegrees + 90,
                 horizontalFlip: false,
                 verticalFlip: false,

@@ -777,6 +777,78 @@ test('generated 140c placement rejects missing inner-arc geometry', () => {
     }), error => error?.code === 'MODEL_SIZE_UNRESOLVED');
 });
 
+test('generated 140e02 railings anchor at the chord midpoint and keep arc facing', () => {
+    const innerStart = {
+        x: 5591.314060, y: -4748.045378, z: 0, bulge: 0.224261,
+    };
+    const innerEnd = {
+        x: 5591.313296, y: -378.045377, z: 0, bulge: 0,
+    };
+    const prototype = new THREE.Group();
+    prototype.add(new THREE.Mesh(
+        new THREE.BoxGeometry(100, 1050, 20),
+        new THREE.MeshBasicMaterial(),
+    ));
+    const originMarker = new THREE.Object3D();
+    originMarker.name = 'railingOrigin';
+    prototype.add(originMarker);
+    const railingInstance = {
+        ...instance,
+        instanceId: 'window_list:fixture-140e#segment:1',
+        sourceList: 'window_list',
+        sourceIndex: 7,
+        category: 'window',
+        typeId: '140e02',
+        parentInstanceId: 'window_list:fixture-140e',
+        compositeSegmentIndex: 1,
+        compositeSegmentCount: 2,
+        generatedFromTypeId: '140e',
+        cadPath: [
+            innerEnd,
+            { x: 0, y: 0, z: 0, bulge: 0 },
+            { x: 0, y: 0, z: 0, bulge: 0 },
+            innerStart,
+        ],
+        footprint: [],
+        size: { x: 4370, y: 200, z: 1050 },
+        outScale: { x: 1, y: 1, z: 1 },
+        rotationDegrees: 77,
+        horizontalFlip: true,
+        verticalFlip: true,
+        groundHeight: 300,
+        rawBlockInnerInfo: { ['\u9ad8\u5ea6']: 1050 },
+    };
+
+    const root = placeContentModel(prototype, railingInstance, {
+        ...selection,
+        typeId: '140e02',
+        resId: 'arc-railing',
+        referenceSize: { x: 10, y: 2, z: 105 },
+        xMirror: false,
+    }, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0,
+        contentHash: 'arc-railing',
+    });
+    const box = worldBox(root);
+
+    assertNear(root.position.x, (innerStart.x + innerEnd.x) / 2, 'railing chord midpoint x');
+    assertNear(root.position.y, (innerStart.y + innerEnd.y) / 2, 'railing chord midpoint y');
+    assertNear(box.min.z, 300, 'railing ground height');
+    assertNear(root.userData.debugInfo.transform.rotationDegrees,
+        -89.99998998307197, 'railing arc facing');
+    assert.equal(root.userData.debugInfo.composite.generatedFromTypeId, '140e');
+});
+
+test('generated 140e02 placement rejects missing inner-arc geometry', () => {
+    assert.throws(() => placeContentModel(makePrototype(), {
+        ...instance,
+        typeId: '140e02',
+        cadPath: [],
+    }, selection, {
+        kind: 'parametric-obj', resourceType: 8, modelType: 0,
+    }), error => error?.code === 'MODEL_SIZE_UNRESOLVED');
+});
+
 test('template XMirror composes with CAD horizontal flip using XOR', () => {
     const prototype = makePrototype();
     const root = placeContentModel(prototype, instance, {

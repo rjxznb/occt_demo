@@ -425,3 +425,51 @@ test('140f keeps door-window source values and derives UE total height', () => {
     assert.equal(valueOf(parameters, '\u603b\u9ad8\u5ea6'), 2700);
     assert.equal(valueOf(noSubWindow, '\u603b\u9ad8\u5ea6'), 2100);
 });
+
+test('140e02 adds UE radius and major-minor arc parameters', () => {
+    const cases = [
+        {
+            start: { x: -6638.686234, y: 4641.953907, z: 0, bulge: -1.455308 },
+            end: { x: -3828.686478, y: 6031.954413, z: 0, bulge: 0 },
+            radius: 1704.14130477725,
+            arcKind: '\u4f18\u5f27',
+        },
+        {
+            start: { x: 5591.314060, y: -4748.045378, z: 0, bulge: 0.224261 },
+            end: { x: 5591.313296, y: -378.045377, z: 0, bulge: 0 },
+            radius: 5141.561053971859,
+            arcKind: '\u52a3\u5f27',
+        },
+    ];
+
+    for (const fixture of cases) {
+        const parameters = resolveParametricParameters({
+            typeId: '140e02',
+            cadPath: [
+                fixture.end,
+                { x: 0, y: 0, z: 0, bulge: 0 },
+                { x: 0, y: 0, z: 0, bulge: 0 },
+                fixture.start,
+            ],
+            rawBlockInnerInfo: { ['\u9ad8\u5ea6']: 1050 },
+        }, selection({}));
+
+        assertNear(valueOf(parameters, '\u534a\u5f84'), fixture.radius, 'railing radius');
+        assert.equal(valueOf(parameters, '\u4f18\u52a3\u5f27'), fixture.arcKind);
+        assert.ok(valueOf(parameters, '\u5f26\u957f') > 0);
+        assert.ok(valueOf(parameters, '\u62f1\u9ad8') > 0);
+        assert.ok(valueOf(parameters, '\u7a97\u6247\u6570\u91cf') >= 1);
+        assert.equal(valueOf(parameters, '\u9ad8\u5ea6'), 1050);
+    }
+});
+
+test('140e02 omits arc-only parameters when its inner arc is invalid', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '140e02',
+        cadPath: [],
+        rawBlockInnerInfo: { ['\u9ad8\u5ea6']: 1050 },
+    }, selection({}));
+
+    assert.equal(valueOf(parameters, '\u534a\u5f84'), undefined);
+    assert.equal(valueOf(parameters, '\u4f18\u52a3\u5f27'), undefined);
+});
