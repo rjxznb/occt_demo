@@ -154,12 +154,12 @@ function resolveCornerSides(instance, blockInnerInfo) {
     return fallback;
 }
 
-function addCornerWindowParameters(target, instance, blockInnerInfo) {
+function addCornerOpeningParameters(target, instance, blockInnerInfo, includeGroundHeight) {
     const sides = resolveCornerSides(instance, blockInnerInfo);
     setFinite(target, '右宽', sides.rightWidth);
     setFinite(target, '左宽', sides.leftWidth);
     setFinite(target, '高度', blockInnerInfo.高度);
-    setFinite(target, '离地', blockInnerInfo.离地高度);
+    if (includeGroundHeight) setFinite(target, '离地', blockInnerInfo.离地高度);
     setFinite(target, '右墙厚', sides.rightWallThickness);
     setFinite(target, '左墙厚', sides.leftWallThickness);
 }
@@ -171,10 +171,14 @@ export function resolveParametricParameters(instance, selection) {
         ? instance.rawBlockInnerInfo
         : {};
     const typeId = String(instance?.typeId ?? '').trim();
-    const hasTypeAdapter = typeId === '1401' || typeId === '1407' || typeId === '140c';
+    const hasTypeAdapter = typeId === '1313'
+        || typeId === '1401'
+        || typeId === '1407'
+        || typeId === '140c';
 
+    if (typeId === '1313') addCornerOpeningParameters(target, instance, blockInnerInfo, false);
     if (typeId === '1401') addStandardWindowParameters(target, blockInnerInfo);
-    if (typeId === '1407') addCornerWindowParameters(target, instance, blockInnerInfo);
+    if (typeId === '1407') addCornerOpeningParameters(target, instance, blockInnerInfo, true);
     if (typeId === '140c') addArcWindowParameters(target, instance, blockInnerInfo);
     if (hasTypeAdapter) {
         addNumericTemplateDefaults(target, selection, true);

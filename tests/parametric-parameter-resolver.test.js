@@ -239,3 +239,33 @@ test('corner-window fallback remains deterministic when orientation is unavailab
         { name: '左墙厚', value: 240 },
     ]);
 });
+
+test('maps L-shaped sliding-door sides to the model parameter names', () => {
+    const parameters = resolveParametricParameters({
+        typeId: '1313',
+        basePoint: { x: 0, y: 0, z: 0 },
+        footprint: [
+            { x: 0, y: 0 },
+            { x: 0, y: 1200 },
+            { x: -240, y: 1200 },
+            { x: -240, y: -180 },
+            { x: 1500, y: -180 },
+            { x: 1500, y: 0 },
+        ],
+        rawBlockInnerInfo: {
+            长: 1500,
+            宽: 1200,
+            高度: 2200,
+            外边长: 180,
+            外边宽: 240,
+        },
+    }, selection({}));
+
+    assert.deepEqual(parameters, [
+        { name: '右宽', value: 1500 },
+        { name: '左宽', value: 1200 },
+        { name: '高度', value: 2200 },
+        { name: '右墙厚', value: 180 },
+        { name: '左墙厚', value: 240 },
+    ]);
+});
