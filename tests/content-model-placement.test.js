@@ -137,6 +137,75 @@ function cornerDoorInstance(overrides = {}) {
     };
 }
 
+function makeUWindowPrototype() {
+    const prototype = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(3350, 1600, 1270);
+    // Source OBJ is Y-up. After axis conversion, this occupies
+    // plan X [-1675, 1675], plan Y [-240, 1030], world Z [0, 1600].
+    geometry.translate(0, 800, -395);
+    prototype.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+
+    const origin = new THREE.Object3D();
+    origin.name = 'uWindowOrigin';
+    prototype.add(origin);
+
+    const xAxis = new THREE.Object3D();
+    xAxis.name = 'uWindowXAxis';
+    xAxis.position.x = 100;
+    prototype.add(xAxis);
+
+    const yAxis = new THREE.Object3D();
+    yAxis.name = 'uWindowYAxis';
+    yAxis.position.z = -100;
+    prototype.add(yAxis);
+    return prototype;
+}
+
+const uWindowSelection = {
+    ...selection,
+    typeId: '1408',
+    typeName: 'U形窗',
+    resId: '2406318',
+    referenceSize: { x: 0, y: 0, z: 120 },
+    xMirror: false,
+};
+
+const uWindowResource = {
+    kind: 'parametric-obj',
+    resourceType: 8,
+    modelType: 0,
+    contentHash: 'u-window',
+};
+
+function uWindowInstance(overrides = {}) {
+    return {
+        ...instance,
+        instanceId: 'window_list:fixture-1408',
+        sourceList: 'window_list',
+        sourceIndex: 9,
+        category: 'window',
+        typeId: '1408',
+        basePoint: { x: 3631.313676, y: -4728.045438, z: 0 },
+        footprint: [
+            { x: 3631.313676, y: -4728.045438 },
+            { x: 281.313676, y: -4728.045438 },
+            { x: 281.313676, y: -5998.045438 },
+            { x: 461.313676, y: -5998.045438 },
+            { x: 461.313676, y: -4968.045438 },
+            { x: 3411.313676, y: -4968.045438 },
+            { x: 3411.313676, y: -5778.045438 },
+            { x: 3631.313676, y: -5778.045438 },
+        ],
+        size: { x: 2870, y: 1030, z: 1600 },
+        rotationDegrees: 180,
+        horizontalFlip: false,
+        verticalFlip: false,
+        groundHeight: 900,
+        externalWallThickness: 240,
+        ...overrides,
+    };
+}
+
 const cornerWindowFixtures = [
     {
         instance: {
@@ -315,6 +384,76 @@ test('1313 keeps its artificial L-box center aligned after a horizontal flip', (
     assertNear(origin.y, 1760, 'flipped 1313 model-origin world y');
     assertNear(xDirection.x, 0, 'flipped 1313 local X world x');
     assertNear(xDirection.y, 1, 'flipped 1313 local X world y');
+});
+
+test('1408 aligns the UE artificial U-box center without extra rotation', () => {
+    const root = placeContentModel(
+        makeUWindowPrototype(),
+        uWindowInstance(),
+        uWindowSelection,
+        uWindowResource,
+    );
+    root.updateMatrixWorld(true);
+    const origin = root.getObjectByName('uWindowOrigin')
+        .getWorldPosition(new THREE.Vector3());
+    const xDirection = root.getObjectByName('uWindowXAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+    const yDirection = root.getObjectByName('uWindowYAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+    const box = worldBox(root);
+
+    assertNear(origin.x, 1956.313676, '1408 model-origin world x');
+    assertNear(origin.y, -4968.045438, '1408 model-origin world y');
+    assertNear(origin.z, 900, '1408 model-origin world z');
+    assertNear(xDirection.x, -1, '1408 local X world x');
+    assertNear(xDirection.y, 0, '1408 local X world y');
+    assertNear(yDirection.x, 0, '1408 local Y world x');
+    assertNear(yDirection.y, -1, '1408 local Y world y');
+    assertNear(box.min.z, 900, '1408 sill height');
+    assertNear(root.userData.debugInfo.transform.rotationDegrees, 180,
+        '1408 keeps CAD rotation');
+});
+
+test('1408 placement compensates the artificial center after both plan flips', () => {
+    const root = placeContentModel(
+        makeUWindowPrototype(),
+        uWindowInstance({ verticalFlip: true }),
+        { ...uWindowSelection, xMirror: true },
+        uWindowResource,
+    );
+    root.updateMatrixWorld(true);
+    const origin = root.getObjectByName('uWindowOrigin')
+        .getWorldPosition(new THREE.Vector3());
+    const xDirection = root.getObjectByName('uWindowXAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+    const yDirection = root.getObjectByName('uWindowYAxis')
+        .getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+
+    assertNear(origin.x, 1956.313676, 'flipped 1408 model-origin world x');
+    assertNear(origin.y, -5758.045438, 'flipped 1408 model-origin world y');
+    assertNear(xDirection.x, 1, 'flipped 1408 local X world x');
+    assertNear(xDirection.y, 0, 'flipped 1408 local X world y');
+    assertNear(yDirection.x, 0, 'flipped 1408 local Y world x');
+    assertNear(yDirection.y, 1, 'flipped 1408 local Y world y');
+    assert.equal(root.userData.debugInfo.transform.horizontalFlip, true);
+    assert.equal(root.userData.debugInfo.transform.verticalFlip, true);
+});
+
+test('invalid 1408 geometry keeps the generic bounds-center fallback visible', () => {
+    const root = placeContentModel(
+        makeUWindowPrototype(),
+        uWindowInstance({ footprint: [], externalWallThickness: null }),
+        uWindowSelection,
+        uWindowResource,
+    );
+    root.updateMatrixWorld(true);
+    const origin = root.getObjectByName('uWindowOrigin')
+        .getWorldPosition(new THREE.Vector3());
+
+    assertNear(origin.x, 3631.313676, 'fallback model-origin world x');
+    assertNear(origin.y, -4333.045438, 'fallback model-origin world y');
+    assertNear(origin.z, 900, 'fallback model-origin world z');
+    assert.equal(root.userData.debugInfo.transform.verticalFlip, false);
 });
 
 test('Y-up model height becomes positive world Z', () => {
