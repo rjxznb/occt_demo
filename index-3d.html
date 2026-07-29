@@ -183,7 +183,8 @@
         .material-sidebar {
             position: fixed;
             top: 0;
-            right: -320px;
+            right: 0;
+            transform: translateX(100%);
             width: 320px;
             min-width: 280px;
             max-width: 50vw;
@@ -191,7 +192,7 @@
             background: rgba(0, 0, 0, 0.9);
             backdrop-filter: blur(15px);
             box-shadow: -2px 0 20px rgba(0, 0, 0, 0.5);
-            transition: right 0.3s ease, width 0.2s ease;
+            transition: transform 0.3s ease, width 0.2s ease;
             z-index: 2000;
             overflow-y: auto;
             border-left: 1px solid rgba(255, 255, 255, 0.1);
@@ -199,7 +200,7 @@
         }
 
         .material-sidebar.visible {
-            right: 0;
+            transform: translateX(0);
         }
 
         .material-sidebar.collapsed {
