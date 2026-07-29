@@ -40,6 +40,89 @@ function makePrototype() {
     );
 }
 
+function makeCornerWindowPrototype() {
+    const prototype = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(700, 1500, 1380);
+    geometry.translate(350, 750, 690);
+    prototype.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+
+    const origin = new THREE.Object3D();
+    origin.name = 'cornerOrigin';
+    prototype.add(origin);
+    return prototype;
+}
+
+const cornerWindowSelection = {
+    ...selection,
+    typeId: '1407',
+    typeName: '转角窗',
+    resId: '2406314',
+    referenceSize: { x: 0, y: 0, z: 120 },
+    xMirror: false,
+};
+
+const cornerWindowResource = {
+    kind: 'parametric-obj',
+    resourceType: 8,
+    modelType: 0,
+    contentHash: 'corner-window',
+};
+
+const cornerWindowFixtures = [
+    {
+        instance: {
+            ...instance,
+            instanceId: 'window_list:6',
+            sourceList: 'window_list',
+            sourceIndex: 6,
+            category: 'window',
+            typeId: '1407',
+            basePoint: { x: -6638.686324, y: 2561.954562, z: 0 },
+            footprint: [
+                { x: -6638.686324, y: 2561.954562 },
+                { x: -6638.686756, y: 3641.954562 },
+                { x: -6878.686756, y: 3641.954466 },
+                { x: -6878.686228, y: 2321.954466 },
+                { x: -6203.686228, y: 2321.954736 },
+                { x: -6203.686324, y: 2561.954736 },
+            ],
+            size: { x: 435, y: 1080, z: 1500 },
+            rotationDegrees: 0.000022918312048469448,
+            horizontalFlip: false,
+            verticalFlip: false,
+            groundHeight: 900,
+            externalWallThickness: 240,
+        },
+        expectedPivot: { x: -6878.686227999973, y: 2321.9544660000515 },
+    },
+    {
+        instance: {
+            ...instance,
+            instanceId: 'window_list:7',
+            sourceList: 'window_list',
+            sourceIndex: 7,
+            category: 'window',
+            typeId: '1407',
+            basePoint: { x: -5768.686324, y: 2561.95491, z: 0 },
+            footprint: [
+                { x: -5768.686324, y: 2561.95491 },
+                { x: -6203.686324, y: 2561.954736 },
+                { x: -6203.686228, y: 2321.954736 },
+                { x: -5528.686228, y: 2321.955006 },
+                { x: -5528.686356, y: 2641.955006 },
+                { x: -5768.686356, y: 2641.95491 },
+            ],
+            size: { x: 80, y: 435, z: 1500 },
+            rotationDegrees: 90.00002445354664,
+            horizontalFlip: false,
+            verticalFlip: false,
+            groundHeight: 900,
+            externalWallThickness: 240,
+        },
+        expectedPivot: { x: -5528.686223712844, y: 2321.9550092154036 },
+    },
+];
+
 function worldBox(root) {
     root.updateMatrixWorld(true);
     return new THREE.Box3().setFromObject(root);
@@ -49,6 +132,26 @@ function assertNear(actual, expected, message) {
     assert.ok(Math.abs(actual - expected) < EPSILON,
         `${message}: expected ${expected}, got ${actual}`);
 }
+
+test('1407 models anchor their source origin at the UE L-corner pivot', () => {
+    for (const { instance: current, expectedPivot } of cornerWindowFixtures) {
+        const root = placeContentModel(
+            makeCornerWindowPrototype(),
+            current,
+            cornerWindowSelection,
+            cornerWindowResource,
+        );
+        root.updateMatrixWorld(true);
+        const origin = root.getObjectByName('cornerOrigin')
+            .getWorldPosition(new THREE.Vector3());
+        const box = worldBox(root);
+
+        assertNear(origin.x, expectedPivot.x, `${current.instanceId} pivot x`);
+        assertNear(origin.y, expectedPivot.y, `${current.instanceId} pivot y`);
+        assertNear(origin.z, 900, `${current.instanceId} pivot z`);
+        assertNear(box.min.z, 900, `${current.instanceId} sill height`);
+    }
+});
 
 test('Y-up model height becomes positive world Z', () => {
     const vector = new THREE.Vector3(0, 1, 0).applyMatrix4(createYUpToZUpTransform());

@@ -29,6 +29,37 @@ function rotationDegreesOf(instance) {
     return finiteNumber(instance?.rotationDegrees ?? instance?.rotate);
 }
 
+function resolveCornerWindowPlacement(instance) {
+    const footprint = footprintMetrics(
+        instance?.footprint,
+        rotationDegreesOf(instance),
+        basePointOf(instance),
+    );
+    const sizeX = positiveNumber(instance?.size?.x);
+    const sizeY = positiveNumber(instance?.size?.y);
+    const wallThickness = positiveNumber(instance?.externalWallThickness);
+    if (!footprint?.boundsCenter || !sizeX || !sizeY || !wallThickness) return null;
+
+    const rotation = THREE.MathUtils.degToRad(rotationDegreesOf(instance));
+    const cosine = Math.cos(rotation);
+    const sine = Math.sin(rotation);
+    const halfX = (sizeX + wallThickness) / 2;
+    const halfY = (sizeY + wallThickness) / 2;
+    const rotatedHalfX = halfX * cosine - halfY * sine;
+    const rotatedHalfY = halfX * sine + halfY * cosine;
+    const sourceBasePoint = basePointOf(instance);
+
+    return {
+        ...instance,
+        basePoint: {
+            x: footprint.boundsCenter.x - rotatedHalfX,
+            y: footprint.boundsCenter.y - rotatedHalfY,
+            z: finiteNumber(sourceBasePoint.z),
+        },
+        footprint: [],
+    };
+}
+
 function resolvePlacementPlan(instance, selection) {
     if (String(instance?.typeId ?? '').trim() === '140c') {
         const path = Array.isArray(instance?.cadPath) ? instance.cadPath : [];
@@ -59,6 +90,17 @@ function resolvePlacementPlan(instance, selection) {
 
     const effectiveHorizontalFlip = Boolean(instance?.horizontalFlip)
         !== Boolean(selection?.xMirror);
+    if (String(instance?.typeId ?? '').trim() === '1407') {
+        const cornerInstance = resolveCornerWindowPlacement(instance);
+        if (cornerInstance) {
+            return {
+                instance: { ...cornerInstance, horizontalFlip: effectiveHorizontalFlip },
+                effectiveHorizontalFlip,
+                anchor: 'model-origin',
+                arc: null,
+            };
+        }
+    }
     return {
         instance: { ...instance, horizontalFlip: effectiveHorizontalFlip },
         effectiveHorizontalFlip,
@@ -129,7 +171,20 @@ function footprintMetrics(footprint, rotationDegrees = 0, basePoint = {}) {
     const area = Math.abs(twiceArea) / 2;
     const footprintScaleSquared = Math.max(spanX, spanY) ** 2;
     if (!(area > footprintScaleSquared * FOOTPRINT_AREA_RATIO_EPSILON)) return null;
-    return { x: spanX, y: spanY, center };
+    const localBoundsCenter = {
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+    };
+    const forwardAngle = THREE.MathUtils.degToRad(finiteNumber(rotationDegrees));
+    const forwardCosine = Math.cos(forwardAngle);
+    const forwardSine = Math.sin(forwardAngle);
+    const boundsCenter = {
+        x: originX + localBoundsCenter.x * forwardCosine
+            - localBoundsCenter.y * forwardSine,
+        y: originY + localBoundsCenter.x * forwardSine
+            + localBoundsCenter.y * forwardCosine,
+    };
+    return { x: spanX, y: spanY, center, boundsCenter };
 }
 
 function validatedBoxSize(modelBox) {
