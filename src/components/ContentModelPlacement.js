@@ -772,6 +772,7 @@ export function createContentDebugInfo(instance, selection = {}, resource = {}, 
         sourceIndex: instance?.sourceIndex ?? null,
         category: instance?.category ?? null,
         typeId: String(instance?.typeId ?? ''),
+        ruleFamily: contentTypeRuleFor(instance?.typeId)?.family ?? null,
         composite: {
             parentInstanceId: instance?.parentInstanceId ?? null,
             segmentIndex: instance?.compositeSegmentIndex ?? null,

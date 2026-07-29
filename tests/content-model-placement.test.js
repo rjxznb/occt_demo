@@ -472,6 +472,7 @@ test('1403, 140302, 140303, and 1404 align the UE bay-window artificial center',
         assertNear(origin.x, 1000, `${typeId} model-origin world x`);
         assertNear(origin.y, 200, `${typeId} model-origin world y`);
         assertNear(origin.z, 900, `${typeId} model-origin world z`);
+        assert.equal(root.userData.debugInfo.ruleFamily, 'bay-window');
     }
 });
 
