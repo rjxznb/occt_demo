@@ -67,34 +67,53 @@ export function contentMaterialCodes(convertedMaterials) {
         .filter(code => /^PT\d+$/.test(code)))];
 }
 
-function isGlassDetail(detail) {
-    const semanticText = `${detail?.name ?? ''} ${detail?.optimizeParam ?? ''}`;
-    return /glass|玻璃/i.test(semanticText);
+function attachSemantics(material, entry) {
+    material.userData = {
+        ...material.userData,
+        contentMaterialCategory: entry.category,
+        contentMaterialCode: entry.code,
+        contentMaterialIsModel: entry.isModel,
+        contentBimRenderMat: entry.bimRenderMat,
+        contentMaterialIsGlass: entry.category === 'glass',
+        contentMaterialSource: entry.source,
+    };
 }
 
-export function applyContentMaterialSemantics(root, convertedMaterials, details = []) {
+function applyLocalMaterialProperties(material, entry) {
+    if (entry.category !== 'paint' && entry.category !== 'grout') return;
+    const parsedColor = parseMtlColor(entry.materialName);
+    if (parsedColor && material.color?.isColor) {
+        material.color.setHex(parsedColor.color);
+    }
+    if (entry.category === 'grout') {
+        material.metalness = 0;
+        material.roughness = Math.max(Number(material.roughness) || 0, 0.8);
+    }
+    material.needsUpdate = true;
+}
+
+export function applyContentMaterialSemantics(root, convertedMaterials) {
     if (!root?.isObject3D) return root;
-    const detailByCode = new Map((details || [])
-        .filter(detail => detail && detail.code != null)
-        .map(detail => [String(detail.code), detail]));
-    const semanticsByObjMaterial = new Map(convertedMaterialEntries(convertedMaterials)
-        .map(([objMaterial, value]) => {
-            const code = String(value.ID ?? '').trim();
-            const detail = detailByCode.get(code);
-            return [objMaterial, { code, isGlass: isGlassDetail(detail) }];
-        }));
+    const entries = normalizeContentMaterialEntries(convertedMaterials);
+    const modelEntries = entries.filter(entry => entry.isModel);
+    if (modelEntries.length > 0) {
+        root.userData = {
+            ...root.userData,
+            contentModelMaterials: modelEntries,
+        };
+    }
+    const semanticsByObjMaterial = new Map(entries
+        .filter(entry => !entry.isModel && entry.materialName)
+        .map(entry => [entry.materialName, entry]));
 
     root.traverse(child => {
         if (!child.isMesh || !child.material) return;
         const materials = Array.isArray(child.material) ? child.material : [child.material];
         materials.forEach(material => {
-            const semantics = semanticsByObjMaterial.get(material?.name);
-            if (!semantics) return;
-            material.userData = {
-                ...material.userData,
-                contentMaterialCode: semantics.code,
-                contentMaterialIsGlass: semantics.isGlass,
-            };
+            const entry = semanticsByObjMaterial.get(material?.name);
+            if (!entry) return;
+            attachSemantics(material, entry);
+            applyLocalMaterialProperties(material, entry);
         });
     });
     return root;
