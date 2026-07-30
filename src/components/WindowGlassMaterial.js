@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 
-const GLASS_MARKERS = ['glass', '玻璃', '窗玻璃'];
+const GLASS_MARKERS = ['glass', '\u73bb\u7483', '\u7a97\u73bb\u7483'];
 
-function isNamedGlass(mesh, material) {
+function isGlass(mesh, material) {
+    if (material?.userData?.contentMaterialIsGlass === true) return true;
+    if (material?.userData?.contentMaterialIsGlass === false) return false;
     const label = `${mesh?.name ?? ''} ${material?.name ?? ''}`.toLowerCase();
     return GLASS_MARKERS.some(marker => label.includes(marker));
 }
 
 function normalizeMaterial(mesh, material) {
-    if (!material?.isMaterial || !isNamedGlass(mesh, material)) return material;
+    if (!material?.isMaterial || !isGlass(mesh, material)) return material;
 
     const clone = material.clone();
     clone.transparent = true;
@@ -19,8 +21,8 @@ function normalizeMaterial(mesh, material) {
     return clone;
 }
 
-export function applyWindowGlassMaterials(root, instance) {
-    if (!root?.isObject3D || instance?.sourceList !== 'window_list') return root;
+export function applyWindowGlassMaterials(root) {
+    if (!root?.isObject3D) return root;
 
     root.traverse(child => {
         if (!child.isMesh || !child.material) return;

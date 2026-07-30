@@ -30,11 +30,33 @@ test('window glass is cloned and transparent while its frame remains opaque', ()
     assert.equal(originalGlass.transparent, false);
 });
 
-test('non-window models are not changed even when a material is named glass', () => {
+test('named glass in non-window content is also made transparent', () => {
     const root = mesh('glass', 'glass');
     const original = root.material;
 
     applyWindowGlassMaterials(root, { sourceList: 'soft_list' });
+
+    assert.notEqual(root.material, original);
+    assert.equal(root.material.transparent, true);
+    assert.equal(root.material.opacity, 0.32);
+});
+
+test('PT material semantics identify glass even when OBJ material names are UUIDs', () => {
+    const root = mesh('merged-window', '237e983c-f392-434a-be5c-7c695c60b00d');
+    root.material.userData.contentMaterialIsGlass = true;
+
+    applyWindowGlassMaterials(root, { sourceList: 'window_list' });
+
+    assert.equal(root.material.transparent, true);
+    assert.equal(root.material.opacity, 0.32);
+});
+
+test('explicit non-glass protocol semantics override a legacy glass material name', () => {
+    const root = mesh('window-part', 'glass_named_frame');
+    const original = root.material;
+    original.userData.contentMaterialIsGlass = false;
+
+    applyWindowGlassMaterials(root);
 
     assert.equal(root.material, original);
     assert.equal(root.material.transparent, false);
