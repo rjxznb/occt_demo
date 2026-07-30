@@ -8,6 +8,7 @@ import {
     normalizeContentMaterialEntries,
     parseMtlColor,
 } from '../src/components/ContentMaterialSemantics.js';
+import { applyWindowGlassMaterials } from '../src/components/WindowGlassMaterial.js';
 
 function meshWithMaterial(name) {
     const material = new THREE.MeshStandardMaterial({
@@ -126,4 +127,69 @@ test('preserves unknown materials and records model-only entries on the root', (
         'static-model',
         'parametric-model',
     ]);
+});
+
+test('resolved PT glass clones only its exact OBJ material slot and becomes transparent', () => {
+    const root = new THREE.Group();
+    const glass = meshWithMaterial('glass_uuid');
+    const frame = meshWithMaterial('frame_uuid');
+    const originalGlass = glass.material;
+    const originalFrame = frame.material;
+    root.add(glass, frame);
+
+    applyContentMaterialSemantics(root, {
+        glass: {
+            MatName: 'glass_uuid', ID: 'PT527545889554403328',
+            BimRenderMat: 5, IsModel: false,
+        },
+        frame: {
+            MatName: 'frame_uuid', ID: 'PT1031617746398150656',
+            BimRenderMat: 5, IsModel: false,
+        },
+    }, new Map([['PT527545889554403328', {
+        code: 'PT527545889554403328',
+        name: 'transparent glass',
+        modelType: '4',
+        masterMaterial: 'MI_V8_Glass',
+        isGlass: true,
+        color: null,
+        parameters: { 300: 1 },
+    }]]));
+    applyWindowGlassMaterials(root);
+
+    assert.notEqual(glass.material, originalGlass);
+    assert.equal(glass.material.userData.contentMaterialIsGlass, true);
+    assert.equal(glass.material.transparent, true);
+    assert.equal(glass.material.depthWrite, false);
+    assert.ok(glass.material.opacity <= 0.32);
+    assert.equal(frame.material, originalFrame);
+    assert.equal(frame.material.transparent, false);
+});
+
+test('resolved opaque PT material applies protocol base color on a clone', () => {
+    const root = new THREE.Group();
+    const frame = meshWithMaterial('frame_uuid');
+    const original = frame.material;
+    root.add(frame);
+
+    applyContentMaterialSemantics(root, {
+        frame: {
+            MatName: 'frame_uuid', ID: 'PT1031617746398150656',
+            BimRenderMat: 5, IsModel: false,
+        },
+    }, new Map([['PT1031617746398150656', {
+        code: 'PT1031617746398150656',
+        name: 'matte metal',
+        modelType: '2',
+        masterMaterial: 'MI_V8_Normal',
+        isGlass: false,
+        color: [0.1, 0.2, 0.3],
+        parameters: { 100: [0.1, 0.2, 0.3] },
+    }]]));
+
+    assert.notEqual(frame.material, original);
+    assert.deepEqual(frame.material.color.toArray(), [0.1, 0.2, 0.3]);
+    assert.equal(frame.material.userData.contentMaterialIsGlass, false);
+    assert.equal(frame.material.userData.contentMaterialDescriptor.masterMaterial,
+        'MI_V8_Normal');
 });

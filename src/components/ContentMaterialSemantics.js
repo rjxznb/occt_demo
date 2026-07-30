@@ -61,15 +61,37 @@ export function parseMtlColor(matName) {
     };
 }
 
-function attachSemantics(material, entry) {
+export function contentMaterialCodes(convertedMaterials) {
+    return [...new Set(normalizeContentMaterialEntries(convertedMaterials)
+        .filter(entry => entry.category === 'material-library' && /^PT\d+$/.test(entry.code))
+        .map(entry => entry.code))];
+}
+
+function descriptorMetadata(descriptor) {
+    if (!descriptor) return null;
+    return {
+        code: descriptor.code,
+        name: descriptor.name,
+        modelType: descriptor.modelType,
+        masterMaterial: descriptor.masterMaterial,
+        isGlass: descriptor.isGlass,
+        color: descriptor.color,
+        parameters: descriptor.parameters,
+    };
+}
+
+function attachSemantics(material, entry, descriptor = null) {
     material.userData = {
         ...material.userData,
         contentMaterialCategory: entry.category,
         contentMaterialCode: entry.code,
         contentMaterialIsModel: entry.isModel,
         contentBimRenderMat: entry.bimRenderMat,
-        contentMaterialIsGlass: entry.category === 'glass',
+        contentMaterialIsGlass: descriptor
+            ? descriptor.isGlass === true
+            : entry.category === 'glass',
         contentMaterialSource: entry.source,
+        ...(descriptor ? { contentMaterialDescriptor: descriptorMetadata(descriptor) } : {}),
     };
 }
 
@@ -86,7 +108,15 @@ function applyLocalMaterialProperties(material, entry) {
     material.needsUpdate = true;
 }
 
-export function applyContentMaterialSemantics(root, convertedMaterials) {
+function applyResolvedMaterialProperties(material, descriptor) {
+    if (Array.isArray(descriptor?.color) && descriptor.color.length === 3
+        && material.color?.isColor) {
+        material.color.setRGB(...descriptor.color);
+    }
+    material.needsUpdate = true;
+}
+
+export function applyContentMaterialSemantics(root, convertedMaterials, detailByCode = new Map()) {
     if (!root?.isObject3D) return root;
     const entries = normalizeContentMaterialEntries(convertedMaterials);
     const modelEntries = entries.filter(entry => entry.isModel);
@@ -103,12 +133,18 @@ export function applyContentMaterialSemantics(root, convertedMaterials) {
     root.traverse(child => {
         if (!child.isMesh || !child.material) return;
         const materials = Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach(material => {
+        const resolvedMaterials = materials.map(material => {
             const entry = semanticsByObjMaterial.get(material?.name);
-            if (!entry) return;
-            attachSemantics(material, entry);
-            applyLocalMaterialProperties(material, entry);
+            if (!entry) return material;
+            const descriptor = entry.category === 'material-library'
+                ? detailByCode.get(entry.code) : null;
+            const target = descriptor && material?.isMaterial ? material.clone() : material;
+            attachSemantics(target, entry, descriptor);
+            applyLocalMaterialProperties(target, entry);
+            if (descriptor) applyResolvedMaterialProperties(target, descriptor);
+            return target;
         });
+        child.material = Array.isArray(child.material) ? resolvedMaterials : resolvedMaterials[0];
     });
     return root;
 }
