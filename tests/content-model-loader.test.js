@@ -114,10 +114,11 @@ function placeClone(model, currentInstance) {
 
 function makeHarness({
     selections, details, loadGltf, parseObj, convertModel, getGoodsDetails, logger,
-    prototypeCacheLimit, resolveParameters,
+    getMaterialDetails, prototypeCacheLimit, resolveParameters,
 } = {}) {
     const calls = {
-        sequence: [], goods: [], gltf: [], convert: [], place: [], resolveParameters: [],
+        sequence: [], goods: [], materials: [], gltf: [], convert: [], place: [],
+        resolveParameters: [],
     };
     const templateResolver = {
         async load() {
@@ -140,6 +141,10 @@ function makeHarness({
             calls.convert.push({ url, parameters });
             if (convertModel) return convertModel(url, parameters);
             return { obj: validObj };
+        },
+        async getMaterialDetails(codes) {
+            calls.materials.push([...codes]);
+            return getMaterialDetails ? getMaterialDetails(codes) : { items: [] };
         },
     };
     const loader = new ContentModelLoader({
@@ -165,6 +170,35 @@ function makeHarness({
     });
     return { loader, calls };
 }
+
+test('parameterized OBJ consumes BimRenderMat without requesting material details', async () => {
+    const materialName = '237e983c-f392-434a-be5c-7c695c60b00d';
+    const materialCode = 'PT527545889554403328';
+    const parsedMaterial = new THREE.MeshStandardMaterial();
+    parsedMaterial.name = materialName;
+    const root = prototype(parsedMaterial);
+    const { loader, calls } = makeHarness({
+        selections: new Map([['1401', selection('2406313', '1401')]]),
+        details: [parametricDetail('2406313')],
+        parseObj: () => root,
+        convertModel: async () => ({
+            obj: validObj,
+            material: {
+                [materialName]: {
+                    ID: materialCode,
+                    IsModel: false,
+                    MatName: materialName,
+                    BimRenderMat: 3,
+                },
+            },
+        }),
+    });
+
+    await loader.load([instance('1401', 0)], new THREE.Group());
+
+    assert.deepEqual(calls.materials, []);
+    assert.equal(parsedMaterial.userData.contentMaterialIsGlass, true);
+});
 
 test('default GLTF loading configures the bundled Draco decoder', () => {
     const configured = [];

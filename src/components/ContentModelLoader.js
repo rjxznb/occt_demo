@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { applyContentMaterialSemantics } from './ContentMaterialSemantics.js';
 
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
 import { classifyContentCandidates } from './ContentModelClassifier.js';
@@ -354,7 +355,9 @@ export class ContentModelLoader {
         const content = extractObjContent(converted);
         if (!content) throw pipelineError('MODEL_PARSE_FAILED', 'Model response contains no OBJ data');
         try {
-            return preparePrototype(this.parseObj(content), 'MODEL_PARSE_FAILED');
+            const prototypeRoot = this.parseObj(content);
+            applyContentMaterialSemantics(prototypeRoot, converted?.material);
+            return preparePrototype(prototypeRoot, 'MODEL_PARSE_FAILED');
         } catch (error) {
             if (error?.code === 'MODEL_PARSE_FAILED') throw error;
             throw pipelineError(

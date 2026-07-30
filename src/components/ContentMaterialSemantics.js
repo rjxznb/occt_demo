@@ -61,12 +61,6 @@ export function parseMtlColor(matName) {
     };
 }
 
-export function contentMaterialCodes(convertedMaterials) {
-    return [...new Set(convertedMaterialEntries(convertedMaterials)
-        .map(([, value]) => String(value.ID ?? '').trim())
-        .filter(code => /^PT\d+$/.test(code)))];
-}
-
 function attachSemantics(material, entry) {
     material.userData = {
         ...material.userData,
