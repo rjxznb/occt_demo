@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { applyContentMaterialSemantics } from './ContentMaterialSemantics.js';
+import {
+    applyContentMaterialSemantics,
+    contentMaterialCodes,
+} from './ContentMaterialSemantics.js';
+import { resolveContentMaterialDetails } from './ContentMaterialDetails.js';
 
 import { ContentTemplateResolver } from './ContentTemplateResolver.js';
 import { classifyContentCandidates } from './ContentModelClassifier.js';
@@ -298,6 +302,8 @@ export class ContentModelLoader {
         this.prototypeCacheLimit = Math.max(1, Math.floor(Number(prototypeCacheLimit)) || 1);
         this.prototypeFlights = new Map();
         this.runPrototypeLoad = createLimiter(3);
+        this.materialDescriptorCache = new Map();
+        this.optimizationJsonCache = new Map();
     }
 
     async getPrototype(resource, parameters) {
@@ -341,6 +347,59 @@ export class ContentModelLoader {
         }
     }
 
+    async fetchOptimizationJson(url) {
+        if (this.optimizationJsonCache.has(url)) return this.optimizationJsonCache.get(url);
+        const fetchJson = this.apiClient.fetchContentJson?.bind(this.apiClient)
+            ?? this.apiClient.fetchJson?.bind(this.apiClient);
+        if (!fetchJson) throw new Error('Material optimization JSON transport is unavailable');
+        const flight = fetchJson(url);
+        this.optimizationJsonCache.set(url, flight);
+        try {
+            return await flight;
+        } catch (error) {
+            if (this.optimizationJsonCache.get(url) === flight) {
+                this.optimizationJsonCache.delete(url);
+            }
+            throw error;
+        }
+    }
+
+    async resolveMaterialDescriptors(convertedMaterials) {
+        const codes = contentMaterialCodes(convertedMaterials);
+        const missing = codes.filter(code => !this.materialDescriptorCache.has(code));
+        if (missing.length > 0) {
+            const flight = (async () => {
+                try {
+                    const response = await this.apiClient.getMaterialDetails(missing);
+                    return resolveContentMaterialDetails(response?.items, {
+                        fetchJson: url => this.fetchOptimizationJson(url),
+                    });
+                } catch (error) {
+                    this.logger.warn('[ContentLoader] PT material details unavailable', {
+                        code: failureCode(error, 'NETWORK_ERROR'),
+                        message: sanitizedMessage(error, 'PT material details unavailable'),
+                    });
+                    return new Map();
+                }
+            })();
+            for (const code of missing) {
+                const descriptorFlight = flight.then(descriptors => descriptors.get(code) ?? null);
+                this.materialDescriptorCache.set(code, descriptorFlight);
+                descriptorFlight.then(descriptor => {
+                    if (!descriptor && this.materialDescriptorCache.get(code) === descriptorFlight) {
+                        this.materialDescriptorCache.delete(code);
+                    }
+                });
+            }
+        }
+        const descriptors = new Map();
+        await Promise.all(codes.map(async code => {
+            const descriptor = await this.materialDescriptorCache.get(code);
+            if (descriptor) descriptors.set(code, descriptor);
+        }));
+        return descriptors;
+    }
+
     async loadParametricPrototype(resource, parameters) {
         let converted;
         try {
@@ -356,7 +415,12 @@ export class ContentModelLoader {
         if (!content) throw pipelineError('MODEL_PARSE_FAILED', 'Model response contains no OBJ data');
         try {
             const prototypeRoot = this.parseObj(content);
-            applyContentMaterialSemantics(prototypeRoot, converted?.material);
+            const materialDescriptors = await this.resolveMaterialDescriptors(converted?.material);
+            applyContentMaterialSemantics(
+                prototypeRoot,
+                converted?.material,
+                materialDescriptors,
+            );
             return preparePrototype(prototypeRoot, 'MODEL_PARSE_FAILED');
         } catch (error) {
             if (error?.code === 'MODEL_PARSE_FAILED') throw error;

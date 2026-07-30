@@ -171,7 +171,7 @@ function makeHarness({
     return { loader, calls };
 }
 
-test('parameterized OBJ consumes BimRenderMat without requesting material details', async () => {
+test('parameterized OBJ consumes direct BimRenderMat glass without requesting PT details', async () => {
     const materialName = '237e983c-f392-434a-be5c-7c695c60b00d';
     const materialCode = 'PT527545889554403328';
     const parsedMaterial = new THREE.MeshStandardMaterial();
@@ -198,6 +198,129 @@ test('parameterized OBJ consumes BimRenderMat without requesting material detail
 
     assert.deepEqual(calls.materials, []);
     assert.equal(parsedMaterial.userData.contentMaterialIsGlass, true);
+});
+
+test('parameterized OBJ resolves BimRenderMat material-library glass by PT code', async () => {
+    const materialName = '789f3795-9f3a-4e08-b026-4385d9d18961';
+    const materialCode = 'PT527545889554403328';
+    const parsedMaterial = new THREE.MeshStandardMaterial();
+    parsedMaterial.name = materialName;
+    const { loader, calls } = makeHarness({
+        selections: new Map([['1401', selection('2406313', '1401')]]),
+        details: [parametricDetail('2406313')],
+        parseObj: () => prototype(parsedMaterial),
+        convertModel: async () => ({
+            obj: validObj,
+            material: {
+                [materialName]: {
+                    ID: materialCode,
+                    IsModel: false,
+                    MatName: materialName,
+                    BimRenderMat: 5,
+                },
+            },
+        }),
+        getMaterialDetails: async () => ({ items: [{
+            code: materialCode,
+            name: 'transparent glass',
+            optimizeParam: JSON.stringify({
+                materialParameter: JSON.stringify({
+                    D: [['SN:0_MI_V8_Glass', '300*1.0']],
+                }),
+                modelType: '4',
+            }),
+            pakFileUrl: 'https://file.test/must-not-load.pak',
+        }] }),
+    });
+
+    await loader.load([instance('1401', 0)], new THREE.Group());
+
+    const resolvedMaterial = calls.place[0].model.children[0].material;
+    assert.deepEqual(calls.materials, [[materialCode]]);
+    assert.equal(resolvedMaterial.userData.contentMaterialIsGlass, true);
+    assert.equal(resolvedMaterial.userData.contentMaterialDescriptor.masterMaterial,
+        'MI_V8_Glass');
+});
+
+test('concurrent parameterized prototypes request a shared PT code only once', async () => {
+    const materialCode = 'PT527545889554403328';
+    const materialName = 'shared-glass';
+    const selections = new Map([
+        ['window-a', selection('101', 'window-a')],
+        ['window-b', selection('102', 'window-b')],
+    ]);
+    const { loader, calls } = makeHarness({
+        selections,
+        details: [parametricDetail('101'), parametricDetail('102')],
+        parseObj: () => {
+            const material = new THREE.MeshStandardMaterial();
+            material.name = materialName;
+            return prototype(material);
+        },
+        convertModel: async () => ({
+            obj: validObj,
+            material: {
+                [materialName]: {
+                    ID: materialCode, MatName: materialName,
+                    IsModel: false, BimRenderMat: 5,
+                },
+            },
+        }),
+        getMaterialDetails: async () => {
+            await new Promise(resolve => setTimeout(resolve, 5));
+            return { items: [{
+                code: materialCode,
+                optimizeParam: JSON.stringify({ modelType: '4' }),
+            }] };
+        },
+    });
+
+    await loader.load([
+        instance('window-a', 0),
+        instance('window-b', 1),
+    ], new THREE.Group());
+
+    assert.deepEqual(calls.materials, [[materialCode]]);
+    assert.equal(calls.place.length, 2);
+    assert.ok(calls.place.every(call =>
+        call.model.children[0].material.userData.contentMaterialIsGlass === true));
+});
+
+test('PT detail failure keeps the parameterized model visible', async () => {
+    const warnings = [];
+    const materialName = 'library-material';
+    const { loader, calls } = makeHarness({
+        selections: new Map([['1401', selection('2406313', '1401')]]),
+        details: [parametricDetail('2406313')],
+        parseObj: () => {
+            const material = new THREE.MeshStandardMaterial();
+            material.name = materialName;
+            return prototype(material);
+        },
+        convertModel: async () => ({
+            obj: validObj,
+            material: {
+                [materialName]: {
+                    ID: 'PT9', MatName: materialName,
+                    IsModel: false, BimRenderMat: 5,
+                },
+            },
+        }),
+        getMaterialDetails: async () => {
+            throw Object.assign(new Error('https://secret.test/a?token=secret'), {
+                code: 'NETWORK_ERROR',
+            });
+        },
+        logger: { log() {}, warn(...args) { warnings.push(args); } },
+    });
+
+    const result = await loader.load([instance('1401', 0)], new THREE.Group());
+
+    assert.equal(result.summary.placed, 1);
+    assert.equal(result.summary.failed, 0);
+    assert.equal(calls.place.length, 1);
+    assert.ok(warnings.length >= 1);
+    assert.equal(JSON.stringify(warnings).includes('secret.test'), false);
 });
 
 test('default GLTF loading configures the bundled Draco decoder', () => {
