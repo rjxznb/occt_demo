@@ -57,25 +57,25 @@
         }
 
         #fps-counter {
-            color: #00ff00;
-            background: rgba(0, 255, 120, 0.08);
-            padding: 7px 9px;
-            border-radius: 6px;
+            color: rgba(29, 29, 31, 0.72);
+            background: rgba(255, 255, 255, 0.26);
+            padding: 6px 7px;
+            border-radius: 10px;
             font-family: 'Courier New', monospace;
-            font-size: 12px;
-            border: 1px solid rgba(0, 255, 120, 0.24);
+            font-size: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.58);
         }
 
         #auto-rotation-status {
             display: flex;
             align-items: center;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 7px 9px;
-            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.22);
+            padding: 6px 7px;
+            border-radius: 10px;
             font-family: 'Courier New', monospace;
-            font-size: 11px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #ccc;
+            font-size: 9px;
+            border: 1px solid rgba(255, 255, 255, 0.52);
+            color: rgba(29, 29, 31, 0.62);
         }
 
         .rotation-indicator {
@@ -89,11 +89,11 @@
         }
 
         .rotation-indicator.enabled {
-            background: #00ff00;
+            background: #30d158;
         }
 
         .rotation-indicator.rotating {
-            background: #ff6600;
+            background: #ff9f0a;
             animation: pulse 1s infinite;
         }
 
@@ -104,37 +104,82 @@
 
         #controls {
             position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 208px;
+            isolation: isolate;
+            overflow: hidden;
+            top: 18px;
+            right: 18px;
+            width: 154px;
             display: flex;
             flex-direction: column;
-            gap: 14px;
-            background: rgba(20, 24, 30, 0.88);
-            padding: 14px;
-            border-radius: 10px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            gap: 10px;
+            color: #1d1d1f;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.60),
+                    rgba(241, 247, 252, 0.34) 46%, rgba(255, 255, 255, 0.52));
+            padding: 10px;
+            border-radius: 22px;
+            backdrop-filter: blur(28px) saturate(175%) contrast(106%);
+            -webkit-backdrop-filter: blur(28px) saturate(175%) contrast(106%);
+            border: 1px solid rgba(255, 255, 255, 0.82);
+            box-shadow:
+                0 18px 42px rgba(38, 54, 68, 0.18),
+                inset 0 1px 0 rgba(255, 255, 255, 0.90),
+                inset 1px 0 0 rgba(255, 255, 255, 0.38);
             z-index: 1000;
+        }
+
+        #controls::before,
+        #controls::after {
+            content: '';
+            position: absolute;
+            pointer-events: none;
+            border-radius: inherit;
+        }
+
+        #controls::before {
+            inset: 0;
+            background:
+                radial-gradient(130px 70px at 22% -4%,
+                    rgba(255, 255, 255, 0.90), transparent 64%),
+                linear-gradient(115deg, rgba(255, 255, 255, 0.34),
+                    transparent 35% 70%, rgba(116, 191, 255, 0.14));
+            mix-blend-mode: screen;
+        }
+
+        #controls::after {
+            inset: 1px;
+            box-shadow:
+                inset 0 -1px 0 rgba(74, 105, 130, 0.12),
+                inset -1px 0 0 rgba(96, 159, 211, 0.10);
+        }
+
+        #controls > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        @supports not (backdrop-filter: blur(1px)) {
+            #controls {
+                background: rgba(246, 249, 252, 0.96);
+            }
         }
 
         .viewer-status-row {
             display: grid;
-            gap: 6px;
+            gap: 5px;
         }
 
         .control-group {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 5px;
         }
 
         .control-label {
-            color: #ccc;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            color: rgba(29, 29, 31, 0.52);
+            font-size: 10px;
+            font-weight: 650;
+            letter-spacing: 0.02em;
         }
 
         button {
@@ -158,9 +203,34 @@
             border-color: #0088ff;
         }
 
+        #controls button {
+            padding: 7px 5px;
+            color: #1d1d1f;
+            background: rgba(255, 255, 255, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.60);
+            border-radius: 11px;
+            font-size: 11px;
+            font-weight: 600;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.55),
+                0 2px 7px rgba(30, 50, 70, 0.06);
+        }
+
+        #controls button:hover {
+            transform: scale(1.025);
+            background: rgba(255, 255, 255, 0.46);
+        }
+
+        #controls button:focus-visible {
+            outline: 2px solid #0a84ff;
+            outline-offset: 2px;
+        }
+
         .mode-view {
-            background: #28a745 !important;
-            border-color: #34ce57 !important;
+            color: #fff !important;
+            background: linear-gradient(180deg,
+                rgba(20, 135, 255, 0.91), rgba(0, 105, 235, 0.88)) !important;
+            border-color: rgba(0, 122, 255, 0.34) !important;
         }
 
         .mode-edit {
@@ -445,14 +515,14 @@
         }
 
         .resource-btn {
-            background: #9C27B0 !important;
-            border-color: #BA68C8 !important;
-            color: white !important;
+            background: rgba(255, 255, 255, 0.28) !important;
+            border-color: rgba(255, 255, 255, 0.60) !important;
+            color: #1d1d1f !important;
         }
 
         .resource-btn:hover {
-            background: #7B1FA2 !important;
-            border-color: #9C27B0 !important;
+            background: rgba(255, 255, 255, 0.46) !important;
+            border-color: rgba(255, 255, 255, 0.72) !important;
         }
 
         .view-toggle-btn {
@@ -467,42 +537,40 @@
         }
 
         .template-btn {
-            background: #00897B !important;
-            border-color: #26A69A !important;
-            color: white !important;
+            background: rgba(255, 255, 255, 0.28) !important;
+            border-color: rgba(255, 255, 255, 0.60) !important;
+            color: #1d1d1f !important;
         }
         .template-btn:hover {
-            background: #00796B !important;
-            border-color: #009688 !important;
+            background: rgba(255, 255, 255, 0.46) !important;
+            border-color: rgba(255, 255, 255, 0.72) !important;
         }
 
         .primary-action-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            gap: 5px;
         }
 
         .primary-action-grid button {
-            min-height: 42px;
-            padding: 8px 6px;
-            font-size: 12px;
+            min-height: 34px;
+            padding: 6px 3px;
+            font-size: 10px;
             line-height: 1.25;
         }
 
         .view-angle-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 6px;
+            gap: 5px;
         }
         .view-angle-btn {
-            padding: 8px 0;
-            font-size: 13px;
-            background: #2b2b2b;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 6px 0;
+            font-size: 10px;
         }
         .view-angle-btn:hover {
-            background: #3a7bd5;
-            border-color: #4a8be5;
+            background: rgba(255, 255, 255, 0.46);
+            border-color: rgba(10, 132, 255, 0.34);
         }
 
         /* 拖拽时的视觉反馈 */
