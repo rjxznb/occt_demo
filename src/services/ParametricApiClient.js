@@ -75,6 +75,49 @@ export class ParametricApiClient {
         return { items: ids.flatMap(id => detailById.has(id) ? [detailById.get(id)] : []) };
     }
 
+    async getMaterialDetails(materialCodes) {
+        const codes = [...new Set((materialCodes || [])
+            .map(value => String(value).trim())
+            .filter(value => /^PT\d+$/.test(value)))];
+        if (codes.length === 0) return { items: [] };
+
+        const batches = [];
+        for (let index = 0; index < codes.length; index += 50) {
+            batches.push(codes.slice(index, index + 50));
+        }
+        const responses = await mapSettledWithConcurrency(
+            batches,
+            GOODS_CONCURRENCY,
+            batch => this.transport === 'cad'
+                ? this.hostClient.invoke(
+                    'getContentMaterialDetails',
+                    { materialCodes: batch },
+                    { timeoutMs: GOODS_TIMEOUT_MS },
+                )
+                : this.postJson(
+                    `${this.backendUrl}/api/getContentMaterialDetails`,
+                    { materialCodes: batch },
+                ),
+        );
+        const errors = responses.filter(result => result.status === 'rejected')
+            .map(result => result.reason);
+        const items = [];
+        let validResponseCount = 0;
+        for (const response of responses) {
+            if (response.status !== 'fulfilled') continue;
+            try {
+                items.push(...normalizeMaterialItems(response.value));
+                validResponseCount += 1;
+            } catch (error) {
+                errors.push(error);
+            }
+        }
+        if (validResponseCount === 0 && errors.length > 0) throw errors[0];
+        const detailByCode = indexMaterialDetails({ items });
+        return { items: codes.flatMap(code => detailByCode.has(code)
+            ? [detailByCode.get(code)] : []) };
+    }
+
     async convertModel(url, parameters = []) {
         const payload = { url: String(url ?? '').trim() };
         if (!payload.url) throw createError('INVALID_ARGUMENT', 'model url is required');
@@ -182,6 +225,35 @@ export function indexGoodsDetails(raw) {
         for (const id of ids) {
             if (id !== undefined && id !== null) details.set(String(id), item);
         }
+    }
+    return details;
+}
+
+export function normalizeMaterialItems(raw) {
+    const response = parsePossibleJson(raw);
+    if (!response || typeof response !== 'object') return [];
+    if (Object.hasOwn(response, 'code')) {
+        const code = response.code;
+        if (code !== 1 && code !== 2000 && code !== '1' && code !== '2000') {
+            const businessCode = typeof code === 'number' && Number.isFinite(code)
+                ? code : undefined;
+            throw createError('INVALID_RESPONSE', businessCode === undefined
+                ? 'Invalid business response code'
+                : `Invalid business response code: ${businessCode}`, { businessCode });
+        }
+    }
+    if (Array.isArray(response.items)) return response.items;
+    if (Array.isArray(response.data)) return response.data;
+    if (Array.isArray(response.data?.list)) return response.data.list;
+    return [];
+}
+
+export function indexMaterialDetails(raw) {
+    const items = Array.isArray(raw) ? raw : normalizeMaterialItems(raw);
+    const details = new Map();
+    for (const item of items) {
+        const code = String(item?.code ?? item?.resCode ?? '').trim();
+        if (/^PT\d+$/.test(code)) details.set(code, item);
     }
     return details;
 }

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
     ParametricApiClient,
     indexGoodsDetails,
+    indexMaterialDetails,
     normalizeGoodsItems,
+    normalizeMaterialItems,
 } from '../src/services/ParametricApiClient.js';
 
 test('top-level mode uses the Node goods endpoint', async () => {
@@ -274,4 +276,71 @@ test('goods detail index retains every available ID alias', () => {
     assert.equal(result.get('2'), detail);
     assert.equal(result.get('3'), detail);
     assert.equal(result.get('4'), detail);
+});
+
+test('standalone material details validate, deduplicate and batch PT codes', async () => {
+    const calls = [];
+    const client = new ParametricApiClient({
+        hostClient: null,
+        fetchImpl: async (url, init) => {
+            calls.push({ url, init });
+            const codes = JSON.parse(init.body).materialCodes;
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    code: 2000,
+                    data: codes.map(code => ({ code, name: `material-${code}` })),
+                }),
+            };
+        },
+    });
+    const codes = [
+        ...Array.from({ length: 51 }, (_, index) => `PT${index + 1}`),
+        'PT1',
+        'MX2',
+        '',
+    ];
+
+    const result = await client.getMaterialDetails(codes);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, 'http://localhost:3100/api/getContentMaterialDetails');
+    assert.deepEqual(JSON.parse(calls[0].init.body).materialCodes,
+        Array.from({ length: 50 }, (_, index) => `PT${index + 1}`));
+    assert.deepEqual(JSON.parse(calls[1].init.body).materialCodes, ['PT51']);
+    assert.deepEqual(result.items.map(item => item.code),
+        Array.from({ length: 51 }, (_, index) => `PT${index + 1}`));
+});
+
+test('CAD material details use the host bridge and preserve successful partial batches', async () => {
+    const calls = [];
+    const hostClient = {
+        isAvailable: () => true,
+        invoke: async (method, payload) => {
+            calls.push({ method, payload });
+            if (payload.materialCodes.includes('PT51')) {
+                throw Object.assign(new Error('offline'), { code: 'NETWORK_ERROR' });
+            }
+            return JSON.stringify({
+                code: 2000,
+                data: payload.materialCodes.map(code => ({ code })),
+            });
+        },
+    };
+    const client = new ParametricApiClient({ hostClient });
+    const codes = Array.from({ length: 51 }, (_, index) => `PT${index + 1}`);
+
+    const result = await client.getMaterialDetails(codes);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].method, 'getContentMaterialDetails');
+    assert.deepEqual(calls[0].payload.materialCodes, codes.slice(0, 50));
+    assert.deepEqual(result.items.map(item => item.code), codes.slice(0, 50));
+});
+
+test('material item normalization and indexing accept the upstream response', () => {
+    const detail = { code: 'PT527545889554403328', name: 'glass' };
+    assert.deepEqual(normalizeMaterialItems({ code: 2000, data: [detail] }), [detail]);
+    assert.equal(indexMaterialDetails({ items: [detail] }).get(detail.code), detail);
 });
