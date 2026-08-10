@@ -78,6 +78,10 @@ export function staticCacheKey(resource) {
     return `static:${resource.resId}:${resource.contentHash || 'unversioned'}`;
 }
 
+export function webPackageCacheKey(resource) {
+    return `static-web:${resource.resId}:${resource.contentHash || 'unversioned'}`;
+}
+
 export function parametricCacheKey(resource, parameters) {
     return `parametric:${resource.resId}:${resource.contentHash || 'unversioned'}:${normalizeParameters(parameters)}`;
 }
@@ -132,7 +136,10 @@ function usableMaterial(material) {
 function sanitizeSensitiveText(value) {
     return value
         .replace(/https?:\/\/\S+/gi, '[redacted-url]')
-        .replace(/(?:sourceUrl|webV2Url|parameterizedJsonUrl)/gi, '[redacted-resource-field]');
+        .replace(
+            /(?:sourceUrl|webUrl|webV2Url|gltfUrl|gltfPath|parameterizedJsonUrl)/gi,
+            '[redacted-resource-field]',
+        );
 }
 
 function sanitizeMetadata(value, seen = new WeakSet()) {
@@ -147,7 +154,7 @@ function sanitizeMetadata(value, seen = new WeakSet()) {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return value;
     for (const key of Object.keys(value)) {
-        if (/(?:sourceUrl|webV2Url|parameterizedJsonUrl)/i.test(key)) {
+        if (/(?:sourceUrl|webUrl|webV2Url|gltfUrl|gltfPath|parameterizedJsonUrl)/i.test(key)) {
             delete value[key];
         } else {
             value[key] = sanitizeMetadata(value[key], seen);
@@ -307,9 +314,11 @@ export class ContentModelLoader {
     }
 
     async getPrototype(resource, parameters) {
-        const key = resource.kind === 'static-glb'
-            ? staticCacheKey(resource)
-            : parametricCacheKey(resource, parameters);
+        const key = resource.kind === 'static-web-package'
+            ? webPackageCacheKey(resource)
+            : resource.kind === 'static-glb'
+                ? staticCacheKey(resource)
+                : parametricCacheKey(resource, parameters);
         if (this.prototypeCache.has(key)) {
             const cached = this.prototypeCache.get(key);
             this.prototypeCache.delete(key);
@@ -318,9 +327,11 @@ export class ContentModelLoader {
         }
         if (this.prototypeFlights.has(key)) return this.prototypeFlights.get(key);
 
-        const flight = this.runPrototypeLoad(() => resource.kind === 'static-glb'
-            ? this.loadStaticPrototype(resource)
-            : this.loadParametricPrototype(resource, parameters));
+        const flight = this.runPrototypeLoad(() => resource.kind === 'static-web-package'
+            ? this.loadWebPackagePrototype(resource)
+            : resource.kind === 'static-glb'
+                ? this.loadStaticPrototype(resource)
+                : this.loadParametricPrototype(resource, parameters));
         this.prototypeFlights.set(key, flight);
         try {
             const prototypeRoot = await flight;
@@ -342,6 +353,29 @@ export class ContentModelLoader {
             throw pipelineError(
                 'STATIC_MODEL_LOAD_FAILED',
                 sanitizedMessage(error, 'Static model load failed'),
+                error,
+            );
+        }
+    }
+
+    async loadWebPackagePrototype(resource) {
+        try {
+            const prepared = await this.apiClient.prepareWebModelPackage(resource.resId);
+            return preparePrototype(
+                await this.loadGltf(prepared.gltfUrl),
+                'STATIC_MODEL_LOAD_FAILED',
+            );
+        } catch (error) {
+            if (resource.fallbackResource) {
+                this.logger.warn('[ContentLoader] Web package fallback', {
+                    resId: resource.resId,
+                    code: failureCode(error, 'STATIC_MODEL_LOAD_FAILED'),
+                });
+                return this.loadStaticPrototype(resource.fallbackResource);
+            }
+            throw pipelineError(
+                'STATIC_MODEL_LOAD_FAILED',
+                sanitizedMessage(error, 'Web model package load failed'),
                 error,
             );
         }
@@ -494,8 +528,8 @@ export class ContentModelLoader {
                 recordFailure(record.instance, record.selection, null, resource.errorCode);
                 continue;
             }
-            if (resource.kind === 'static-glb') staticSelected += 1;
-            else parametricSelected += 1;
+            if (resource.kind === 'parametric-obj') parametricSelected += 1;
+            else staticSelected += 1;
             loadRecords.push({ ...record, resource });
         }
 

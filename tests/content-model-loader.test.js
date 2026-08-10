@@ -9,6 +9,7 @@ import {
     normalizeParameters,
     parametricCacheKey,
     staticCacheKey,
+    webPackageCacheKey,
 } from '../src/components/ContentModelLoader.js';
 
 const validObj = [
@@ -70,6 +71,22 @@ function parametricDetail(resId, hash = `hash-${resId}`, sourceUrl = `https://fi
     };
 }
 
+function webPackageDetail(resId, {
+    webMd5 = '0123456789abcdef0123456789abcdef',
+    webV2Url = `https://file.test/${resId}.kb`,
+    webV2Md5 = `fallback-${resId}`,
+} = {}) {
+    const data = {
+        webUrl: `https://file.ljcdn.com/${resId}.pak?signature=secret`,
+        webMd5,
+    };
+    if (webV2Url) {
+        data.webV2Url = webV2Url;
+        data.webV2Md5 = webV2Md5;
+    }
+    return { id: resId, modelType: 1, resourceList: [{ type: 1, data }] };
+}
+
 function prototype(material = new THREE.MeshBasicMaterial({ color: 0x123456 })) {
     const group = new THREE.Group();
     group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
@@ -114,11 +131,11 @@ function placeClone(model, currentInstance) {
 
 function makeHarness({
     selections, details, loadGltf, parseObj, convertModel, getGoodsDetails, logger,
-    getMaterialDetails, prototypeCacheLimit, resolveParameters,
+    getMaterialDetails, prepareWebModelPackage, prototypeCacheLimit, resolveParameters,
 } = {}) {
     const calls = {
         sequence: [], goods: [], materials: [], gltf: [], convert: [], place: [],
-        resolveParameters: [],
+        prepare: [], resolveParameters: [],
     };
     const templateResolver = {
         async load() {
@@ -145,6 +162,17 @@ function makeHarness({
         async getMaterialDetails(codes) {
             calls.materials.push([...codes]);
             return getMaterialDetails ? getMaterialDetails(codes) : { items: [] };
+        },
+        async prepareWebModelPackage(resId) {
+            calls.prepare.push(resId);
+            if (prepareWebModelPackage) return prepareWebModelPackage(resId);
+            return {
+                resId,
+                resourceKey: `${resId}-key`,
+                gltfUrl: `http://localhost:3100/api/web-model-assets/${resId}-key/model.gltf`,
+                contentHash: '0123456789abcdef0123456789abcdef',
+                cacheHit: false,
+            };
         },
     };
     const loader = new ContentModelLoader({
@@ -412,6 +440,133 @@ test('deduplicates static prototypes in flight and in cache while returning inde
     assert.notEqual(first.groups[0], first.groups[1]);
     assert.notEqual(first.groups[0], second.groups[0]);
     assert.equal(scene.children.length, 3);
+});
+
+test('loads a prepared Web package first and preserves its PBR material maps', async () => {
+    const packageMaterial = new THREE.MeshStandardMaterial({
+        color: 0x18222c,
+        roughness: 0.37,
+        metalness: 0.62,
+    });
+    packageMaterial.map = new THREE.Texture();
+    packageMaterial.normalMap = new THREE.Texture();
+    const packageUrl = 'http://localhost:3100/api/web-model-assets/1961113-key/model.gltf';
+    const { loader, calls } = makeHarness({
+        selections: new Map([['chair', selection('1961113', 'chair')]]),
+        details: [webPackageDetail('1961113')],
+        prepareWebModelPackage: async resId => ({
+            resId,
+            resourceKey: `${resId}-key`,
+            gltfUrl: packageUrl,
+            contentHash: '0123456789abcdef0123456789abcdef',
+            cacheHit: false,
+        }),
+        loadGltf: async () => prototype(packageMaterial),
+    });
+
+    const result = await loader.load([instance('chair', 0)], new THREE.Group());
+
+    assert.deepEqual(calls.prepare, ['1961113']);
+    assert.deepEqual(calls.gltf, [packageUrl]);
+    assert.equal(calls.convert.length, 0);
+    assert.equal(result.summary.staticSelected, 1);
+    assert.equal(result.summary.placed, 1);
+    const placedMaterial = result.groups[0].children[0].material;
+    assert.equal(placedMaterial.map, packageMaterial.map);
+    assert.equal(placedMaterial.normalMap, packageMaterial.normalMap);
+    assert.equal(placedMaterial.color.getHex(), packageMaterial.color.getHex());
+    assert.equal(placedMaterial.roughness, 0.37);
+    assert.equal(placedMaterial.metalness, 0.62);
+});
+
+test('deduplicates prepared Web package prototypes across instances and loads', async () => {
+    const resource = {
+        resId: '1961113',
+        contentHash: '0123456789abcdef0123456789abcdef',
+    };
+    assert.equal(
+        webPackageCacheKey(resource),
+        'static-web:1961113:0123456789abcdef0123456789abcdef',
+    );
+    const { loader, calls } = makeHarness({
+        selections: new Map([['chair', selection('1961113', 'chair')]]),
+        details: [webPackageDetail('1961113')],
+    });
+    const scene = new THREE.Group();
+
+    const first = await loader.load([
+        instance('chair', 0), instance('chair', 1),
+    ], scene);
+    const second = await loader.load([instance('chair', 2)], scene);
+
+    assert.equal(calls.prepare.length, 1);
+    assert.equal(calls.gltf.length, 1);
+    assert.equal(first.groups.length, 2);
+    assert.notEqual(first.groups[0], first.groups[1]);
+    assert.notEqual(first.groups[0], second.groups[0]);
+});
+
+test('falls back to WebV2 when Web package preparation fails', async () => {
+    const warnings = [];
+    const fallbackUrl = 'https://file.test/1961113.kb?signature=fallback-secret';
+    const { loader, calls } = makeHarness({
+        selections: new Map([['chair', selection('1961113', 'chair')]]),
+        details: [webPackageDetail('1961113', { webV2Url: fallbackUrl })],
+        prepareWebModelPackage: async () => {
+            throw Object.assign(new Error(
+                'https://file.ljcdn.com/model.pak?token=package-secret',
+            ), { code: 'WEB_PACKAGE_CHECKSUM_MISMATCH' });
+        },
+        logger: { log() {}, warn(...args) { warnings.push(args); } },
+    });
+
+    const result = await loader.load([instance('chair', 0)], new THREE.Group());
+
+    assert.equal(result.summary.placed, 1);
+    assert.equal(result.summary.failed, 0);
+    assert.deepEqual(calls.gltf, [fallbackUrl]);
+    assert.equal(JSON.stringify(warnings).includes('package-secret'), false);
+    assert.equal(JSON.stringify(warnings).includes('fallback-secret'), false);
+});
+
+test('reports a sanitized static failure when Web package and WebV2 both fail', async () => {
+    const warnings = [];
+    const { loader } = makeHarness({
+        selections: new Map([['chair', selection('1961113', 'chair')]]),
+        details: [webPackageDetail('1961113')],
+        prepareWebModelPackage: async () => {
+            throw Object.assign(new Error('https://secret.test/package.pak?token=one'), {
+                code: 'WEB_PACKAGE_DOWNLOAD_FAILED',
+            });
+        },
+        loadGltf: async url => { throw new Error(`failed ${url}`); },
+        logger: { log() {}, warn(...args) { warnings.push(args); } },
+    });
+
+    const result = await loader.load([instance('chair', 0)], new THREE.Group());
+
+    assert.equal(result.summary.placed, 0);
+    assert.equal(result.summary.failed, 1);
+    assert.equal(result.failures[0].errorCode, 'STATIC_MODEL_LOAD_FAILED');
+    assert.equal(JSON.stringify(result).includes('secret.test'), false);
+    assert.equal(JSON.stringify(warnings).includes('secret.test'), false);
+});
+
+test('keeps parameterized windows off the Web package preparation path', async () => {
+    const detail = parametricDetail('2406313');
+    detail.resourceList[0].data.webUrl = '';
+    detail.resourceList[0].data.webMd5 = '';
+    const { loader, calls } = makeHarness({
+        selections: new Map([['1401', selection('2406313', '1401')]]),
+        details: [detail],
+    });
+
+    const result = await loader.load([instance('1401', 0)], new THREE.Group());
+
+    assert.equal(calls.prepare.length, 0);
+    assert.equal(calls.convert.length, 1);
+    assert.equal(result.summary.parametricSelected, 1);
+    assert.equal(result.groups.length, 1);
 });
 
 test('cached skinned prototypes place independent skeletons, bones, geometry, and materials', async () => {
