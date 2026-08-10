@@ -407,6 +407,8 @@ export class RoomRenderer {
         this.globalCenterY = 0;
         this.isScaleSet = false;
         this.sceneGroup = null; // 用于整体缩放的场景组
+        this.roomLabels = [];
+        this.roomLabelsVisible = true;
     }
 
     /**
@@ -562,6 +564,7 @@ export class RoomRenderer {
                 result.roomLabels = RoomLabelFactory.createLabels(data.rooms.roomInfo);
                 result.roomLabels.forEach(label => this.sceneGroup.add(label));
                 this.roomLabels = result.roomLabels;
+                this.setRoomLabelsVisible(this.roomLabelsVisible);
             }
 
             // 6. 开启阴影。CSG 会产出全新的 mesh，所以统一在最后遍历设置，
@@ -918,6 +921,14 @@ export class RoomRenderer {
         }
     }
 
+    setRoomLabelsVisible(visible) {
+        this.roomLabelsVisible = Boolean(visible);
+        this.roomLabels.forEach(label => {
+            if (label) label.visible = this.roomLabelsVisible;
+        });
+        return this.roomLabelsVisible;
+    }
+
     /**
      * 清理所有3D渲染对象
      * @param {THREE.Scene} scene - Three.js场景对象
@@ -944,6 +955,7 @@ export class RoomRenderer {
             // 清空场景组
             this.sceneGroup.clear();
             this.sceneGroup = null;
+            this.roomLabels = [];
             
             console.log('3D渲染对象已清理');
         }

@@ -38,6 +38,7 @@ class OCCTApp3D {
         this.currentView = '3d';   // 恒为 3D，仅为兼容既有 3D 组件里的视图判断
         this.sharedData = null;
         this.fpsCounter = null;
+        this.roomLabelsVisible = true;
 
         this.renderState = { '3d': false };
 
@@ -102,6 +103,7 @@ class OCCTApp3D {
             fpsCounter: document.getElementById('fps-counter'),
             modeToggle: document.getElementById('mode-toggle'),
             resourceToggle: document.getElementById('resource-toggle'),
+            labelToggle: document.getElementById('label-toggle'),
             rotationIndicator: document.getElementById('rotation-indicator'),
             rotationStatusText: document.getElementById('rotation-status-text'),
         };
@@ -110,6 +112,8 @@ class OCCTApp3D {
 
         this.uiElements.modeToggle?.addEventListener('click', () => this.toggleMode());
         this.uiElements.resourceToggle?.addEventListener('click', () => this.toggleResourceSidebar());
+        this.uiElements.labelToggle?.addEventListener('click', () => this.toggleRoomLabels());
+        this.setRoomLabelsVisible(this.roomLabelsVisible);
 
         // 快速视角：切到对应鸟瞰角度（保留鼠标旋转）
         document.querySelectorAll('.view-angle-btn').forEach(btn => {
@@ -226,6 +230,23 @@ class OCCTApp3D {
         this.materialSidebar?.toggle();
     }
 
+    toggleRoomLabels() {
+        this.setRoomLabelsVisible(!this.roomLabelsVisible);
+    }
+
+    setRoomLabelsVisible(visible) {
+        this.roomLabelsVisible = Boolean(visible);
+        this.roomRenderer?.setRoomLabelsVisible(this.roomLabelsVisible);
+
+        const button = this.uiElements.labelToggle;
+        if (!button) return;
+        const hidden = !this.roomLabelsVisible;
+        button.textContent = hidden ? '🏷 显示标注' : '🏷 隐藏标注';
+        button.title = hidden ? '显示房间文字标注' : '隐藏房间文字标注';
+        button.setAttribute('aria-pressed', String(hidden));
+        button.classList.toggle('labels-hidden', hidden);
+    }
+
     async loadData() {
         globalThis.__renderPreviewDiagnostic?.('data-load-start', 'OK');
         try {
@@ -248,6 +269,7 @@ class OCCTApp3D {
             this.updateStatus('正在渲染几何体...');
             const data3D = JSON.parse(JSON.stringify(data));
             await this.roomRenderer.render(data3D, this.wallSelector);
+            this.setRoomLabelsVisible(this.roomLabelsVisible);
             this.renderState['3d'] = true;
             this._ensureRoomInfoView();
 

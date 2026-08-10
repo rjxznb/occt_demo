@@ -239,6 +239,12 @@
             color: #000 !important;
         }
 
+        #label-toggle.labels-hidden {
+            color: #0066cc;
+            background: rgba(10, 132, 255, 0.14);
+            border-color: rgba(10, 132, 255, 0.30);
+        }
+
         .csg-bvh {
             background: #17a2b8 !important;
             border-color: #20c0db !important;
@@ -1077,6 +1083,11 @@
                 <button id="resource-toggle" class="resource-btn">📚 资源库</button>
                 <button id="template-toggle" class="template-btn">🎨 应用模板</button>
             </div>
+        </div>
+
+        <div class="control-group">
+            <div class="control-label">场景显示</div>
+            <button id="label-toggle" aria-pressed="false" title="隐藏房间文字标注">🏷 隐藏标注</button>
         </div>
         
         <div class="control-group" id="view-angle-group">

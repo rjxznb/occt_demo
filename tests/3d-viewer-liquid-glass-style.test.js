@@ -17,4 +17,6 @@ test('3D controls use the approved compact Liquid Glass surface', async () => {
     assert.match(html, /@supports\s+not\s+\(backdrop-filter:\s*blur\(1px\)\)/);
     assert.match(html,
         /#controls\s*>\s*\*\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*1;/);
+    assert.match(html, /id="label-toggle"/);
+    assert.match(html, /#label-toggle\.labels-hidden\s*\{/);
 });
