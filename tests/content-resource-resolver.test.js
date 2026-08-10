@@ -16,6 +16,7 @@ test('type 1 chooses nested webV2Url as a static GLB', () => {
         contentHash: 'static-md5', modelType: 1, resourceType: 1,
         rawSummary: {
             candidateCount: 1,
+            hasStaticWebPackage: false,
             hasStaticWebV2: true,
             hasParameterizedJson: false,
         },
@@ -82,4 +83,70 @@ test('resolver ignores signed URLs that are not HTTP(S) resources', () => {
     });
     assert.equal(resource.errorCode, 'RESOURCE_URL_MISSING');
     assert.deepEqual(resource, { errorCode: 'RESOURCE_URL_MISSING', resId: '3' });
+});
+
+test('type 1 prefers an encrypted Web package and retains WebV2 fallback', () => {
+    const resource = resolveModelResource('1961113', {
+        modelType: 1,
+        resourceList: [{ type: 1, data: {
+            webUrl: 'https://file.ljcdn.com/model.pak?signature=secret',
+            webMd5: '0123456789abcdef0123456789abcdef',
+            webV2Url: 'https://file.test/model.kb?signature=secret',
+            webV2Md5: 'web-v2-md5',
+        } }],
+    });
+    assert.deepEqual(resource, {
+        resId: '1961113',
+        kind: 'static-web-package',
+        contentHash: '0123456789abcdef0123456789abcdef',
+        fallbackResource: {
+            resId: '1961113',
+            kind: 'static-glb',
+            sourceUrl: 'https://file.test/model.kb?signature=secret',
+            contentHash: 'web-v2-md5',
+            modelType: 1,
+            resourceType: 1,
+        },
+        modelType: 1,
+        resourceType: 1,
+        rawSummary: {
+            candidateCount: 1,
+            hasStaticWebPackage: true,
+            hasStaticWebV2: true,
+            hasParameterizedJson: false,
+        },
+    });
+});
+
+test('supports Web-package-only static resources and rejects an invalid package MD5', () => {
+    const packageOnly = resolveModelResource('1961114', {
+        resourceList: [{ type: 1, data: {
+            webUrl: 'https://file.ljcdn.com/model.pak',
+            webMd5: 'ABCDEF0123456789ABCDEF0123456789',
+        } }],
+    });
+    assert.equal(packageOnly.kind, 'static-web-package');
+    assert.equal(packageOnly.contentHash, 'abcdef0123456789abcdef0123456789');
+    assert.equal(packageOnly.fallbackResource, undefined);
+
+    const invalidMd5 = resolveModelResource('1961115', {
+        resourceList: [{ type: 1, data: {
+            webUrl: 'https://file.ljcdn.com/model.pak',
+            webMd5: 'not-an-md5',
+        } }],
+    });
+    assert.equal(invalidMd5.errorCode, 'RESOURCE_URL_MISSING');
+});
+
+test('type 8 remains parameterized when its unused Web fields are present', () => {
+    const resource = resolveModelResource('2406313', {
+        resourceList: [{ type: 8, data: {
+            webUrl: '',
+            webMd5: '',
+            parameterizedJsonUrl: 'https://file.test/window.json',
+            parameterizedJsonMd5: 'window-md5',
+        } }],
+    });
+    assert.equal(resource.kind, 'parametric-obj');
+    assert.equal(resource.sourceUrl, 'https://file.test/window.json');
 });

@@ -9,6 +9,8 @@ export function resolveModelResource(resId, detail) {
     }));
     const rawSummary = {
         candidateCount: resources.length,
+        hasStaticWebPackage: resources.some(resource => resource.type === 1
+            && hasWebPackage(resource.data)),
         hasStaticWebV2: resources.some(resource => resource.type === 1
             && hasValue(resource.data.webV2Url)),
         hasParameterizedJson: resources.some(resource => resource.type === 8
@@ -16,6 +18,22 @@ export function resolveModelResource(resId, detail) {
     };
 
     for (const resource of resources) {
+        if (resource.type === 1 && hasWebPackage(resource.data)) {
+            const fallbackResource = staticFallback(
+                normalizedResId,
+                resource.data,
+                model.modelType,
+            );
+            return {
+                resId: normalizedResId,
+                kind: 'static-web-package',
+                contentHash: resource.data.webMd5.trim().toLowerCase(),
+                ...(fallbackResource ? { fallbackResource } : {}),
+                modelType: model.modelType,
+                resourceType: 1,
+                rawSummary,
+            };
+        }
         if (resource.type === 1 && isHttpUrl(resource.data.webV2Url)) {
             return resolvedResource(normalizedResId, 'static-glb', resource.data.webV2Url,
                 resource.data.webV2Md5, model.modelType, 1, rawSummary);
@@ -38,7 +56,8 @@ function legacyFlatCandidates(model) {
     if (hasValue(parameterizedUrl(model)) || hasValue(parameterizedHash(model))) {
         resources.push({ type: 8, data: model });
     }
-    if (hasValue(model?.webV2Url) || hasValue(model?.webV2Md5)) {
+    if (hasValue(model?.webUrl) || hasValue(model?.webMd5)
+        || hasValue(model?.webV2Url) || hasValue(model?.webV2Md5)) {
         resources.push({ type: 1, data: model });
     }
     return resources;
@@ -58,6 +77,23 @@ function parameterizedHash(data) {
 
 function resolvedResource(resId, kind, sourceUrl, contentHash, modelType, resourceType, rawSummary) {
     return { resId, kind, sourceUrl, contentHash, modelType, resourceType, rawSummary };
+}
+
+function staticFallback(resId, data, modelType) {
+    if (!isHttpUrl(data?.webV2Url)) return null;
+    return {
+        resId,
+        kind: 'static-glb',
+        sourceUrl: data.webV2Url,
+        contentHash: data.webV2Md5,
+        modelType,
+        resourceType: 1,
+    };
+}
+
+function hasWebPackage(data) {
+    return isHttpUrl(data?.webUrl)
+        && /^[a-f\d]{32}$/i.test(String(data?.webMd5 ?? '').trim());
 }
 
 function hasValue(value) {

@@ -344,3 +344,94 @@ test('material item normalization and indexing accept the upstream response', ()
     assert.deepEqual(normalizeMaterialItems({ code: 2000, data: [detail] }), [detail]);
     assert.equal(indexMaterialDetails({ items: [detail] }).get(detail.code), detail);
 });
+
+test('standalone Web package preparation posts ResId and resolves the local asset path', async () => {
+    const calls = [];
+    const client = new ParametricApiClient({
+        hostClient: null,
+        backendUrl: 'http://localhost:3100/',
+        fetchImpl: async (url, init) => {
+            calls.push({ url, init });
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    code: 2000,
+                    data: {
+                        resId: '1961113',
+                        resourceKey: '1961113-deadbeefdeadbeefdeadbeefdeadbeef',
+                        gltfPath: '/api/web-model-assets/key/model.gltf',
+                        contentHash: 'deadbeefdeadbeefdeadbeefdeadbeef',
+                        cacheHit: false,
+                    },
+                }),
+            };
+        },
+    });
+
+    assert.deepEqual(await client.prepareWebModelPackage('1961113'), {
+        resId: '1961113',
+        resourceKey: '1961113-deadbeefdeadbeefdeadbeefdeadbeef',
+        gltfUrl: 'http://localhost:3100/api/web-model-assets/key/model.gltf',
+        contentHash: 'deadbeefdeadbeefdeadbeefdeadbeef',
+        cacheHit: false,
+    });
+    assert.equal(calls[0].url, 'http://localhost:3100/api/prepareWebModelPackage');
+    assert.equal(calls[0].init.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[0].init.body), { resId: '1961113' });
+});
+
+test('CAD Web package preparation uses the host bridge absolute asset URL', async () => {
+    const calls = [];
+    const client = new ParametricApiClient({
+        hostClient: {
+            isAvailable: () => true,
+            invoke: async (method, payload, options) => {
+                calls.push({ method, payload, options });
+                return JSON.stringify({
+                    code: 2000,
+                    data: {
+                        resId: '1961113',
+                        resourceKey: 'key',
+                        gltfUrl: 'ke-resource://web-model-assets/key/model.gltf',
+                        contentHash: 'deadbeefdeadbeefdeadbeefdeadbeef',
+                        cacheHit: true,
+                    },
+                });
+            },
+        },
+    });
+
+    const result = await client.prepareWebModelPackage('1961113');
+    assert.equal(result.gltfUrl, 'ke-resource://web-model-assets/key/model.gltf');
+    assert.deepEqual(calls, [{
+        method: 'prepareWebModelPackage',
+        payload: { resId: '1961113' },
+        options: { timeoutMs: 130_000 },
+    }]);
+});
+
+test('Web package preparation rejects invalid requests and responses', async () => {
+    const invalidClient = new ParametricApiClient({ hostClient: null });
+    for (const resId of ['', 'not-decimal', '1'.repeat(129)]) {
+        await assert.rejects(
+            invalidClient.prepareWebModelPackage(resId),
+            error => error.code === 'INVALID_ARGUMENT',
+        );
+    }
+
+    for (const body of [
+        { code: 5000, data: {} },
+        { code: 2000, data: {} },
+        { code: 2000, data: { resId: '1961113', resourceKey: 'key', gltfPath: 'relative.gltf' } },
+    ]) {
+        const client = new ParametricApiClient({
+            hostClient: null,
+            fetchImpl: async () => ({ ok: true, status: 200, json: async () => body }),
+        });
+        await assert.rejects(
+            client.prepareWebModelPackage('1961113'),
+            error => error.code === 'INVALID_RESPONSE',
+        );
+    }
+});

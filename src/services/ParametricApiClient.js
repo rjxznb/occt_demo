@@ -118,6 +118,27 @@ export class ParametricApiClient {
             ? [detailByCode.get(code)] : []) };
     }
 
+    async prepareWebModelPackage(resId) {
+        const normalized = String(resId ?? '').trim();
+        if (!/^\d+$/.test(normalized) || new TextEncoder().encode(normalized).byteLength > 128) {
+            throw createError('INVALID_ARGUMENT', 'resId is invalid');
+        }
+        const raw = this.transport === 'cad'
+            ? await this.hostClient.invoke(
+                'prepareWebModelPackage',
+                { resId: normalized },
+                { timeoutMs: MODEL_TIMEOUT_MS },
+            )
+            : await this.postJson(
+                `${this.backendUrl}/api/prepareWebModelPackage`,
+                { resId: normalized },
+            );
+        return normalizePreparedWebPackage(
+            raw,
+            this.transport === 'node' ? this.backendUrl : null,
+        );
+    }
+
     async convertModel(url, parameters = []) {
         const payload = { url: String(url ?? '').trim() };
         if (!payload.url) throw createError('INVALID_ARGUMENT', 'model url is required');
@@ -256,6 +277,57 @@ export function indexMaterialDetails(raw) {
         if (/^PT\d+$/.test(code)) details.set(code, item);
     }
     return details;
+}
+
+export function normalizePreparedWebPackage(raw, backendUrl = null) {
+    const response = parsePossibleJson(raw);
+    if (!response || typeof response !== 'object' || Array.isArray(response)) {
+        throw createError('INVALID_RESPONSE', 'Web package response is invalid');
+    }
+    if (Object.hasOwn(response, 'code')) {
+        const code = response.code;
+        if (code !== 1 && code !== 2000 && code !== '1' && code !== '2000') {
+            throw createError('INVALID_RESPONSE', 'Web package business response is invalid');
+        }
+    }
+    const data = response.data ?? response;
+    const resId = String(data?.resId ?? '').trim();
+    const resourceKey = String(data?.resourceKey ?? '').trim();
+    const contentHash = String(data?.contentHash ?? '').trim().toLowerCase();
+    if (!/^\d+$/.test(resId) || !resourceKey || !/^[a-f\d]{32}$/.test(contentHash)
+        || typeof data?.cacheHit !== 'boolean') {
+        throw createError('INVALID_RESPONSE', 'Web package response is invalid');
+    }
+
+    let gltfUrl;
+    if (backendUrl) {
+        const gltfPath = String(data?.gltfPath ?? '').trim();
+        if (!gltfPath.startsWith('/api/web-model-assets/') || gltfPath.includes('..')) {
+            throw createError('INVALID_RESPONSE', 'Web package asset path is invalid');
+        }
+        try {
+            gltfUrl = new URL(gltfPath, `${backendUrl.replace(/\/$/, '')}/`).href;
+        } catch (error) {
+            throw createError('INVALID_RESPONSE', 'Web package asset path is invalid', {
+                cause: error,
+            });
+        }
+        if (!/^https?:\/\//i.test(gltfUrl)) {
+            throw createError('INVALID_RESPONSE', 'Web package asset URL is invalid');
+        }
+    } else {
+        gltfUrl = String(data?.gltfUrl ?? '').trim();
+        try {
+            const url = new URL(gltfUrl);
+            if (['data:', 'javascript:'].includes(url.protocol)) throw new Error('unsafe scheme');
+        } catch (error) {
+            throw createError('INVALID_RESPONSE', 'Web package asset URL is invalid', {
+                cause: error,
+            });
+        }
+    }
+
+    return { resId, resourceKey, gltfUrl, contentHash, cacheHit: data.cacheHit };
 }
 
 function decodeModelResponse(raw, decompressImpl) {
