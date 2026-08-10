@@ -367,10 +367,10 @@ export class ContentModelLoader {
             );
         } catch (error) {
             if (resource.fallbackResource) {
-                this.logger.warn('[ContentLoader] Web package fallback', {
-                    resId: resource.resId,
-                    code: failureCode(error, 'STATIC_MODEL_LOAD_FAILED'),
-                });
+                const code = failureCode(error, 'STATIC_MODEL_LOAD_FAILED');
+                this.logger.warn(
+                    `[ContentLoader] Web package fallback resId=${resource.resId} code=${code}`,
+                );
                 return this.loadStaticPrototype(resource.fallbackResource);
             }
             throw pipelineError(
