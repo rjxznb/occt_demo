@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { PanoramaMiniMap } from '../src/panorama/PanoramaMiniMap.js';
-import { FakeDocument, FakeElement, findByDataset } from './helpers/fake-dom.js';
+import { descendants, FakeDocument, FakeElement, findByDataset } from './helpers/fake-dom.js';
 
 const ROOM_POINTS = [[
     [0, 0, 0], [100, 0, 0], [100, 100, 0], [0, 100, 0],
@@ -36,6 +36,10 @@ test('renders active, ordinary, and dirty panorama points and reports selection'
     assert.equal(active.classList.contains('is-active'), true);
     assert.equal(ordinary.classList.contains('is-active'), false);
     assert.equal(dirty.classList.contains('is-dirty'), true);
+    assert.equal(
+        descendants(container).some(element => element.classList.contains('panorama-map-direction')),
+        false,
+    );
     ordinary.click();
     assert.deepEqual(selected, ['b']);
 });

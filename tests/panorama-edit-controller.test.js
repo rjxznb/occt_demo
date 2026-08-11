@@ -48,6 +48,33 @@ test('previews continuous movement but writes the point only when saved', async 
     assert.equal(controller.getState().mode, 'browse');
 });
 
+test('moves right along the camera-right basis in the Z-up coordinate system', async () => {
+    const { controller } = await createController();
+    controller.enter('camera:a');
+
+    const moved = controller.applyMovement({ forward: 0, right: 1 }, 1);
+
+    assert.equal(moved.valid, true);
+    assert.equal(controller.getState().workingPoint.x, 100);
+    assert.equal(controller.getState().workingPoint.y, 100);
+});
+
+test('uses the supplied live view yaw for movement and keeps it as the working view', async () => {
+    const { controller } = await createController();
+    controller.enter('camera:a');
+
+    const moved = controller.applyMovement(
+        { forward: 1, right: 0 },
+        1,
+        { yaw: 90, pitch: -5, fov: 100 },
+    );
+
+    assert.equal(moved.valid, true);
+    assert.equal(Math.abs(controller.getState().workingPoint.x - 100) < 1e-8, true);
+    assert.equal(controller.getState().workingPoint.y, 300);
+    assert.deepEqual(controller.getState().workingView, { yaw: 90, pitch: -5, fov: 100 });
+});
+
 test('rejects invalid movement without changing the working point', async () => {
     const { controller } = await createController();
     controller.enter('camera:a');
@@ -75,6 +102,16 @@ test('cancel restores the complete entry snapshot without dirtying the store', a
         view: { yaw: 0, pitch: 0, fov: 90 },
     });
     assert.equal(controller.getState().mode, 'browse');
+});
+
+test('uses the live entry view as the cancel snapshot', async () => {
+    const { controller, previews } = await createController();
+    controller.enter('camera:a', { yaw: 40, pitch: -6, fov: 105 });
+    controller.updateView({ yaw: 75, pitch: 2, fov: 95 });
+
+    controller.cancel();
+
+    assert.deepEqual(previews.at(-1).view, { yaw: 40, pitch: -6, fov: 105 });
 });
 
 test('applies named height presets and clamps fine adjustments', async () => {

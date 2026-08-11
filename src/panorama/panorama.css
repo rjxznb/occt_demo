@@ -255,8 +255,9 @@ button.panorama-button-primary:hover {
     height: 168px;
     margin-top: 7px;
     overflow: hidden;
-    border-radius: 14px;
-    background: rgba(30, 32, 36, 0.88);
+    border: 1px solid rgba(80, 92, 105, 0.16);
+    border-radius: 12px;
+    background: rgba(250, 252, 255, 0.6);
     cursor: crosshair;
 }
 
@@ -267,10 +268,11 @@ button.panorama-button-primary:hover {
 }
 
 .panorama-minimap-room {
-    fill: rgba(255, 255, 255, 0.08);
-    stroke: rgba(255, 255, 255, 0.72);
-    stroke-width: 18;
+    fill: rgba(209, 218, 226, 0.34);
+    stroke: rgba(61, 72, 82, 0.7);
+    stroke-width: 1.4;
     vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
 }
 
 .panorama-map-point {
@@ -282,7 +284,7 @@ button.panorama-button-primary:hover {
     border-radius: 50%;
     transform: translate(-50%, -50%);
     background: var(--panorama-yellow);
-    box-shadow: 0 2px 9px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 2px 7px rgba(126, 91, 0, 0.48);
     cursor: pointer;
 }
 
@@ -290,20 +292,11 @@ button.panorama-button-primary:hover {
     width: 19px;
     height: 19px;
     background: var(--panorama-blue);
+    box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.2), 0 3px 9px rgba(0, 72, 160, 0.32);
 }
 
 .panorama-map-point.is-dirty {
     box-shadow: 0 0 0 4px rgba(255, 159, 10, 0.36), 0 2px 9px rgba(0, 0, 0, 0.4);
-}
-
-.panorama-map-direction {
-    position: absolute;
-    left: 50%;
-    bottom: 100%;
-    width: 2px;
-    height: 10px;
-    transform-origin: 50% 100%;
-    background: currentColor;
 }
 
 .panorama-point-panel {

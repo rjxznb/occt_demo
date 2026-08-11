@@ -354,7 +354,8 @@ export class PanoramaApp {
             if (this.editController?.getState().mode === 'edit') {
                 const intent = this.inputPolicy.getMovementIntent();
                 if (intent.forward || intent.right) {
-                    const result = this.editController.applyMovement(intent, delta);
+                    const livePose = this.sceneManager.getCameraPresetPose();
+                    const result = this.editController.applyMovement(intent, delta, livePose);
                     if (!result.valid) this.showToast(this._validationMessage(result.code));
                 }
             }
@@ -473,22 +474,23 @@ export class PanoramaApp {
 
     enterEditMode() {
         const active = this._activePoint();
-        if (!active || !this.editController?.enter(active.id)) return false;
-        this.obstacles = collectContentObstacleBounds(this.roomRenderer?.sceneGroup);
         const livePose = this.sceneManager.getCameraPresetPose();
-        if (livePose) this.editController.updateView(livePose);
+        if (!active || !this.editController?.enter(active.id, livePose)) return false;
+        this.obstacles = collectContentObstacleBounds(this.roomRenderer?.sceneGroup);
         this.inputPolicy.setMode('edit');
         this._setEditingUi(true);
         return true;
     }
 
     _previewEdit({ point, view }) {
-        this.sceneManager.updateCameraPresetPose({ ...point, ...view }, { resetView: true });
+        this.sceneManager.updateCameraPresetPose(point, { resetView: false });
         if (this.ui.heightValue) this.ui.heightValue.textContent = `${Math.round(point.z)} mm`;
     }
 
     async saveEdit() {
         if (this.editController?.getState().mode !== 'edit') return false;
+        const livePose = this.sceneManager.getCameraPresetPose();
+        if (livePose) this.editController.updateView(livePose);
         const saved = await this.editController.save();
         this.inputPolicy.setMode('browse');
         this._setEditingUi(false);

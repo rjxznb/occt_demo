@@ -69,6 +69,45 @@ test('edit cancel restores its entry snapshot and save commits a valid preview',
     assert.equal(documentRef.body.classList.contains('panorama-editing'), false);
 });
 
+test('position previews preserve the live camera orientation', async () => {
+    const { app, sceneManager } = createHarness();
+    await app.init();
+    assert.equal(app.enterEditMode(), true);
+    sceneManager.pose = {
+        ...sceneManager.pose,
+        yaw: 75,
+        pitch: -7,
+        fov: 110,
+    };
+
+    app._previewEdit({
+        point: { ...app.editController.getState().workingPoint, x: 1010 },
+        view: { yaw: 0, pitch: 0, fov: 90 },
+    });
+
+    assert.equal(sceneManager.pose.x, 1010);
+    assert.deepEqual(
+        { yaw: sceneManager.pose.yaw, pitch: sceneManager.pose.pitch, fov: sceneManager.pose.fov },
+        { yaw: 75, pitch: -7, fov: 110 },
+    );
+});
+
+test('edit render loop moves relative to the camera view rotated after entering edit mode', async () => {
+    const { app, sceneManager } = createHarness();
+    await app.init();
+    assert.equal(app.enterEditMode(), true);
+    sceneManager.pose = { ...sceneManager.pose, yaw: 90, pitch: -4, fov: 100 };
+    app.inputPolicy.pressed.add('forward');
+    app.lastFrameTime = (globalThis.performance?.now?.() ?? Date.now()) - 50;
+
+    sceneManager.frame();
+
+    const working = app.editController.getState();
+    assert.equal(Math.abs(working.workingPoint.x - 1000) < 1e-8, true);
+    assert.equal(working.workingPoint.y > 1000, true);
+    assert.equal(working.workingView.yaw, 90);
+});
+
 test('dispose releases subscriptions, components, keyboard handlers, and scene resources once', async () => {
     const { app, calls, windowRef } = createHarness();
     await app.init();

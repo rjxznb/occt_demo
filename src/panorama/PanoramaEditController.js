@@ -66,16 +66,21 @@ export class PanoramaEditController {
         });
     }
 
-    enter(pointId) {
+    enter(pointId, liveView = null) {
         if (this.mode === 'edit') return false;
         const state = this.store?.getState?.();
         const point = state?.points?.find(candidate => candidate.id === pointId);
         if (!point || point.valid === false) return false;
-        const view = state.views?.[pointId] ?? {
+        const storedView = state.views?.[pointId] ?? {
             yaw: point.yaw ?? 0,
             pitch: point.pitch ?? 0,
             fov: point.fov ?? 90,
         };
+        const view = { ...storedView };
+        for (const key of ['yaw', 'pitch', 'fov']) {
+            const value = Number(liveView?.[key]);
+            if (Number.isFinite(value)) view[key] = value;
+        }
         this.mode = 'edit';
         this.pointId = pointId;
         this.snapshot = { point: clone(point), view: clone(view) };
@@ -92,8 +97,9 @@ export class PanoramaEditController {
         });
     }
 
-    applyMovement(intent = {}, deltaSeconds = 0) {
+    applyMovement(intent = {}, deltaSeconds = 0, liveView = null) {
         if (this.mode !== 'edit') return { valid: false, code: 'NOT_EDITING' };
+        this._syncWorkingView(liveView);
         const forward = Number(intent.forward) || 0;
         const right = Number(intent.right) || 0;
         const magnitude = Math.hypot(forward, right);
@@ -106,9 +112,9 @@ export class PanoramaEditController {
         const candidate = {
             ...this.workingPoint,
             x: this.workingPoint.x
-                + (Math.cos(yaw) * normalizedForward - Math.sin(yaw) * normalizedRight) * distance,
+                + (Math.cos(yaw) * normalizedForward + Math.sin(yaw) * normalizedRight) * distance,
             y: this.workingPoint.y
-                + (Math.sin(yaw) * normalizedForward + Math.cos(yaw) * normalizedRight) * distance,
+                + (Math.sin(yaw) * normalizedForward - Math.cos(yaw) * normalizedRight) * distance,
         };
         const validation = this.validator(candidate);
         this.lastValidation = clone(validation);
@@ -127,14 +133,20 @@ export class PanoramaEditController {
 
     updateView(view = {}) {
         if (this.mode !== 'edit') return false;
+        if (!this._syncWorkingView(view)) return false;
+        this._preview();
+        return true;
+    }
+
+    _syncWorkingView(view = null) {
+        const source = view ?? {};
         const next = { ...this.workingView };
         for (const key of ['yaw', 'pitch', 'fov']) {
-            const value = Number(view[key]);
+            const value = Number(source[key]);
             if (Number.isFinite(value)) next[key] = value;
         }
         if (!viewChanged(this.workingView, next)) return false;
         this.workingView = next;
-        this._preview();
         return true;
     }
 

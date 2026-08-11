@@ -65,7 +65,14 @@ export function createHarness({
             return true;
         },
         getCameraPresetPose() { return this.pose ? { ...this.pose } : null; },
-        updateCameraPresetPose(point) { this.pose = { ...this.pose, ...point }; calls.push(['preview', point.x]); return true; },
+        updateCameraPresetPose(point, options = {}) {
+            const position = { x: point.x, y: point.y, z: point.z };
+            this.pose = options.resetView
+                ? { ...this.pose, ...point }
+                : { ...this.pose, ...position };
+            calls.push(['preview', point.x, options]);
+            return true;
+        },
         resetCameraPresetOrientation(point) { this.pose = { ...point }; calls.push(['reset', point.name]); return true; },
         getCamera() { return camera; },
         animate(callback) { this.frame = callback; calls.push(['animate']); },

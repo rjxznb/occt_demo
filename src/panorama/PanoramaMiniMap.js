@@ -103,9 +103,6 @@ export class PanoramaMiniMap {
             marker.title = `${point.name} · ${Math.round(point.z)} mm`;
             marker.setAttribute('aria-label', `进入${point.name}`);
             marker.setAttribute('aria-pressed', String(point.id === activePointId));
-            const direction = this._element('span', 'panorama-map-direction');
-            direction.style.transform = `rotate(${90 - (Number(point.yaw) || 0)}deg)`;
-            marker.appendChild(direction);
             marker.addEventListener('click', event => {
                 event.stopPropagation();
                 this.onSelect(point.id);
