@@ -44,6 +44,7 @@ function offsetOpening(opening, label) {
 class GeometryService {
     constructor() {
         this.parseData = null;
+        this.rawDrawing = null;
         this.initPromise = null;
         this.softlistCache = new Map();
         this.dataSource = new BundledDataSource();
@@ -70,6 +71,7 @@ class GeometryService {
         this.initPromise = (async () => {
             console.log(`正在加载户型数据（${this.dataSource.name}）...`);
             const json = await this.dataSource.loadDrawing();
+            this.rawDrawing = json;
 
             const parseData = ParseJson(json);
 
@@ -214,6 +216,17 @@ class GeometryService {
         return {
             success: true,
             contentModels: this.parseData.content_models || []
+        };
+    }
+
+    /** Camera presets are CAD annotations and must retain their original fields. */
+    async getCameraPresets() {
+        this.ensureReady();
+        return {
+            success: true,
+            cameraList: Array.isArray(this.rawDrawing?.camera_list)
+                ? structuredClone(this.rawDrawing.camera_list)
+                : [],
         };
     }
 

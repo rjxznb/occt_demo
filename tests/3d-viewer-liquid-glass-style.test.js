@@ -19,4 +19,7 @@ test('3D controls use the approved compact Liquid Glass surface', async () => {
         /#controls\s*>\s*\*\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*1;/);
     assert.match(html, /id="label-toggle"/);
     assert.match(html, /#label-toggle\.labels-hidden\s*\{/);
+    assert.match(html, /id="material-toggle"/);
+    assert.match(html, /#material-toggle\.white-model-active\s*\{/);
+    assert.match(html, /\.scene-display-grid\s*\{/);
 });

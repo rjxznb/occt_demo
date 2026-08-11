@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 const GLASS_MARKERS = ['glass', '\u73bb\u7483', '\u7a97\u73bb\u7483'];
 
-function isGlass(mesh, material) {
+export function isGlassMaterial(mesh, material) {
     if (material?.userData?.contentMaterialIsGlass === true) return true;
     if (material?.userData?.contentMaterialIsGlass === false) return false;
     const label = `${mesh?.name ?? ''} ${material?.name ?? ''}`.toLowerCase();
@@ -10,7 +10,7 @@ function isGlass(mesh, material) {
 }
 
 function normalizeMaterial(mesh, material) {
-    if (!material?.isMaterial || !isGlass(mesh, material)) return material;
+    if (!material?.isMaterial || !isGlassMaterial(mesh, material)) return material;
 
     const clone = material.clone();
     clone.transparent = true;

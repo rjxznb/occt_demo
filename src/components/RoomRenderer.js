@@ -105,6 +105,7 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
     } = options;
 
     const instances = data?.contentModels?.contentModels ?? [];
+    const onInstancePlaced = options.onInstancePlaced;
     const compositePlacement = createCompositeContentPlacement(
         instances,
         sceneGroup,
@@ -119,7 +120,10 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
             logSummary: false,
             getPlacementTarget: compositePlacement.getPlacementTarget,
             hasFallback: compositePlacement.hasFallback,
-            onInstancePlaced: compositePlacement.onInstancePlaced,
+            onInstancePlaced: async (instance, root) => {
+                compositePlacement.onInstancePlaced(instance, root);
+                await onInstancePlaced?.(instance, root);
+            },
         },
     )).then(result => {
         const terminalResult = compositePlacement.finalize(result);
@@ -409,6 +413,44 @@ export class RoomRenderer {
         this.sceneGroup = null; // 用于整体缩放的场景组
         this.roomLabels = [];
         this.roomLabelsVisible = true;
+        this.ceilingMeshes = [];
+    }
+
+    createCeilingMeshes(outlineRings, floorMeshes, height = 2800) {
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xF0ECE4,
+            roughness: 0.95,
+            metalness: 0,
+            side: THREE.DoubleSide,
+        });
+        const outer = this.buildContour(outlineRings?.outer, THREE.Shape);
+        if (outer) {
+            for (const ring of outlineRings?.holes || []) {
+                const hole = this.buildContour(ring, THREE.Path);
+                if (hole) outer.holes.push(hole);
+            }
+            const ceiling = new THREE.Mesh(new THREE.ShapeGeometry(outer), material);
+            ceiling.position.z = height;
+            ceiling.visible = false;
+            ceiling.castShadow = false;
+            ceiling.receiveShadow = true;
+            ceiling.userData.type = 'ceiling';
+            ceiling.userData.ceilingSource = 'outline';
+            return [ceiling];
+        }
+
+        return (floorMeshes || []).map((floor, index) => {
+            const ceiling = new THREE.Mesh(floor.geometry.clone(), material);
+            ceiling.position.copy(floor.position);
+            ceiling.position.z = height;
+            ceiling.visible = false;
+            ceiling.castShadow = false;
+            ceiling.receiveShadow = true;
+            ceiling.userData.type = 'ceiling';
+            ceiling.userData.ceilingSource = 'room-fallback';
+            ceiling.userData.roomIndex = floor.userData.roomIndex ?? index;
+            return ceiling;
+        });
     }
 
     /**
@@ -425,7 +467,8 @@ export class RoomRenderer {
                 wallMeshes: [],
                 doorMeshes: [],
                 windowMeshes: [],
-                floorMeshes: []
+                floorMeshes: [],
+                ceilingMeshes: []
             };
 
             // 如果场景组不存在，创建新的场景组用于整体缩放
@@ -498,6 +541,13 @@ export class RoomRenderer {
             }
             wallSelector.addWalls(floorMeshes);
 
+            this.ceilingMeshes = this.createCeilingMeshes(
+                data.outline?.outlineRings,
+                floorMeshes,
+            );
+            this.ceilingMeshes.forEach(ceiling => this.sceneGroup.add(ceiling));
+            result.ceilingMeshes = this.ceilingMeshes;
+
             // 4. 外轮廓挖洞：房间与门窗各自互不相交，
             //    因此各自合并成一个几何体后，一次减法即可，无需逐个累积
             if (result.outlineMesh) {
@@ -557,6 +607,13 @@ export class RoomRenderer {
                 data,
                 this.sceneGroup,
                 doorWindowBindings.fallbackMap,
+                {
+                    onInstancePlaced: (_instance, root) => {
+                        if (!this.sceneManager.isMaterialRestorationEnabled()) {
+                            this.sceneManager.applyWhiteModelMaterials(root);
+                        }
+                    },
+                },
             );
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
@@ -581,6 +638,7 @@ export class RoomRenderer {
 
             const bounds = new THREE.Box3().setFromObject(this.sceneGroup);
             this.sceneManager.fitShadowToScene(bounds);
+            this.sceneManager.gtaoPass?.setSceneClipBox(bounds);
 
             return result;
 
@@ -597,6 +655,7 @@ export class RoomRenderer {
      * @returns {THREE.Shape|THREE.Path|null}
      */
     buildContour(points, Ctor) {
+        if (!Array.isArray(points)) return null;
         const converted = this.convertPointFormat(points);
         if (converted.length < 3) return null;
 
@@ -832,6 +891,10 @@ export class RoomRenderer {
                     if (wallMesh) {
                         wallMesh.userData.roomIndex = roomIndex;
                         wallMesh.userData.segmentType = segment.type;
+                        // The CSG shell already contains the structural room-facing wall.
+                        // This selectable surface is a coplanar material overlay and must be
+                        // hidden while a global white-model material is active.
+                        wallMesh.userData.whiteModelSurfaceOverlay = true;
                         wallMeshes.push(wallMesh);
                     }
                 });
@@ -929,6 +992,15 @@ export class RoomRenderer {
         return this.roomLabelsVisible;
     }
 
+    setCeilingsVisible(visible) {
+        const nextVisible = Boolean(visible);
+        this.ceilingMeshes.forEach(ceiling => {
+            if (ceiling) ceiling.visible = nextVisible;
+        });
+        this.sceneManager.invalidateShadow?.();
+        return nextVisible;
+    }
+
     /**
      * 清理所有3D渲染对象
      * @param {THREE.Scene} scene - Three.js场景对象
@@ -956,6 +1028,7 @@ export class RoomRenderer {
             this.sceneGroup.clear();
             this.sceneGroup = null;
             this.roomLabels = [];
+            this.ceilingMeshes = [];
             
             console.log('3D渲染对象已清理');
         }

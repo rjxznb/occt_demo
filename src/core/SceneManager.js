@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { AutoRotationManager } from '../components/AutoRotationManager.js';
+import { isGlassMaterial } from '../components/WindowGlassMaterial.js';
+import { createOutdoorPanoramaTexture } from '../components/OutdoorPanorama.js';
 import { configureOrbitControls } from './OrbitControlPolicy.js';
 
 // 主光源方向（场景为 Z 轴向上）。只表示方向，实际距离由场景尺度决定。
@@ -20,7 +26,25 @@ export class SceneManager {
         this.renderer = null;
         this.controls = null;
         this.autoRotationManager = null;
+        this.composer = null;
+        this.renderPass = null;
+        this.gtaoPass = null;
+        this.outputPass = null;
+        this.outdoorPanoramaTexture = null;
+        this.outdoorPanoramaState = null;
+        this.materialRestorationEnabled = true;
+        this.whiteModelOriginalMaterials = new Map();
+        this.whiteModelMaterialCache = new Map();
+        this.whiteModelOwnedMaterials = new Set();
+        this.groundGrid = null;
+        this.groundGridVisibleBeforeWhiteModel = null;
+        this.whiteModelHiddenObjects = new Map();
+        this.whiteModelLightingState = null;
         this.currentViewMode = '3d'; // '3d' 或 '2d'
+        this.cameraPresetViewState = null;
+        this.cameraPresetPointer = null;
+        this.cameraPresetYaw = 0;
+        this.cameraPresetPitch = 0;
         
         this.init();
     }
@@ -74,6 +98,7 @@ export class SceneManager {
         this.renderer.toneMappingExposure = 1.08;
 
         this.container.appendChild(this.renderer.domElement);
+        this.setupCameraPresetControls();
 
         // 基于图像的环境光照：给 PBR 材质（墙面等）柔和的环境反射与漫反射，
         // 是提升观感最有效的一步。用内置 RoomEnvironment 生成，不需要外部贴图文件。
@@ -90,6 +115,9 @@ export class SceneManager {
         // 添加专业级光照系统
         this.setupProfessionalLighting();
 
+        // 白模专用后处理；普通材质模式仍然直接渲染。
+        this.setupPostProcessing();
+
         // 初始化自动旋转管理器
         this.initAutoRotation();
 
@@ -101,6 +129,11 @@ export class SceneManager {
      * 设置专业级背景环境
      */
     setupEnvironment() {
+        const outdoorPanorama = createOutdoorPanoramaTexture();
+        if (outdoorPanorama) {
+            this.outdoorPanoramaTexture = outdoorPanorama;
+        }
+
         // 创建渐变背景
         const canvas = document.createElement('canvas');
         canvas.width = 512;
@@ -160,19 +193,70 @@ export class SceneManager {
         const fillLight = new THREE.DirectionalLight(0xDCE8FF, 0.8);
         fillLight.position.set(-800, 400, 900);
         this.scene.add(fillLight);
+        this.fillLight = fillLight;
 
         // 3. 天空/地面半球光 —— 天光偏冷、地面反光偏暖，模拟室内漫反射
         const hemiLight = new THREE.HemisphereLight(0xCFE0F5, 0xD8CFC0, 0.9);
         this.scene.add(hemiLight);
+        this.hemiLight = hemiLight;
 
         // 4. 少量环境光兜底（env + 半球光已提供大部分环境，这里只补一点点）
         const ambientLight = new THREE.AmbientLight(0xFFFFFF, 0.15);
         this.scene.add(ambientLight);
+        this.ambientLight = ambientLight;
 
         // 5. 地面网格
         this.createProfessionalGround();
 
         console.log('光照系统已设置（物理标定 + 冷暖对比）');
+    }
+
+    setupPostProcessing() {
+        const width = Math.max(1, this.container?.clientWidth || window.innerWidth);
+        const height = Math.max(1, this.container?.clientHeight || window.innerHeight);
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+        this.composer.setSize(width, height);
+
+        this.renderPass = new RenderPass(this.scene, this.camera);
+        this.gtaoPass = new GTAOPass(
+            this.scene,
+            this.camera,
+            width,
+            height,
+            undefined,
+            {
+                radius: 180,
+                distanceExponent: 1.4,
+                thickness: 450,
+                distanceFallOff: 1,
+                scale: 1,
+                samples: 16,
+                screenSpaceRadius: false,
+            },
+            {
+                lumaPhi: 8,
+                depthPhi: 2,
+                normalPhi: 3,
+                radius: 6,
+                radiusExponent: 2,
+                rings: 2,
+                samples: 12,
+            },
+        );
+        this.gtaoPass.blendIntensity = 0.58;
+        this.gtaoPass.output = GTAOPass.OUTPUT.Default;
+        this.gtaoPass.enabled = false;
+        this.outputPass = new OutputPass();
+
+        this.composer.addPass(this.renderPass);
+        this.composer.addPass(this.gtaoPass);
+        this.composer.addPass(this.outputPass);
+    }
+
+    syncPostProcessingCamera() {
+        if (this.renderPass) this.renderPass.camera = this.camera;
+        if (this.gtaoPass) this.gtaoPass.camera = this.camera;
     }
 
     /**
@@ -259,6 +343,7 @@ export class SceneManager {
         gridHelper.material.opacity = 0.08; // 适中的透明度，既不过于突出也不太隐蔽
         gridHelper.material.depthWrite = false; // 淡网格不必写深度，避免和其他面互抢
         gridHelper.userData.isHelper = true;
+        this.groundGrid = gridHelper;
         
         this.scene.add(gridHelper);
         
@@ -311,6 +396,7 @@ export class SceneManager {
         
         // 更新渲染器
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.composer?.setSize(window.innerWidth, window.innerHeight);
     }
 
     /**
@@ -322,6 +408,7 @@ export class SceneManager {
         console.log('切换到正交视图');
         this.currentViewMode = '2d';
         this.camera = this.orthographicCamera;
+        this.syncPostProcessingCamera();
         
         // 重新配置控制器
         this.controls.object = this.camera;
@@ -346,6 +433,7 @@ export class SceneManager {
         console.log('切换到透视视图');
         this.currentViewMode = '3d';
         this.camera = this.perspectiveCamera;
+        this.syncPostProcessingCamera();
         
         // 重新配置控制器
         this.controls.object = this.camera;
@@ -453,6 +541,165 @@ export class SceneManager {
         };
     }
 
+    setupCameraPresetControls() {
+        const canvas = this.renderer.domElement;
+        this._cameraPresetPointerDown = event => this.onCameraPresetPointerDown(event);
+        this._cameraPresetPointerMove = event => this.onCameraPresetPointerMove(event);
+        this._cameraPresetPointerUp = event => this.onCameraPresetPointerUp(event);
+        this._cameraPresetWheel = event => this.onCameraPresetWheel(event);
+        this._cameraPresetClick = event => {
+            if (!this.cameraPresetViewState) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        };
+        canvas.addEventListener('pointerdown', this._cameraPresetPointerDown, true);
+        canvas.addEventListener('pointermove', this._cameraPresetPointerMove, true);
+        canvas.addEventListener('pointerup', this._cameraPresetPointerUp, true);
+        canvas.addEventListener('pointercancel', this._cameraPresetPointerUp, true);
+        canvas.addEventListener('wheel', this._cameraPresetWheel, { capture: true, passive: false });
+        canvas.addEventListener('click', this._cameraPresetClick, true);
+    }
+
+    /** Enter a CAD camera preset and rotate in place instead of orbiting a target. */
+    setCameraPreset(preset) {
+        if (!preset) return false;
+        if (!this.cameraPresetViewState) {
+            const status = this.getAutoRotationStatus();
+            this.cameraPresetViewState = {
+                viewMode: this.currentViewMode,
+                position: this.perspectiveCamera.position.clone(),
+                quaternion: this.perspectiveCamera.quaternion.clone(),
+                fov: this.perspectiveCamera.fov,
+                target: this.controls.target.clone(),
+                controlsEnabled: this.controls.enabled,
+                autoRotationEnabled: status?.enabled !== false,
+            };
+        }
+        this.switchToPerspectiveView();
+        this._viewTween = null;
+        this.enableAutoRotation(false);
+        this.controls.enabled = false;
+
+        const camera = this.perspectiveCamera;
+        camera.up.set(0, 0, 1);
+        camera.position.set(preset.x, preset.y, preset.z);
+        camera.fov = preset.fov || 90;
+        camera.updateProjectionMatrix();
+
+        this.cameraPresetYaw = THREE.MathUtils.degToRad(preset.yaw || 0);
+        this.cameraPresetPitch = THREE.MathUtils.degToRad(preset.pitch || 0);
+        this.updateCameraPresetOrientation();
+        this.activateOutdoorPanorama();
+        this.renderer.domElement.classList.add('camera-preset-active');
+        return true;
+    }
+
+    activateOutdoorPanorama() {
+        if (!this.scene || !this.outdoorPanoramaTexture) return false;
+        if (!this.outdoorPanoramaState) {
+            this.outdoorPanoramaState = {
+                background: this.scene.background,
+                backgroundRotation: this.scene.backgroundRotation.clone(),
+            };
+        }
+        this.scene.background = this.outdoorPanoramaTexture;
+        this.scene.backgroundRotation.set(-Math.PI / 2, 0, 0);
+        return true;
+    }
+
+    restoreOutdoorPanorama() {
+        const state = this.outdoorPanoramaState;
+        if (!state || !this.scene) return false;
+        this.scene.background = state.background;
+        this.scene.backgroundRotation.copy(state.backgroundRotation);
+        this.outdoorPanoramaState = null;
+        return true;
+    }
+
+    updateCameraPresetOrientation() {
+        if (!this.cameraPresetViewState) return;
+        const camera = this.perspectiveCamera;
+        const horizontal = Math.cos(this.cameraPresetPitch);
+        const direction = new THREE.Vector3(
+            Math.cos(this.cameraPresetYaw) * horizontal,
+            Math.sin(this.cameraPresetYaw) * horizontal,
+            Math.sin(this.cameraPresetPitch),
+        );
+        this.controls.target.copy(camera.position).addScaledVector(direction, 1000);
+        camera.lookAt(this.controls.target);
+    }
+
+    onCameraPresetPointerDown(event) {
+        if (!this.cameraPresetViewState || event.button !== 0) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.cameraPresetPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        event.currentTarget.classList.add('camera-preset-dragging');
+    }
+
+    onCameraPresetPointerMove(event) {
+        if (!this.cameraPresetViewState || !this.cameraPresetPointer
+            || event.pointerId !== this.cameraPresetPointer.id) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const dx = event.clientX - this.cameraPresetPointer.x;
+        const dy = event.clientY - this.cameraPresetPointer.y;
+        this.cameraPresetPointer.x = event.clientX;
+        this.cameraPresetPointer.y = event.clientY;
+        this.cameraPresetYaw -= dx * 0.0035;
+        this.cameraPresetPitch = THREE.MathUtils.clamp(
+            this.cameraPresetPitch - dy * 0.0035,
+            -Math.PI * 0.495,
+            Math.PI * 0.495,
+        );
+        this.updateCameraPresetOrientation();
+    }
+
+    onCameraPresetPointerUp(event) {
+        if (!this.cameraPresetPointer || event.pointerId !== this.cameraPresetPointer.id) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        this.cameraPresetPointer = null;
+        event.currentTarget.classList.remove('camera-preset-dragging');
+    }
+
+    onCameraPresetWheel(event) {
+        if (!this.cameraPresetViewState) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const camera = this.perspectiveCamera;
+        camera.fov = THREE.MathUtils.clamp(camera.fov + event.deltaY * 0.025, 30, 120);
+        camera.updateProjectionMatrix();
+    }
+
+    exitCameraPreset() {
+        const saved = this.cameraPresetViewState;
+        if (!saved) return false;
+        this.restoreOutdoorPanorama();
+        this.cameraPresetViewState = null;
+        this.cameraPresetPointer = null;
+        this.renderer.domElement.classList.remove('camera-preset-active', 'camera-preset-dragging');
+
+        if (saved.viewMode === '2d') this.switchToOrthographicView();
+        else this.switchToPerspectiveView();
+        const camera = this.perspectiveCamera;
+        camera.position.copy(saved.position);
+        camera.quaternion.copy(saved.quaternion);
+        camera.fov = saved.fov;
+        camera.updateProjectionMatrix();
+        this.controls.target.copy(saved.target);
+        this.enableAutoRotation(saved.autoRotationEnabled);
+        this.controls.enabled = saved.controlsEnabled;
+        this.controls.update();
+        return true;
+    }
+
+    isCameraPresetActive() {
+        return Boolean(this.cameraPresetViewState);
+    }
+
     /** 相机位置相对目标点，转成绕 Z 轴的球面坐标 {radius, az(方位), el(俯仰)} */
     _toZSpherical(pos, target) {
         const dx = pos.x - target.x, dy = pos.y - target.y, dz = pos.z - target.z;
@@ -508,14 +755,18 @@ export class SceneManager {
             this._lastFrame = now;
             this._updateViewTween(dt);
 
-            this.controls.update();
+            if (!this.cameraPresetViewState) this.controls.update();
             
             // 执行回调函数（如FPS更新）
             if (callback && typeof callback === 'function') {
                 callback();
             }
             
-            this.renderer.render(this.scene, this.camera);
+            if (this.gtaoPass?.enabled && this.composer) {
+                this.composer.render(dt);
+            } else {
+                this.renderer.render(this.scene, this.camera);
+            }
         } catch (error) {
             console.error('渲染错误:', error);
             // 不中断动画循环，继续尝试渲染
@@ -550,6 +801,181 @@ export class SceneManager {
     // 获取控制器对象
     getControls() {
         return this.controls;
+    }
+
+    applyWhiteModelLighting() {
+        if (this.whiteModelLightingState || !this.scene || !this.renderer) return;
+
+        this.whiteModelLightingState = {
+            background: this.scene.background,
+            fogColor: this.scene.fog?.color?.clone() || null,
+            environmentIntensity: this.scene.environmentIntensity,
+            exposure: this.renderer.toneMappingExposure,
+            keyIntensity: this.keyLight?.intensity,
+            keyColor: this.keyLight?.color?.clone() || null,
+            fillIntensity: this.fillLight?.intensity,
+            fillColor: this.fillLight?.color?.clone() || null,
+            hemiIntensity: this.hemiLight?.intensity,
+            hemiSkyColor: this.hemiLight?.color?.clone() || null,
+            hemiGroundColor: this.hemiLight?.groundColor?.clone() || null,
+            ambientIntensity: this.ambientLight?.intensity,
+        };
+
+        // A warm, high-key clay setup: bright enough for an interior presentation,
+        // but with less fill light so GTAO and cast shadows retain form definition.
+        this.scene.background = new THREE.Color(0xe7e4df);
+        if (this.scene.fog?.color) this.scene.fog.color.setHex(0xe7e4df);
+        this.scene.environmentIntensity = 0.5;
+        this.renderer.toneMappingExposure = 1.04;
+        if (this.keyLight) {
+            this.keyLight.color.setHex(0xfff5e8);
+            this.keyLight.intensity = 2.15;
+        }
+        if (this.fillLight) {
+            this.fillLight.color.setHex(0xe8efff);
+            this.fillLight.intensity = 0.4;
+        }
+        if (this.hemiLight) {
+            this.hemiLight.color.setHex(0xeaf1f8);
+            this.hemiLight.groundColor.setHex(0xd8cfc2);
+            this.hemiLight.intensity = 0.52;
+        }
+        if (this.ambientLight) this.ambientLight.intensity = 0.06;
+        this.invalidateShadow();
+    }
+
+    restoreWhiteModelLighting() {
+        const state = this.whiteModelLightingState;
+        if (!state || !this.scene || !this.renderer) return;
+
+        this.scene.background = state.background;
+        if (state.fogColor && this.scene.fog?.color) this.scene.fog.color.copy(state.fogColor);
+        this.scene.environmentIntensity = state.environmentIntensity;
+        this.renderer.toneMappingExposure = state.exposure;
+        if (this.keyLight) {
+            if (state.keyColor) this.keyLight.color.copy(state.keyColor);
+            this.keyLight.intensity = state.keyIntensity;
+        }
+        if (this.fillLight) {
+            if (state.fillColor) this.fillLight.color.copy(state.fillColor);
+            this.fillLight.intensity = state.fillIntensity;
+        }
+        if (this.hemiLight) {
+            if (state.hemiSkyColor) this.hemiLight.color.copy(state.hemiSkyColor);
+            if (state.hemiGroundColor) this.hemiLight.groundColor.copy(state.hemiGroundColor);
+            this.hemiLight.intensity = state.hemiIntensity;
+        }
+        if (this.ambientLight) this.ambientLight.intensity = state.ambientIntensity;
+        this.whiteModelLightingState = null;
+        this.invalidateShadow();
+    }
+
+    /**
+     * Toggle between authored materials and a neutral white clay render.
+     * Scene.overrideMaterial keeps the real mesh materials intact, so restoring
+     * them is lossless and meshes added later automatically follow this mode.
+     */
+    setMaterialRestorationEnabled(enabled) {
+        const nextEnabled = Boolean(enabled);
+        if (!this.scene) {
+            this.materialRestorationEnabled = nextEnabled;
+            return nextEnabled;
+        }
+
+        if (!nextEnabled && this.materialRestorationEnabled) {
+            if (this.groundGrid) {
+                this.groundGridVisibleBeforeWhiteModel = this.groundGrid.visible;
+                this.groundGrid.visible = false;
+            }
+            this.whiteModelHiddenObjects.clear();
+            this.scene.traverse(object => {
+                if (object?.userData?.whiteModelSurfaceOverlay !== true) return;
+                this.whiteModelHiddenObjects.set(object, object.visible);
+                object.visible = false;
+            });
+            this.applyWhiteModelMaterials();
+            this.applyWhiteModelLighting();
+            if (this.gtaoPass) this.gtaoPass.enabled = true;
+        } else if (nextEnabled && !this.materialRestorationEnabled) {
+            if (this.gtaoPass) this.gtaoPass.enabled = false;
+            this.restoreWhiteModelMaterials();
+            this.restoreWhiteModelLighting();
+            if (this.groundGrid && this.groundGridVisibleBeforeWhiteModel !== null) {
+                this.groundGrid.visible = this.groundGridVisibleBeforeWhiteModel;
+            }
+            for (const [object, visible] of this.whiteModelHiddenObjects) {
+                object.visible = visible;
+            }
+            this.whiteModelHiddenObjects.clear();
+            this.groundGridVisibleBeforeWhiteModel = null;
+        }
+
+        this.materialRestorationEnabled = nextEnabled;
+        return nextEnabled;
+    }
+
+    createWhiteModelMaterial(mesh, source) {
+        if (!source?.isMaterial || isGlassMaterial(mesh, source)) return source;
+        const cached = this.whiteModelMaterialCache.get(source);
+        if (cached) return cached;
+
+        const material = source.clone();
+        if (material.color?.isColor) material.color.setHex(0xd2cfca);
+        if ('map' in material) material.map = null;
+        if ('vertexColors' in material) material.vertexColors = false;
+        if ('metalness' in material) material.metalness = 0;
+        if ('roughness' in material) material.roughness = 0.82;
+        if ('transmission' in material) material.transmission = 0;
+        if ('clearcoat' in material) material.clearcoat = 0;
+        if (material.emissive?.isColor && material.emissive.getHex() !== 0) {
+            material.emissive.setHex(0xffead0);
+            material.emissiveIntensity = Math.min(
+                Number.isFinite(source.emissiveIntensity) ? source.emissiveIntensity : 1,
+                0.35,
+            );
+            if ('emissiveMap' in material) material.emissiveMap = null;
+        }
+        material.name = `${source.name || source.type || 'Material'} [WhiteModel]`;
+        material.needsUpdate = true;
+
+        this.whiteModelMaterialCache.set(source, material);
+        this.whiteModelOwnedMaterials.add(material);
+        return material;
+    }
+
+    applyWhiteModelMaterials(root = this.scene) {
+        root?.traverse(object => {
+            if (!object?.isMesh || !object.material
+                || object.userData?.whiteModelSurfaceOverlay === true
+                || this.whiteModelOriginalMaterials.has(object)) return;
+            this.whiteModelOriginalMaterials.set(object, object.material);
+            object.material = Array.isArray(object.material)
+                ? object.material.map(material => this.createWhiteModelMaterial(object, material))
+                : this.createWhiteModelMaterial(object, object.material);
+        });
+    }
+
+    restoreWhiteModelMaterials() {
+        for (const [object, material] of this.whiteModelOriginalMaterials) {
+            object.material = material;
+        }
+        this.whiteModelOriginalMaterials.clear();
+        for (const material of this.whiteModelOwnedMaterials) material.dispose();
+        this.whiteModelOwnedMaterials.clear();
+        this.whiteModelMaterialCache.clear();
+    }
+
+    isMaterialRestorationEnabled() {
+        return this.materialRestorationEnabled;
+    }
+
+    disposeOutdoorPanorama() {
+        this.restoreOutdoorPanorama();
+        const texture = this.outdoorPanoramaTexture;
+        if (!texture) return;
+        if (this.scene?.background === texture) this.scene.background = null;
+        texture.dispose();
+        this.outdoorPanoramaTexture = null;
     }
 
     // 自动旋转管理方法
@@ -588,6 +1014,28 @@ export class SceneManager {
 
     // 销毁场景管理器
     destroy() {
+        this.exitCameraPreset();
+        const canvas = this.renderer?.domElement;
+        canvas?.removeEventListener('pointerdown', this._cameraPresetPointerDown, true);
+        canvas?.removeEventListener('pointermove', this._cameraPresetPointerMove, true);
+        canvas?.removeEventListener('pointerup', this._cameraPresetPointerUp, true);
+        canvas?.removeEventListener('pointercancel', this._cameraPresetPointerUp, true);
+        canvas?.removeEventListener('wheel', this._cameraPresetWheel, true);
+        canvas?.removeEventListener('click', this._cameraPresetClick, true);
+        this.restoreWhiteModelMaterials();
+        this.restoreWhiteModelLighting();
+        this.disposeOutdoorPanorama();
+        this.groundGrid = null;
+        this.groundGridVisibleBeforeWhiteModel = null;
+        this.whiteModelHiddenObjects.clear();
+        this.gtaoPass?.dispose();
+        this.outputPass?.dispose();
+        this.composer?.dispose();
+        this.gtaoPass = null;
+        this.outputPass = null;
+        this.renderPass = null;
+        this.composer = null;
+
         if (this.autoRotationManager) {
             this.autoRotationManager.destroy();
             this.autoRotationManager = null;

@@ -91,6 +91,7 @@ export function withSceneFixture(source, search = '') {
         '1313', '1408',
         '1402', '140302', '1405', '1406', '140e', '140f', '1305', '1311',
         'ue-specials',
+        'cameras',
     ]);
     return supportedFixtures.has(fixtureName)
         ? new SceneFixtureDataSource(source, fixtureName)

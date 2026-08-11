@@ -225,6 +225,39 @@ const REMAINING_DOOR_FIXTURES = Object.freeze([
     POCKET_DOOR_1311,
 ]);
 
+const CAMERA_PRESET_FIXTURES = Object.freeze([
+    {
+        TypeId: '27d2',
+        BasePoint: cadBasePoint(1900, 1000),
+        BlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u6807\u51c6',
+            ['\u79bb\u5730\u9ad8\u5ea6']: 1500,
+            ['\u65cb\u8f6c\u89d2\u5ea6']: 180,
+            FOV: 90,
+        },
+    },
+    {
+        TypeId: '27d2',
+        BasePoint: cadBasePoint(1700, -3000),
+        BlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u5e7f\u89d2',
+            ['\u79bb\u5730\u9ad8\u5ea6']: 1500,
+            Rotation: 'X=0 Y=90 Z=0',
+            FOV: 110,
+        },
+    },
+    {
+        TypeId: '27d202',
+        BasePoint: cadBasePoint(-4550, 800),
+        BlockInnerInfo: {
+            ['\u7c7b\u578b']: '\u7279\u5199',
+            ['\u79bb\u5730\u9ad8\u5ea6']: 1450,
+            ['\u65cb\u8f6c\u89d2\u5ea6']: 0,
+            FOV: 60,
+        },
+    },
+]);
+
 const REMAINING_FIXTURE_BY_TYPE = new Map([
     ...REMAINING_WINDOW_FIXTURES.map(record => [record.TypeId, {
         listName: 'window_list', record,
@@ -287,6 +320,15 @@ export function applySceneFixture(drawing, fixtureName) {
                 ...doorList,
                 ...REMAINING_DOOR_FIXTURES.map(cloneFixture),
             ],
+        };
+    }
+    if (fixtureName === 'cameras') {
+        return {
+            ...drawing,
+            camera_list: CAMERA_PRESET_FIXTURES.map(record => ({
+                ...record,
+                BlockInnerInfo: { ...record.BlockInnerInfo },
+            })),
         };
     }
     const remainingFixture = REMAINING_FIXTURE_BY_TYPE.get(fixtureName);

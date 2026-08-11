@@ -9,6 +9,9 @@ import { geometryService } from './core/GeometryService.js';
 import { BundledDataSource, withSceneFixture } from './core/DataSource.js';
 import { TemplatePicker } from './components/TemplatePicker.js';
 import { RoomInfoView } from './components/RoomInfoView.js';
+import { PanoramaCapture } from './components/PanoramaCapture.js';
+import { PanoramaBoxPreview } from './components/PanoramaBoxPreview.js';
+import { CameraPresetMap } from './components/CameraPresetMap.js';
 
 /**
  * 3D 预览应用（插件内嵌版）
@@ -39,6 +42,12 @@ class OCCTApp3D {
         this.sharedData = null;
         this.fpsCounter = null;
         this.roomLabelsVisible = true;
+        this.materialRestorationEnabled = true;
+        this.panoramaCapture = null;
+        this.panoramaAbortController = null;
+        this.panoramaObjectUrl = null;
+        this.panoramaBoxPreview = null;
+        this.cameraPresetMap = null;
 
         this.renderState = { '3d': false };
 
@@ -58,6 +67,15 @@ class OCCTApp3D {
             this.materialSidebar = new MaterialSidebar(this.sceneManager3D);
             this.dragDropManager = new DragDropManager(this.sceneManager3D);
             this.selectionManager = new SelectionManager(this.sceneManager3D);
+            this.panoramaCapture = new PanoramaCapture(this.sceneManager3D);
+            if (this.uiElements.panoramaPreview) {
+                this.panoramaBoxPreview = new PanoramaBoxPreview(this.uiElements.panoramaPreview);
+            }
+            if (this.uiElements.cameraMiniMap) {
+                this.cameraPresetMap = new CameraPresetMap(this.uiElements.cameraMiniMap, {
+                    onSelect: (preset, index) => this.enterCameraPreset(preset, index),
+                });
+            }
 
             // 渐进式渲染进度 / 完成回调
             this.roomRenderer.setProgressCallback((current, total) => {
@@ -104,6 +122,21 @@ class OCCTApp3D {
             modeToggle: document.getElementById('mode-toggle'),
             resourceToggle: document.getElementById('resource-toggle'),
             labelToggle: document.getElementById('label-toggle'),
+            materialToggle: document.getElementById('material-toggle'),
+            panoramaToggle: document.getElementById('panorama-toggle'),
+            panoramaOverlay: document.getElementById('panorama-overlay'),
+            panoramaClose: document.getElementById('panorama-close'),
+            panoramaGenerate: document.getElementById('panorama-generate'),
+            panoramaCancel: document.getElementById('panorama-cancel'),
+            panoramaDownload: document.getElementById('panorama-download'),
+            panoramaResolution: document.getElementById('panorama-resolution'),
+            panoramaRenderer: document.getElementById('panorama-renderer'),
+            panoramaSamples: document.getElementById('panorama-samples'),
+            panoramaProgress: document.getElementById('panorama-progress'),
+            panoramaStatus: document.getElementById('panorama-status'),
+            panoramaPreview: document.getElementById('panorama-preview'),
+            cameraMiniMap: document.getElementById('camera-minimap'),
+            cameraPresetExit: document.getElementById('camera-preset-exit'),
             rotationIndicator: document.getElementById('rotation-indicator'),
             rotationStatusText: document.getElementById('rotation-status-text'),
         };
@@ -113,11 +146,22 @@ class OCCTApp3D {
         this.uiElements.modeToggle?.addEventListener('click', () => this.toggleMode());
         this.uiElements.resourceToggle?.addEventListener('click', () => this.toggleResourceSidebar());
         this.uiElements.labelToggle?.addEventListener('click', () => this.toggleRoomLabels());
+        this.uiElements.materialToggle?.addEventListener('click', () => this.toggleMaterialRestoration());
+        this.uiElements.panoramaToggle?.addEventListener('click', () => this.openPanoramaDialog());
+        this.uiElements.panoramaClose?.addEventListener('click', () => this.closePanoramaDialog());
+        this.uiElements.panoramaCancel?.addEventListener('click', () => this.closePanoramaDialog());
+        this.uiElements.panoramaGenerate?.addEventListener('click', () => this.generatePanorama());
+        this.uiElements.panoramaDownload?.addEventListener('click', () => this.downloadPanorama());
+        this.uiElements.cameraPresetExit?.addEventListener('click', () => this.exitCameraPreset());
         this.setRoomLabelsVisible(this.roomLabelsVisible);
+        this.setMaterialRestorationEnabled(this.materialRestorationEnabled);
 
         // 快速视角：切到对应鸟瞰角度（保留鼠标旋转）
         document.querySelectorAll('.view-angle-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.sceneManager3D?.setView(btn.dataset.view));
+            btn.addEventListener('click', () => {
+                this.exitCameraPreset();
+                this.sceneManager3D?.setView(btn.dataset.view);
+            });
         });
         this.uiElements.viewAngleGroup = document.getElementById('view-angle-group');
         this.updateViewAngleVisibility();
@@ -247,6 +291,122 @@ class OCCTApp3D {
         button.classList.toggle('labels-hidden', hidden);
     }
 
+    toggleMaterialRestoration() {
+        this.setMaterialRestorationEnabled(!this.materialRestorationEnabled);
+    }
+
+    setMaterialRestorationEnabled(enabled) {
+        this.materialRestorationEnabled = Boolean(enabled);
+        this.sceneManager3D?.setMaterialRestorationEnabled(this.materialRestorationEnabled);
+
+        const button = this.uiElements.materialToggle;
+        if (!button) return;
+        const whiteModelEnabled = !this.materialRestorationEnabled;
+        button.textContent = whiteModelEnabled ? '◻ 白模模式' : '🎨 材质还原';
+        button.title = whiteModelEnabled ? '开启材质还原' : '关闭材质还原并显示白模';
+        button.setAttribute('aria-pressed', String(this.materialRestorationEnabled));
+        button.classList.toggle('white-model-active', whiteModelEnabled);
+    }
+
+    openPanoramaDialog() {
+        if (!this.uiElements.panoramaOverlay) return;
+        this.uiElements.panoramaOverlay.hidden = false;
+        this.uiElements.panoramaGenerate?.focus();
+    }
+
+    closePanoramaDialog() {
+        if (this.panoramaAbortController) {
+            this.cancelPanoramaCapture();
+        }
+        if (this.uiElements.panoramaOverlay) this.uiElements.panoramaOverlay.hidden = true;
+    }
+
+    cancelPanoramaCapture() {
+        this.panoramaAbortController?.abort();
+    }
+
+    updatePanoramaProgress(progress = {}) {
+        const { stage, completed = 0, total = 1, face } = progress;
+        let percent = 0;
+        let status = '正在准备场景…';
+        if (stage === 'faces') {
+            percent = Math.round((completed / Math.max(1, total)) * 82);
+            status = `正在渲染六视图 ${completed}/${total}（${face}）`;
+        } else if (stage === 'readback') {
+            percent = 92;
+            status = '正在转换为 2:1 全景图…';
+        } else if (stage === 'pathtrace-prepare') {
+            percent = 4;
+            status = '正在构建场景 BVH…';
+        } else if (stage === 'pathtrace-samples') {
+            percent = 8 + Math.round((completed / Math.max(1, total)) * 84);
+            status = `正在累积路径追踪采样 ${completed}/${total} spp`;
+        } else if (stage === 'fallback') {
+            percent = 0;
+            status = '当前场景无法路径追踪，正在切换快速光栅化…';
+        } else if (stage === 'complete') {
+            percent = 100;
+            status = '全景图已生成';
+        }
+        if (this.uiElements.panoramaProgress) {
+            this.uiElements.panoramaProgress.style.width = `${percent}%`;
+        }
+        if (this.uiElements.panoramaStatus) this.uiElements.panoramaStatus.textContent = status;
+    }
+
+    async generatePanorama() {
+        if (!this.panoramaCapture || this.panoramaAbortController) return;
+        const faceSize = Number(this.uiElements.panoramaResolution?.value) || 1024;
+        const rendererMode = this.uiElements.panoramaRenderer?.value || 'pathtrace';
+        const samples = Number(this.uiElements.panoramaSamples?.value) || 8;
+        this.panoramaAbortController = new AbortController();
+        if (this.panoramaObjectUrl) URL.revokeObjectURL(this.panoramaObjectUrl);
+        this.panoramaObjectUrl = null;
+        this.panoramaBoxPreview?.clear();
+        if (this.uiElements.panoramaDownload) this.uiElements.panoramaDownload.disabled = true;
+        if (this.uiElements.panoramaGenerate) this.uiElements.panoramaGenerate.disabled = true;
+        if (this.uiElements.panoramaToggle) this.uiElements.panoramaToggle.disabled = true;
+        this.updatePanoramaProgress();
+
+        try {
+            const result = await this.panoramaCapture.capture({
+                faceSize,
+                rendererMode,
+                samples,
+                signal: this.panoramaAbortController.signal,
+                onProgress: progress => this.updatePanoramaProgress(progress),
+            });
+            this.panoramaObjectUrl = URL.createObjectURL(result.blob);
+            await this.panoramaBoxPreview?.setSource(this.panoramaObjectUrl);
+            if (this.uiElements.panoramaDownload) this.uiElements.panoramaDownload.disabled = false;
+            if (this.uiElements.panoramaStatus) {
+                const { x, y, z } = result.position;
+                const renderLabel = result.renderer === 'pathtrace'
+                    ? `路径追踪 ${result.samples} spp` : '快速光栅化';
+                this.uiElements.panoramaStatus.textContent =
+                    `${renderLabel} · ${result.width} × ${result.height} · 点位 (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)})`;
+            }
+        } catch (error) {
+            const cancelled = error?.name === 'AbortError';
+            if (this.uiElements.panoramaStatus) {
+                this.uiElements.panoramaStatus.textContent = cancelled
+                    ? '已取消生成' : `生成失败：${error?.message || '未知错误'}`;
+            }
+        } finally {
+            this.panoramaAbortController = null;
+            if (this.uiElements.panoramaGenerate) this.uiElements.panoramaGenerate.disabled = false;
+            if (this.uiElements.panoramaToggle) this.uiElements.panoramaToggle.disabled = false;
+        }
+    }
+
+    downloadPanorama() {
+        if (!this.panoramaObjectUrl) return;
+        const link = document.createElement('a');
+        link.href = this.panoramaObjectUrl;
+        link.download = `panorama-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+        link.click();
+    }
+
     async loadData() {
         globalThis.__renderPreviewDiagnostic?.('data-load-start', 'OK');
         try {
@@ -254,15 +414,16 @@ class OCCTApp3D {
             await geometryService.init();
 
             this.updateStatus('正在加载数据...');
-            const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
+            const [outline, rooms, doorWindows, softlists, contentModels, cameraPresets] = await Promise.all([
                 geometryService.getOutline(),
                 geometryService.getRooms(),
                 geometryService.getDoorsAndWindows(),
                 geometryService.getSoftlists(),
                 geometryService.getContentModels(),
+                geometryService.getCameraPresets(),
             ]);
 
-            const data = { outline, rooms, doorWindows, softlists, contentModels };
+            const data = { outline, rooms, doorWindows, softlists, contentModels, cameraPresets };
             globalThis.__renderPreviewDiagnostic?.('data-load-ready', 'OK');
             this.sharedData = data;
 
@@ -272,6 +433,7 @@ class OCCTApp3D {
             this.setRoomLabelsVisible(this.roomLabelsVisible);
             this.renderState['3d'] = true;
             this._ensureRoomInfoView();
+            this.cameraPresetMap?.setData(rooms.roomPoints, cameraPresets.cameraList);
 
             console.log('数据加载和 3D 渲染完成');
         } catch (error) {
@@ -280,6 +442,22 @@ class OCCTApp3D {
             this.updateStatus('数据加载失败: ' + error.message);
             throw error;
         }
+    }
+
+    enterCameraPreset(preset, index) {
+        if (!this.sceneManager3D?.setCameraPreset(preset)) return;
+        this.roomRenderer?.setCeilingsVisible(true);
+        this.cameraPresetMap?.setActive(index);
+        if (this.uiElements.cameraPresetExit) this.uiElements.cameraPresetExit.hidden = false;
+        this.updateStatus(`已进入${preset.name}`);
+    }
+
+    exitCameraPreset() {
+        this.roomRenderer?.setCeilingsVisible(false);
+        if (!this.sceneManager3D?.exitCameraPreset()) return;
+        this.cameraPresetMap?.setActive(-1);
+        if (this.uiElements.cameraPresetExit) this.uiElements.cameraPresetExit.hidden = true;
+        this.updateStatus('已退出全景图预览');
     }
 
     // -- 交互回调 --------------------------------------------------------------
@@ -356,6 +534,13 @@ class OCCTApp3D {
     }
 
     dispose() {
+        this.cancelPanoramaCapture();
+        this.panoramaBoxPreview?.dispose();
+        this.panoramaBoxPreview = null;
+        this.cameraPresetMap?.dispose();
+        this.cameraPresetMap = null;
+        if (this.panoramaObjectUrl) URL.revokeObjectURL(this.panoramaObjectUrl);
+        this.panoramaObjectUrl = null;
         this.wallSelector?.dispose();
         this.materialSidebar?.destroy();
         this.dragDropManager?.destroy();

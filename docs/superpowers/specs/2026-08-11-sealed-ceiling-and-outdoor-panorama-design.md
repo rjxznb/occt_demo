@@ -41,7 +41,10 @@ Introduce a small component responsible only for generating and owning the outdo
 - Include a soft sky gradient, horizon haze, distant low-contrast buildings, layered tree silhouettes, and a muted ground band.
 - Avoid text, logos, identifiable landmarks, remote URLs, and runtime downloads.
 - Configure the resulting `THREE.CanvasTexture` for equirectangular background mapping and sRGB color space.
-- Assign it to `scene.background` while leaving the existing PMREM `scene.environment` unchanged, so authored PBR materials retain their current lighting response.
+- Keep it owned but inactive during ordinary orbit/bird's-eye viewing. The ordinary scene retains its neutral gradient background and does not show the city or tree line.
+- When a camera preset is entered, save the current background state and assign the panorama to `scene.background`, while leaving the existing PMREM `scene.environment` unchanged so authored PBR materials retain their current lighting response.
+- Apply a `-90` degree X-axis background rotation while the panorama is active. Three.js equirectangular backgrounds are Y-up, while this dwelling scene is Z-up; the rotation maps the panorama zenith to world +Z so buildings remain upright.
+- When camera-preset preview exits, restore the exact saved background and background rotation. Re-entering or switching preset points must not overwrite the original saved state.
 - Dispose the canvas texture during `SceneManager.destroy()`.
 
 The panorama is intentionally distant and low contrast. It supplies readable scenery through transparent windows without competing visually with the interior or requiring 3D exterior geometry.
@@ -73,7 +76,9 @@ Window materials continue to use the existing transparent-glass normalization. N
 
 ### `SceneManager`
 
-- Installs the generated panorama as the scene background.
+- Creates and owns the generated panorama without showing it in the ordinary view.
+- Activates it only for camera-preset preview, with the Z-up orientation correction.
+- Restores the previous background and rotation when preview exits.
 - Disposes it with the rest of the scene resources.
 - Keeps the existing environment lighting texture separate.
 
@@ -82,6 +87,8 @@ Window materials continue to use the existing transparent-glass normalization. N
 - Invalid outer rings do not abort room rendering; room-floor ceilings are used instead.
 - Invalid hole rings are ignored individually.
 - Failure to obtain a 2D canvas context falls back to the existing gradient background.
+- If the panorama is unavailable, camera-preset entry continues with the ordinary background.
+- Exiting preview remains idempotent and restores state only when a preset preview is active.
 - Outdoor panorama creation never performs network I/O.
 - Resource disposal must be safe when initialization was only partially completed.
 
@@ -93,10 +100,12 @@ Use test-driven development for each behavior:
 2. A failing fallback test proves invalid or missing outline data retains room-based ceilings.
 3. Existing visibility tests continue to prove entry shows ceilings and exit hides them.
 4. A failing outdoor-panorama test proves the generated texture is local, equirectangular, sRGB, reusable, and disposable.
-5. Full unit tests and `build:3d` must pass.
-6. Browser validation with `fixture=cameras` must confirm:
+5. Failing camera-state tests prove the panorama is absent before preset entry, becomes active with a Z-up rotation during preset preview, and restores the previous background and rotation on exit.
+6. Full unit tests and `build:3d` must pass.
+7. Browser validation with `fixture=cameras` must confirm:
+   - the ordinary bird's-eye view has no city/tree panorama;
    - the indoor ceiling is visually sealed;
-   - scenery is visible through transparent windows;
+   - scenery is upright and visible through transparent windows only after entering a preset;
    - exiting restores an unobstructed bird's-eye view;
    - the browser console has no errors.
 
