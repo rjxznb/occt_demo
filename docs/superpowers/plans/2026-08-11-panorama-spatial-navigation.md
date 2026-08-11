@@ -106,14 +106,14 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - Produces: `PanoramaInputPolicy.handleKeyDown(event)` returns a browse command once for W/A/S/D and keeps continuous pressed-state commands in edit mode.
 - Produces: `PanoramaApp.selectDirectionalPoint(direction)` returns a promise resolving to the result of `selectPoint` or `false`.
 
-- [ ] **Step 1: Replace the browse-input expectation** with failing tests that W/A/S/D return one-shot commands, call `preventDefault`, ignore `event.repeat`, and leave arrow keys unhandled in browse mode.
-- [ ] **Step 2: Add failing app tests** that set a live yaw, dispatch a browse W key through the registered keydown listener, and assert selection of the resolver's forward point; also assert no navigation while editing or when the app phase is not `ready`.
-- [ ] **Step 3: Run** `node --test tests/panorama-input-policy.test.js tests/panorama-app-state.test.js` and verify browse navigation expectations fail.
-- [ ] **Step 4: Update `PanoramaInputPolicy`** to distinguish browse one-shot WASD from edit continuous movement without adding browse arrow-key commands.
-- [ ] **Step 5: Update `PanoramaApp._bindUi`** so the keydown result invokes `selectDirectionalPoint` only in `ready` browse mode.
-- [ ] **Step 6: Implement `selectDirectionalPoint`** using the active point, valid stored points, and `sceneManager.getCameraPresetPose().yaw`, then delegate to `selectPoint`.
-- [ ] **Step 7: Run** `node --test tests/panorama-directional-navigator.test.js tests/panorama-input-policy.test.js tests/panorama-app-state.test.js` and verify all navigation tests pass.
-- [ ] **Step 8: Commit** with message `feat: navigate panorama points with wasd`.
+- [x] **Step 1: Replace the browse-input expectation** with failing tests that W/A/S/D return one-shot commands, call `preventDefault`, ignore `event.repeat`, and leave arrow keys unhandled in browse mode.
+- [x] **Step 2: Add failing app tests** that set a live yaw, dispatch a browse W key through the registered keydown listener, and assert selection of the resolver's forward point; also assert no navigation while editing or when the app phase is not `ready`.
+- [x] **Step 3: Run** `node --test tests/panorama-input-policy.test.js tests/panorama-app-state.test.js` and verify browse navigation expectations fail.
+- [x] **Step 4: Update `PanoramaInputPolicy`** to distinguish browse one-shot WASD from edit continuous movement without adding browse arrow-key commands.
+- [x] **Step 5: Update `PanoramaApp._bindUi`** so the keydown result invokes `selectDirectionalPoint` only in `ready` browse mode.
+- [x] **Step 6: Implement `selectDirectionalPoint`** using the active point, valid stored points, and `sceneManager.getCameraPresetPose().yaw`, then delegate to `selectPoint`.
+- [x] **Step 7: Run** `node --test tests/panorama-directional-navigator.test.js tests/panorama-input-policy.test.js tests/panorama-app-state.test.js` and verify all navigation tests pass.
+- [x] **Step 8: Commit** with message `feat: navigate panorama points with wasd`.
 
 ### Task 4: Consolidate controls into the mini-map card
 

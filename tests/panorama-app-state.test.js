@@ -53,6 +53,60 @@ test('switching points saves the live view of the previous point before entering
     ]);
 });
 
+test('browse WASD selects a point in the live camera direction', async () => {
+    const { app, sceneManager, windowRef, calls } = createHarness({
+        cameraList: [
+            cameraRecord(1000, 1000, 'Point A'),
+            cameraRecord(2500, 1000, 'Point B'),
+            cameraRecord(1000, 2200, 'Point C'),
+        ],
+    });
+    await app.init();
+    const [, forward] = app.getState().points;
+    sceneManager.pose = { ...sceneManager.pose, yaw: 0 };
+    const event = {
+        code: 'KeyW',
+        repeat: false,
+        prevented: false,
+        preventDefault() { this.prevented = true; },
+    };
+
+    await windowRef.listeners.get('keydown')(event);
+
+    assert.equal(event.prevented, true);
+    assert.equal(app.getState().activePointId, forward.id);
+    assert.equal(calls.filter(call => call[0] === 'camera-transition').at(-1)[1], forward.name);
+});
+
+test('browse directional navigation is disabled while editing or outside ready phase', async () => {
+    const { app, sceneManager, windowRef } = createHarness({
+        cameraList: [
+            cameraRecord(1000, 1000, 'Point A'),
+            cameraRecord(2500, 1000, 'Point B'),
+        ],
+    });
+    await app.init();
+    const initialId = app.getState().activePointId;
+    sceneManager.pose = { ...sceneManager.pose, yaw: 0 };
+    const keydown = windowRef.listeners.get('keydown');
+
+    app.enterEditMode();
+    await keydown({ code: 'KeyW', repeat: false, preventDefault() {} });
+    assert.equal(app.getState().activePointId, initialId);
+    app.cancelEdit();
+
+    app.phase = 'loading';
+    const loadingEvent = {
+        code: 'KeyW',
+        repeat: false,
+        prevented: false,
+        preventDefault() { this.prevented = true; },
+    };
+    await keydown(loadingEvent);
+    assert.equal(app.getState().activePointId, initialId);
+    assert.equal(loadingEvent.prevented, false);
+});
+
 test('edit cancel restores its entry snapshot and save commits a valid preview', async () => {
     const { app, documentRef } = createHarness();
     await app.init();

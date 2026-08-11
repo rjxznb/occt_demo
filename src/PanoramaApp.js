@@ -14,6 +14,7 @@ import { PanoramaInputPolicy } from './panorama/PanoramaInputPolicy.js';
 import { PanoramaMiniMap } from './panorama/PanoramaMiniMap.js';
 import { PanoramaPointList } from './panorama/PanoramaPointList.js';
 import { PanoramaHotspots } from './panorama/PanoramaHotspots.js';
+import { selectDirectionalPanoramaPoint } from './panorama/PanoramaDirectionalNavigator.js';
 
 const PASSIVE_WALL_REGISTRY = Object.freeze({
     addWall() {},
@@ -176,7 +177,15 @@ export class PanoramaApp {
             this._listen(button, 'click', () => this.setHeightPreset(button.dataset.heightPreset));
         }
 
-        this._listen(this.window, 'keydown', event => this.inputPolicy?.handleKeyDown(event));
+        this._listen(this.window, 'keydown', event => {
+            if (!this.inputPolicy) return null;
+            if (this.inputPolicy.mode === 'browse' && this.phase !== 'ready') return null;
+            const command = this.inputPolicy.handleKeyDown(event);
+            if (this.inputPolicy.mode === 'browse' && command) {
+                return this.selectDirectionalPoint(command);
+            }
+            return command;
+        });
         this._listen(this.window, 'keyup', event => this.inputPolicy?.handleKeyUp(event));
         this._listen(this.window, 'blur', () => this.inputPolicy?.reset());
         this._listen(this.window, 'beforeunload', () => this.dispose());
@@ -417,6 +426,20 @@ export class PanoramaApp {
         const currentIndex = Math.max(0, points.findIndex(point => point.id === state.activePointId));
         const nextIndex = (currentIndex + offset + points.length) % points.length;
         return this.selectPoint(points[nextIndex].id);
+    }
+
+    async selectDirectionalPoint(direction) {
+        if (this.phase !== 'ready' || this.inputPolicy?.mode !== 'browse') return false;
+        const activePoint = this._activePoint();
+        const pose = this.sceneManager.getCameraPresetPose();
+        if (!activePoint || !Number.isFinite(Number(pose?.yaw))) return false;
+        const target = selectDirectionalPanoramaPoint({
+            activePoint,
+            points: this.store.getState().points,
+            yaw: Number(pose.yaw),
+            direction,
+        });
+        return target ? this.selectPoint(target.id) : false;
     }
 
     resetView() {

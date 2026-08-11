@@ -3,21 +3,41 @@ import assert from 'node:assert/strict';
 
 import { PanoramaInputPolicy } from '../src/panorama/PanoramaInputPolicy.js';
 
-function keyEvent(code) {
+function keyEvent(code, { repeat = false } = {}) {
     return {
         code,
+        repeat,
         prevented: false,
         preventDefault() { this.prevented = true; },
     };
 }
 
-test('browse mode ignores movement keys without preventing ordinary page input', () => {
+test('browse mode returns one-shot WASD direction commands', () => {
     const policy = new PanoramaInputPolicy();
-    const event = keyEvent('KeyW');
+    const expectations = new Map([
+        ['KeyW', 'forward'],
+        ['KeyS', 'backward'],
+        ['KeyA', 'left'],
+        ['KeyD', 'right'],
+    ]);
 
-    assert.equal(policy.handleKeyDown(event), null);
-    assert.equal(event.prevented, false);
+    for (const [code, command] of expectations) {
+        const event = keyEvent(code);
+        assert.equal(policy.handleKeyDown(event), command);
+        assert.equal(event.prevented, true);
+    }
     assert.deepEqual(policy.getMovementIntent(), { forward: 0, right: 0 });
+});
+
+test('browse mode ignores repeated WASD and leaves arrow keys unhandled', () => {
+    const policy = new PanoramaInputPolicy();
+    const repeated = keyEvent('KeyW', { repeat: true });
+    const arrow = keyEvent('ArrowUp');
+
+    assert.equal(policy.handleKeyDown(repeated), null);
+    assert.equal(policy.handleKeyDown(arrow), null);
+    assert.equal(repeated.prevented, false);
+    assert.equal(arrow.prevented, false);
 });
 
 test('edit mode tracks continuous movement intent and clears it on exit', () => {

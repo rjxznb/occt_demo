@@ -9,6 +9,13 @@ const MOVEMENT_KEYS = new Map([
     ['ArrowRight', 'right'],
 ]);
 
+const BROWSE_KEYS = new Map([
+    ['KeyW', 'forward'],
+    ['KeyS', 'backward'],
+    ['KeyA', 'left'],
+    ['KeyD', 'right'],
+]);
+
 export class PanoramaInputPolicy {
     constructor() {
         this.mode = 'browse';
@@ -24,7 +31,12 @@ export class PanoramaInputPolicy {
     }
 
     handleKeyDown(event) {
-        if (this.mode !== 'edit') return null;
+        if (this.mode === 'browse') {
+            const command = BROWSE_KEYS.get(event?.code);
+            if (!command || event?.repeat === true) return null;
+            event.preventDefault?.();
+            return command;
+        }
         const command = MOVEMENT_KEYS.get(event?.code);
         if (!command) return null;
         event.preventDefault?.();
