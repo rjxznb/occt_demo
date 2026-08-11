@@ -16,6 +16,7 @@ import { PanoramaPointList } from './panorama/PanoramaPointList.js';
 import { PanoramaHotspots } from './panorama/PanoramaHotspots.js';
 
 const PASSIVE_WALL_REGISTRY = Object.freeze({
+    addWall() {},
     addWalls() {},
 });
 

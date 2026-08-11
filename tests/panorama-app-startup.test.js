@@ -19,6 +19,17 @@ test('loads, renders, forces white model, shows ceilings, and enters the initial
     assert.equal(app.getState().phase, 'ready');
 });
 
+test('supplies the complete passive wall registry expected by RoomRenderer', async () => {
+    const { app, roomRenderer } = createHarness();
+    roomRenderer.render = async (_data, wallRegistry) => {
+        wallRegistry.addWalls([]);
+        wallRegistry.addWall({ name: 'wall' });
+        return { contentFailures: 0 };
+    };
+
+    assert.equal(await app.init(), true);
+});
+
 test('shows first-point guidance instead of entering an orbit view when cameras are absent', async () => {
     const { app, calls, documentRef } = createHarness({ cameraList: [] });
 
@@ -49,4 +60,3 @@ test('shows a recoverable error and retry initializes one fresh runtime', async 
     assert.equal(harness.calls.filter(call => call[0] === 'animate').length, 1);
     assert.equal(harness.app.getState().phase, 'ready');
 });
-
