@@ -15,6 +15,7 @@ export class PanoramaMiniMap {
         onToggle = () => {},
         onAdd = () => {},
         onRestoreAll = () => {},
+        onSetEntryView = () => {},
         documentRef = globalThis.document,
         padding = 240,
     } = {}) {
@@ -24,6 +25,7 @@ export class PanoramaMiniMap {
         this.onToggle = onToggle;
         this.onAdd = onAdd;
         this.onRestoreAll = onRestoreAll;
+        this.onSetEntryView = onSetEntryView;
         this.document = documentRef;
         this.padding = padding;
         this.collapsed = false;
@@ -94,8 +96,17 @@ export class PanoramaMiniMap {
             event.stopPropagation();
             this.onRestoreAll();
         });
+        const entryButton = this._element('button', 'panorama-button');
+        entryButton.type = 'button';
+        entryButton.dataset.action = 'set-entry-view';
+        entryButton.textContent = '设为进入视角';
+        entryButton.addEventListener('click', event => {
+            event.stopPropagation();
+            this.onSetEntryView();
+        });
         actions.appendChild(addButton);
         actions.appendChild(restoreButton);
+        actions.appendChild(entryButton);
         if (!layout) {
             stage.classList.add('is-empty');
             this.container.appendChild(stage);
