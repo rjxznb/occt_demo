@@ -80,13 +80,42 @@ test('keeps original points immutable while applying draft overrides', async () 
         ['draft:new', '新增点', 900],
     ]);
     assert.equal(state.initialPointId, 'draft:new');
-    assert.equal(state.activePointId, 'camera:a');
+    assert.equal(state.activePointId, 'draft:new');
     assert.deepEqual([...state.dirtyPointIds].sort(), ['camera:a', 'camera:b', 'draft:new']);
 
     assert.throws(() => {
         state.points[0].name = '外部篡改';
     }, TypeError);
     assert.equal(store.getState().points[0].name, '客厅中央');
+});
+
+test('sets the entry point and complete live view in one observable change', async () => {
+    const { store } = await createStore();
+    let notifications = 0;
+    const unsubscribe = store.subscribe(() => { notifications += 1; });
+
+    assert.equal(await store.setEntryView('camera:b', {
+        yaw: 137,
+        pitch: -8,
+        fov: 102,
+    }), true);
+
+    const state = store.getState();
+    assert.equal(state.initialPointId, 'camera:b');
+    assert.deepEqual(state.views['camera:b'], { yaw: 137, pitch: -8, fov: 102 });
+    assert.equal(notifications, 1);
+    unsubscribe();
+});
+
+test('rejects invalid entry points and incomplete live views without notifying', async () => {
+    const { store } = await createStore();
+    let notifications = 0;
+    store.subscribe(() => { notifications += 1; });
+
+    assert.equal(await store.setEntryView('missing', { yaw: 0, pitch: 0, fov: 90 }), false);
+    assert.equal(await store.setEntryView('camera:b', { yaw: 0, pitch: NaN, fov: 90 }), false);
+    assert.equal(store.getState().initialPointId, 'camera:a');
+    assert.equal(notifications, 0);
 });
 
 test('supports point CRUD, initial fallback, and restoring one or all points', async () => {
@@ -121,7 +150,7 @@ test('supports point CRUD, initial fallback, and restoring one or all points', a
     assert.equal(store.getState().initialPointId, 'camera:a');
 });
 
-test('persists selection and an independent view for every point', async () => {
+test('persists independent views while fresh initialization prefers the entry point', async () => {
     const storage = new MemoryStorage();
     const { store } = await createStore({ storage });
 
@@ -139,7 +168,7 @@ test('persists selection and an independent view for every point', async () => {
     });
 
     const state = restored.getState();
-    assert.equal(state.activePointId, 'camera:b');
+    assert.equal(state.activePointId, 'camera:a');
     assert.deepEqual(state.views['camera:a'], { yaw: 45, pitch: -5, fov: 100 });
     assert.deepEqual(state.views['camera:b'], { yaw: 120, pitch: 4, fov: 70 });
 });

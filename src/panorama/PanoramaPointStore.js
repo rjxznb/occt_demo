@@ -72,7 +72,7 @@ export class PanoramaPointStore {
             loadedDraft = loaded.draft;
         }
         this.draft = normalizeDraft(loadedDraft);
-        this._ensureSelection();
+        this._ensureSelection({ preferInitial: true });
         return this.getState();
     }
 
@@ -91,11 +91,12 @@ export class PanoramaPointStore {
         return this._points().filter(point => point.valid !== false);
     }
 
-    _ensureSelection() {
+    _ensureSelection({ preferInitial = false } = {}) {
         const validPoints = this._validPoints();
         const validIds = new Set(validPoints.map(point => point.id));
         const firstId = validPoints[0]?.id ?? null;
         if (!validIds.has(this.draft.initialPointId)) this.draft.initialPointId = firstId;
+        if (preferInitial) this.activePointId = this.draft.initialPointId;
         if (!validIds.has(this.activePointId)) {
             this.activePointId = validIds.has(this.draft.lastActivePointId)
                 ? this.draft.lastActivePointId
@@ -240,6 +241,23 @@ export class PanoramaPointStore {
         const point = this._pointById(id);
         if (!point || point.valid === false || this.draft.initialPointId === id) return false;
         this.draft.initialPointId = id;
+        return this._commitChange(true);
+    }
+
+    async setEntryView(id, view = {}) {
+        const point = this._pointById(id);
+        const nextView = Object.fromEntries(
+            ['yaw', 'pitch', 'fov'].map(key => [key, Number(view[key])]),
+        );
+        if (!point || point.valid === false) return false;
+        if (!Object.values(nextView).every(Number.isFinite)) return false;
+
+        const current = this.draft.views[id] ?? {};
+        const changed = this.draft.initialPointId !== id
+            || ['yaw', 'pitch', 'fov'].some(key => !sameValue(current[key], nextView[key]));
+        if (!changed) return false;
+        this.draft.initialPointId = id;
+        this.draft.views[id] = nextView;
         return this._commitChange(true);
     }
 
