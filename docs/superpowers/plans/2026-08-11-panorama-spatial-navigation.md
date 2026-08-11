@@ -115,6 +115,24 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - [x] **Step 7: Run** `node --test tests/panorama-directional-navigator.test.js tests/panorama-input-policy.test.js tests/panorama-app-state.test.js` and verify all navigation tests pass.
 - [x] **Step 8: Commit** with message `feat: navigate panorama points with wasd`.
 
+### Task 3B: Preserve the live view during WASD transitions
+
+**Files:**
+- Modify: `tests/panorama-app-state.test.js`
+- Modify: `src/PanoramaApp.js`
+
+**Interfaces:**
+- Extends: `PanoramaApp.selectPoint(id, { transitionView = null } = {})` so a caller may supply the transition's `yaw`, `pitch`, and `fov` without modifying the destination point's stored view.
+- Keeps: ordinary `selectPoint(id)` callers use the destination point's saved view.
+
+- [ ] **Step 1: Add a failing app test** that gives the source live pose `{ yaw: 37, pitch: -6, fov: 104 }`, assigns a different stored view to the directional destination, invokes `selectDirectionalPoint('forward')`, and asserts the transition target combines the destination `x/y/z` with the source live yaw/pitch/FOV.
+- [ ] **Step 2: Assert in the same test** that the destination's stored view remains unchanged, then add a separate assertion that ordinary `selectPoint` still transitions with the destination view.
+- [ ] **Step 3: Run** `node --test tests/panorama-app-state.test.js` and verify the WASD transition assertion fails by receiving the destination view.
+- [ ] **Step 4: Extend `selectPoint` minimally** with a `transitionView` option and build the transition pose from the active destination point plus that optional view.
+- [ ] **Step 5: Pass the already captured live pose** from `selectDirectionalPoint` into `selectPoint` as `transitionView`, without calling `store.updateView` for the destination.
+- [ ] **Step 6: Run** `node --test tests/panorama-app-state.test.js` and verify both directional and ordinary selection behaviors pass.
+- [ ] **Step 7: Commit** with message `fix: preserve panorama view during wasd navigation`.
+
 ### Task 4: Consolidate controls into the mini-map card
 
 **Files:**
