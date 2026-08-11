@@ -45,6 +45,7 @@ export class SceneManager {
         this.cameraPresetPointer = null;
         this.cameraPresetYaw = 0;
         this.cameraPresetPitch = 0;
+        this._cameraPresetTransition = null;
         
         this.init();
     }
@@ -563,6 +564,7 @@ export class SceneManager {
     /** Enter a CAD camera preset and rotate in place instead of orbiting a target. */
     setCameraPreset(preset) {
         if (!preset) return false;
+        this._cameraPresetTransition = null;
         if (!this.cameraPresetViewState) {
             const status = this.getAutoRotationStatus();
             this.cameraPresetViewState = {
@@ -608,9 +610,78 @@ export class SceneManager {
         };
     }
 
+    /** Smoothly move between fixed panorama points without leaving preset mode. */
+    transitionCameraPreset(point, { duration = 0.8 } = {}) {
+        const to = {
+            x: Number(point?.x),
+            y: Number(point?.y),
+            z: Number(point?.z),
+            yaw: Number(point?.yaw),
+            pitch: Number(point?.pitch),
+            fov: Number(point?.fov),
+        };
+        if (!Object.values(to).every(Number.isFinite)) return false;
+        if (!this.cameraPresetViewState) return this.setCameraPreset(point);
+
+        const from = this.getCameraPresetPose();
+        const seconds = Number(duration);
+        if (!Number.isFinite(seconds) || seconds <= 0) return this.setCameraPreset(to);
+
+        let yawDelta = to.yaw - from.yaw;
+        yawDelta = ((yawDelta + 180) % 360 + 360) % 360 - 180;
+        this._cameraPresetTransition = {
+            elapsed: 0,
+            duration: seconds,
+            from,
+            to,
+            yawDelta,
+        };
+        return true;
+    }
+
+    _updateCameraPresetTransition(deltaSeconds) {
+        const transition = this._cameraPresetTransition;
+        if (!transition || !this.cameraPresetViewState) return;
+
+        const delta = Number(deltaSeconds);
+        transition.elapsed = Math.min(
+            transition.duration,
+            transition.elapsed + (Number.isFinite(delta) ? Math.max(0, delta) : 0),
+        );
+        const progress = transition.elapsed / transition.duration;
+        const eased = progress * progress * (3 - 2 * progress);
+        const mix = (from, to) => THREE.MathUtils.lerp(from, to, eased);
+        const camera = this.perspectiveCamera;
+
+        if (progress >= 1) {
+            camera.position.set(transition.to.x, transition.to.y, transition.to.z);
+            this.cameraPresetYaw = THREE.MathUtils.degToRad(transition.to.yaw);
+            this.cameraPresetPitch = THREE.MathUtils.degToRad(transition.to.pitch);
+            camera.fov = transition.to.fov;
+        } else {
+            camera.position.set(
+                mix(transition.from.x, transition.to.x),
+                mix(transition.from.y, transition.to.y),
+                mix(transition.from.z, transition.to.z),
+            );
+            this.cameraPresetYaw = THREE.MathUtils.degToRad(
+                transition.from.yaw + transition.yawDelta * eased,
+            );
+            this.cameraPresetPitch = THREE.MathUtils.degToRad(
+                mix(transition.from.pitch, transition.to.pitch),
+            );
+            camera.fov = mix(transition.from.fov, transition.to.fov);
+        }
+
+        camera.updateProjectionMatrix();
+        this.updateCameraPresetOrientation();
+        if (progress >= 1) this._cameraPresetTransition = null;
+    }
+
     /** Preview a moved panorama point while keeping the current look direction by default. */
     updateCameraPresetPose(point, { resetView = false } = {}) {
         if (!this.cameraPresetViewState || !point) return false;
+        this._cameraPresetTransition = null;
         const camera = this.perspectiveCamera;
         const x = Number(point.x);
         const y = Number(point.y);
@@ -681,6 +752,7 @@ export class SceneManager {
 
     onCameraPresetPointerDown(event) {
         if (!this.cameraPresetViewState || event.button !== 0) return;
+        this._cameraPresetTransition = null;
         event.preventDefault();
         event.stopImmediatePropagation();
         this.cameraPresetPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
@@ -725,6 +797,7 @@ export class SceneManager {
     }
 
     exitCameraPreset() {
+        this._cameraPresetTransition = null;
         const saved = this.cameraPresetViewState;
         if (!saved) return false;
         this.restoreOutdoorPanorama();
@@ -804,6 +877,7 @@ export class SceneManager {
             const dt = this._lastFrame ? Math.min(0.05, (now - this._lastFrame) / 1000) : 0.016;
             this._lastFrame = now;
             this._updateViewTween(dt);
+            this._updateCameraPresetTransition(dt);
 
             if (!this.cameraPresetViewState) this.controls.update();
             
@@ -1064,6 +1138,7 @@ export class SceneManager {
 
     // 销毁场景管理器
     destroy() {
+        this._cameraPresetTransition = null;
         this.exitCameraPreset();
         const canvas = this.renderer?.domElement;
         canvas?.removeEventListener('pointerdown', this._cameraPresetPointerDown, true);
