@@ -10,6 +10,7 @@
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [安装运行](#安装运行)
+- [独立全景白模页](#独立全景白模页)
 - [数据格式](#数据格式)
 - [使用说明](#使用说明)
 - [开发指南](#开发指南)
@@ -106,6 +107,25 @@ npm run preview    # 预览构建产物
 
 - **选择本地数据**：选一个户型 JSON，再选与之配套的 `parsed_dxf` 目录
 - **使用内置示例数据**：直接加载 `public/data/` 下随仓库分发的那一套
+
+## 独立全景白模页
+
+`index-panorama.html` 是面向全景浏览与点位编辑的独立入口。页面启动后直接进入
+`camera_list` 的初始相机点位，并默认使用白模、吊顶与定点环视交互，不显示传统 3D
+编辑器的资源库、材质和模型编辑控件。
+
+开发环境示例：
+
+```text
+http://127.0.0.1:3030/index-panorama.html?fixture=cameras&planId=demo&version=1#debug
+```
+
+- `fixture=cameras`：为内置图纸补充测试相机点位。
+- `fixture=panorama-empty`：验证图纸没有相机点位时的空状态。
+- `planId` 与 `version`：共同隔离当前方案版本的本地点位草稿；省略时根据图纸内容生成稳定标识。
+- `npm run build:3d`：同时构建 `index-3d.html`、`index-vr.html` 和 `index-panorama.html` 到 `dist-3d/`。
+
+本阶段只实现客户端全景浏览和点位草稿编辑，不包含 AI 生图、服务端离线光追或 CAD Plugin 改动。
 
 ## 数据格式
 
