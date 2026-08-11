@@ -53,8 +53,10 @@ export function collectContentObstacleBounds(sceneGroup) {
             ),
             minX: box.min.x,
             minY: box.min.y,
+            minZ: box.min.z,
             maxX: box.max.x,
             maxY: box.max.y,
+            maxZ: box.max.z,
         });
     });
     return obstacles;

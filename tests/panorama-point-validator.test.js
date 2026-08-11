@@ -71,6 +71,37 @@ test('rejects a point when the camera footprint overlaps a fixed obstacle', () =
     assert.equal(result.obstacleId, 'cabinet');
 });
 
+test('allows XY overlap when the camera clearance is above the obstacle', () => {
+    const result = validatePanoramaPoint({ x: 1700, y: 1000, z: 1500 }, {
+        ...ROOMS,
+        minWallDistance: 0,
+        cameraRadius: 80,
+        obstacles: [{
+            id: 'table', minX: 1500, minY: 800, minZ: 0,
+            maxX: 1900, maxY: 1200, maxZ: 750,
+        }],
+    });
+
+    assert.equal(result.valid, true);
+    assert.equal(result.code, 'OK');
+});
+
+test('rejects full XYZ overlap with a fixed obstacle', () => {
+    const result = validatePanoramaPoint({ x: 1700, y: 1000, z: 800 }, {
+        ...ROOMS,
+        minWallDistance: 0,
+        cameraRadius: 80,
+        obstacles: [{
+            id: 'cabinet', minX: 1500, minY: 800, minZ: 0,
+            maxX: 1900, maxY: 1200, maxZ: 900,
+        }],
+    });
+
+    assert.equal(result.valid, false);
+    assert.equal(result.code, 'BLOCKED');
+    assert.equal(result.obstacleId, 'cabinet');
+});
+
 test('handles concave rooms and boundary points deterministically', () => {
     const concave = [[
         [0, 0], [3000, 0], [3000, 1000],

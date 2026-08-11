@@ -30,9 +30,9 @@
 - Consumes: `collectContentObstacleBounds(sceneGroup)` and `validatePanoramaPoint(point, options)`.
 - Produces: obstacle records `{ id, minX, minY, minZ, maxX, maxY, maxZ }`; validation uses `cameraRadius` on all three axes when Z bounds exist.
 
-- [ ] **Step 1: Add a failing collection test** in `tests/panorama-app-state.test.js` by extending the existing fixed-content test assertion to include `minZ: 0` and `maxZ: 800` for its 800 mm-tall mesh.
-- [ ] **Step 2: Run** `node --test tests/panorama-app-state.test.js` and verify the assertion fails because Z bounds are absent.
-- [ ] **Step 3: Add failing validator tests** in `tests/panorama-point-validator.test.js`:
+- [x] **Step 1: Add a failing collection test** in `tests/panorama-app-state.test.js` by extending the existing fixed-content test assertion to include `minZ: 0` and `maxZ: 800` for its 800 mm-tall mesh.
+- [x] **Step 2: Run** `node --test tests/panorama-app-state.test.js` and verify the assertion fails because Z bounds are absent.
+- [x] **Step 3: Add failing validator tests** in `tests/panorama-point-validator.test.js`:
 
 ```js
 test('allows XY overlap when the camera clearance is above the obstacle', () => {
@@ -62,11 +62,11 @@ test('rejects full XYZ overlap with a fixed obstacle', () => {
 });
 ```
 
-- [ ] **Step 4: Run** `node --test tests/panorama-point-validator.test.js` and verify the above-table case fails with `BLOCKED`.
-- [ ] **Step 5: Extend obstacle collection** in `src/PanoramaApp.js` to include `box.min.z` and `box.max.z`.
-- [ ] **Step 6: Extend `obstacleBounds` and `overlappingObstacle`** so finite Z bounds require Z overlap and missing Z bounds preserve legacy XY-only behavior.
-- [ ] **Step 7: Run** `node --test tests/panorama-app-state.test.js tests/panorama-point-validator.test.js` and verify both files pass.
-- [ ] **Step 8: Commit** with message `fix: validate panorama obstacles in 3d`.
+- [x] **Step 4: Run** `node --test tests/panorama-point-validator.test.js` and verify the above-table case fails with `BLOCKED`.
+- [x] **Step 5: Extend obstacle collection** in `src/PanoramaApp.js` to include `box.min.z` and `box.max.z`.
+- [x] **Step 6: Extend `obstacleBounds` and `overlappingObstacle`** so finite Z bounds require Z overlap and missing Z bounds preserve legacy XY-only behavior.
+- [x] **Step 7: Run** `node --test tests/panorama-app-state.test.js tests/panorama-point-validator.test.js` and verify both files pass.
+- [x] **Step 8: Commit** with message `fix: validate panorama obstacles in 3d`.
 
 ### Task 2: Pure view-relative directional resolver
 
@@ -132,7 +132,7 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - Keeps: `PanoramaPointStore` persistence and point mutation methods.
 
 - [ ] **Step 1: Add failing mini-map tests** asserting an action row contains `data-action="add-point"` and `data-action="restore-all"`, invokes both callbacks, and hides together with the stage when collapsed.
-- [ ] **Step 2: Update the page-contract test first** to require the two mini-map actions and reject the removed point-panel IDs; run it and verify failure against current HTML.
+- [ ] **Step 2: Update the page-contract test first** to retain the mini-map container and reject the removed point-panel IDs; the component test from Step 1 owns the runtime action-button contract.
 - [ ] **Step 3: Run** `node --test tests/panorama-minimap.test.js tests/panorama-page-contract.test.js` and verify the new assertions fail.
 - [ ] **Step 4: Extend `PanoramaMiniMap`** to render the two-button footer, wire `onAdd` and `onRestoreAll`, and toggle the footer's `hidden` state alongside the stage.
 - [ ] **Step 5: Remove the point panel from `index-panorama.html`** and keep no duplicate static add/restore buttons outside the mini-map.
@@ -155,7 +155,6 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - [ ] **Step 2: Run** `npm.cmd run build:3d` and verify Vite exits with code 0.
 - [ ] **Step 3: Open** `index-panorama.html?fixture=cameras&planId=spatial-qa&version=1#debug` in the in-app browser.
 - [ ] **Step 4: Verify** the point-information panel is absent and the mini-map contains only the map plus “新增点位” and “恢复全部”.
-- [ ] **Step 5: Rotate the camera, press each available WASD direction, and verify one smooth transition to a point in the requested current-view direction; verify held/repeated keys do not chain transitions.
-- [ ] **Step 6: Create or edit a camera point whose XY projection overlaps low furniture while its Z clearance does not, and verify placement/movement is accepted; lower it into the furniture Z range and verify `BLOCKED`.
+- [ ] **Step 5: Rotate the camera, press each available WASD direction, and verify one smooth transition to a point in the requested current-view direction; verify held/repeated keys do not chain transitions.**
+- [ ] **Step 6: Create or edit a camera point whose XY projection overlaps low furniture while its Z clearance does not, and verify placement/movement is accepted; lower it into the furniture Z range and verify `BLOCKED`.**
 - [ ] **Step 7: Run** `git diff --check` and inspect `git status --short` so only intended `occt_demo` files remain.
-

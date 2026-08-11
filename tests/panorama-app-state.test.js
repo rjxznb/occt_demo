@@ -22,8 +22,10 @@ test('collects fixed content roots as planar movement obstacles', () => {
         id: 'chair-1',
         minX: 900,
         minY: 1050,
+        minZ: 0,
         maxX: 1100,
         maxY: 1350,
+        maxZ: 800,
     }]);
 });
 
