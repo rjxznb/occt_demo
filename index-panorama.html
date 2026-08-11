@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <title>白模全景图</title>
+    <link rel="stylesheet" href="./src/panorama/panorama.css">
+</head>
+<body>
+    <main id="panorama-app" class="panorama-app" data-state="loading">
+        <div id="panorama-canvas" class="panorama-canvas" aria-label="白模全景视图"></div>
+        <div id="panorama-hotspots" class="panorama-hotspots" aria-label="其他全景点位"></div>
+
+        <header id="panorama-topbar" class="panorama-glass panorama-topbar">
+            <div class="panorama-brand">
+                <span class="panorama-brand-mark" aria-hidden="true">⌾</span>
+                <div>
+                    <strong id="panorama-plan-name">当前方案</strong>
+                    <span id="panorama-plan-version">本地预览</span>
+                </div>
+            </div>
+            <div class="panorama-context" aria-live="polite">
+                <span id="panorama-room-name">正在识别房间</span>
+                <span class="panorama-context-divider" aria-hidden="true"></span>
+                <strong id="panorama-point-name">正在加载点位</strong>
+                <span class="panorama-white-badge">白模</span>
+            </div>
+            <div class="panorama-top-actions">
+                <button id="panorama-edit-toggle" type="button" class="panorama-button panorama-button-primary">
+                    编辑点位
+                </button>
+                <button id="panorama-generate" type="button" class="panorama-button" disabled
+                    title="离线渲染将在后续阶段接入">
+                    生成全景图
+                </button>
+            </div>
+        </header>
+
+        <aside id="panorama-minimap" class="panorama-glass panorama-minimap"
+            aria-label="全景点位小地图"></aside>
+
+        <aside id="panorama-point-panel" class="panorama-glass panorama-point-panel"
+            aria-label="全景点位列表">
+            <div class="panorama-panel-header">
+                <div>
+                    <strong>全景点位</strong>
+                    <span id="panorama-point-count">0 个点位</span>
+                </div>
+                <button id="panorama-point-panel-toggle" type="button" class="panorama-icon-button"
+                    aria-label="折叠点位列表" aria-expanded="true">‹</button>
+            </div>
+            <nav id="panorama-point-list" class="panorama-point-list" aria-label="选择全景点位"></nav>
+            <div class="panorama-panel-actions">
+                <button id="panorama-add-point" type="button" class="panorama-button panorama-button-primary">
+                    新增点位
+                </button>
+                <button id="panorama-restore-all" type="button" class="panorama-button">
+                    恢复全部
+                </button>
+            </div>
+        </aside>
+
+        <section id="panorama-browse-controls" class="panorama-glass panorama-control-dock"
+            aria-label="全景浏览控制">
+            <button id="panorama-previous" type="button" aria-label="上一个点位">←</button>
+            <button id="panorama-next" type="button" aria-label="下一个点位">→</button>
+            <span class="panorama-dock-divider" aria-hidden="true"></span>
+            <button id="panorama-reset-view" type="button">复位视角</button>
+            <button id="panorama-hotspot-toggle" type="button" aria-pressed="true">隐藏热点</button>
+            <button id="panorama-fullscreen" type="button">全屏</button>
+        </section>
+
+        <section id="panorama-edit-controls" class="panorama-glass panorama-control-dock panorama-edit-dock"
+            aria-label="点位编辑控制" hidden>
+            <div class="panorama-edit-status">
+                <span class="panorama-edit-dot" aria-hidden="true"></span>
+                正在编辑点位
+            </div>
+            <div class="panorama-height-presets" aria-label="相机高度预设">
+                <button type="button" data-height-preset="child">儿童</button>
+                <button type="button" data-height-preset="standard">标准</button>
+                <button type="button" data-height-preset="high">加高</button>
+                <button id="panorama-height-down" type="button" aria-label="降低相机高度">−</button>
+                <output id="panorama-height-value">1500 mm</output>
+                <button id="panorama-height-up" type="button" aria-label="升高相机高度">＋</button>
+            </div>
+            <div class="panorama-edit-actions">
+                <button id="panorama-edit-cancel" type="button">取消</button>
+                <button id="panorama-edit-save" type="button" class="panorama-button-primary">保存</button>
+            </div>
+        </section>
+
+        <section id="panorama-loading" class="panorama-state-card panorama-glass"
+            role="status" aria-live="polite" aria-busy="true">
+            <span class="panorama-spinner" aria-hidden="true"></span>
+            <strong>正在准备白模全景</strong>
+            <span id="panorama-loading-detail">正在加载户型与相机点位…</span>
+        </section>
+
+        <section id="panorama-empty" class="panorama-state-card panorama-glass" hidden>
+            <span class="panorama-state-icon" aria-hidden="true">＋</span>
+            <strong>还没有全景点位</strong>
+            <p>请在左上角小地图中选择一个房间内的位置，创建第一个点位。</p>
+            <button id="panorama-empty-create" type="button" class="panorama-button panorama-button-primary">
+                创建第一个点位
+            </button>
+        </section>
+
+        <section id="panorama-error" class="panorama-state-card panorama-glass" role="alert" hidden>
+            <span class="panorama-state-icon panorama-error-icon" aria-hidden="true">!</span>
+            <strong>全景页面加载失败</strong>
+            <p id="panorama-error-message">请检查户型数据后重试。</p>
+            <button id="panorama-retry" type="button" class="panorama-button panorama-button-primary">
+                重新加载
+            </button>
+        </section>
+
+        <div id="panorama-toast" class="panorama-toast panorama-glass" role="status"
+            aria-live="polite" hidden></div>
+    </main>
+
+    <noscript>此页面需要启用 JavaScript 才能显示白模全景图。</noscript>
+    <script type="module" src="./src/PanoramaApp.js"></script>
+</body>
+</html>
+
