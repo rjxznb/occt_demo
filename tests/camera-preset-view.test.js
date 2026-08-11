@@ -59,6 +59,7 @@ test('exiting a camera preset restores the saved orbit camera state', () => {
     assert.ok(manager.controls.target.equals(savedTarget));
     assert.equal(manager.controls.enabled, true);
     assert.equal(manager.restoredAutoRotation, true);
+    assert.equal(manager.getCameraPresetPose(), null);
 });
 
 test('room ceilings can be shown only for an active camera preset', () => {

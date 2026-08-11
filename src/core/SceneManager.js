@@ -594,6 +594,56 @@ export class SceneManager {
         return true;
     }
 
+    /** Return the live fixed-point camera pose without exposing Three.js objects. */
+    getCameraPresetPose() {
+        if (!this.cameraPresetViewState) return null;
+        const camera = this.perspectiveCamera;
+        return {
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z,
+            yaw: Number(THREE.MathUtils.radToDeg(this.cameraPresetYaw).toFixed(10)),
+            pitch: Number(THREE.MathUtils.radToDeg(this.cameraPresetPitch).toFixed(10)),
+            fov: camera.fov,
+        };
+    }
+
+    /** Preview a moved panorama point while keeping the current look direction by default. */
+    updateCameraPresetPose(point, { resetView = false } = {}) {
+        if (!this.cameraPresetViewState || !point) return false;
+        const camera = this.perspectiveCamera;
+        const x = Number(point.x);
+        const y = Number(point.y);
+        const z = Number(point.z);
+        if ([x, y, z].every(Number.isFinite)) camera.position.set(x, y, z);
+
+        if (resetView) {
+            const yaw = Number(point.yaw);
+            const pitch = Number(point.pitch);
+            const fov = Number(point.fov);
+            if (Number.isFinite(yaw)) this.cameraPresetYaw = THREE.MathUtils.degToRad(yaw);
+            if (Number.isFinite(pitch)) {
+                this.cameraPresetPitch = THREE.MathUtils.clamp(
+                    THREE.MathUtils.degToRad(pitch),
+                    -Math.PI * 0.495,
+                    Math.PI * 0.495,
+                );
+            }
+            if (Number.isFinite(fov)) {
+                camera.fov = THREE.MathUtils.clamp(fov, 30, 150);
+                camera.updateProjectionMatrix();
+            }
+        }
+
+        this.controls.enabled = false;
+        this.updateCameraPresetOrientation();
+        return true;
+    }
+
+    resetCameraPresetOrientation(point) {
+        return this.updateCameraPresetPose(point, { resetView: true });
+    }
+
     activateOutdoorPanorama() {
         if (!this.scene || !this.outdoorPanoramaTexture) return false;
         if (!this.outdoorPanoramaState) {
