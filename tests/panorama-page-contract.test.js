@@ -63,6 +63,14 @@ test('panorama styles provide glass fallback, keyboard focus, motion preference,
     assert.match(css, /\.panorama-app::after/);
     assert.match(css, /\.panorama-editing\s+\.panorama-app::after[\s\S]*?opacity:\s*1/);
     assert.match(css, /inset\s+0\s+0\s+32px[\s\S]*?rgba\(79,\s*139,\s*188,\s*0\.22\)/);
+    assert.match(
+        css,
+        /\.panorama-editing\s+\.panorama-edit-dock\s*\{[\s\S]*?right:\s*232px[\s\S]*?width:\s*min\(760px,\s*calc\(100%\s*-\s*248px\)\)/,
+    );
+    assert.match(
+        css,
+        /@media\s+\(max-width:\s*760px\)[\s\S]*?\.panorama-editing\s+\.panorama-primary-actions\s*\{[\s\S]*?bottom:\s*max\(76px/,
+    );
 });
 
 test('loading and empty states conceal the orbit camera before a panorama point is active', async () => {

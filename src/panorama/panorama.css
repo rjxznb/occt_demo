@@ -311,6 +311,13 @@ button.panorama-button-primary:hover {
     justify-content: space-between;
 }
 
+.panorama-editing .panorama-edit-dock {
+    left: auto;
+    right: 232px;
+    width: min(760px, calc(100% - 248px));
+    transform: none;
+}
+
 .panorama-edit-status {
     gap: 7px;
     font-size: 13px;
@@ -426,6 +433,17 @@ button.panorama-button-primary:hover {
 
     .panorama-edit-dock {
         align-items: stretch;
+    }
+
+    .panorama-editing .panorama-edit-dock {
+        left: 50%;
+        right: auto;
+        width: calc(100% - 16px);
+        transform: translateX(-50%);
+    }
+
+    .panorama-editing .panorama-primary-actions {
+        bottom: max(76px, env(safe-area-inset-bottom));
     }
 
     .panorama-edit-status {
