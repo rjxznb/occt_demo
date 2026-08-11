@@ -127,8 +127,8 @@ export class PanoramaApp {
 
     _collectUi() {
         const ids = [
-            'panorama-app', 'panorama-canvas', 'panorama-plan-name', 'panorama-plan-version',
-            'panorama-room-name', 'panorama-point-name', 'panorama-edit-toggle',
+            'panorama-app', 'panorama-canvas', 'panorama-edit-toggle',
+            'panorama-primary-actions', 'panorama-submit-render',
             'panorama-minimap', 'panorama-hotspots', 'panorama-browse-controls',
             'panorama-edit-controls', 'panorama-previous', 'panorama-next',
             'panorama-reset-view', 'panorama-hotspot-toggle', 'panorama-fullscreen',
@@ -194,6 +194,7 @@ export class PanoramaApp {
             onCreate: point => void this.createPoint(point),
             onAdd: () => this.beginCreatePoint(),
             onRestoreAll: () => void this.restoreAllPoints(),
+            onSetEntryView: () => void this.setCurrentEntryView(),
         });
         this.hotspots = this.hotspotsFactory(this.ui.hotspots, {
             documentRef: this.document,
@@ -238,8 +239,6 @@ export class PanoramaApp {
                 roomPoints: this.rooms.roomPoints,
                 cameraList: data.cameraPresets?.cameraList ?? [],
             });
-            if (this.ui.planName) this.ui.planName.textContent = context.planId;
-            if (this.ui.planVersion) this.ui.planVersion.textContent = context.version;
             await this.store.initialize({ originalPoints, context });
             this.obstacles = collectContentObstacleBounds(this.roomRenderer.sceneGroup);
             this.editController = new PanoramaEditController({
@@ -321,12 +320,10 @@ export class PanoramaApp {
             visible: this.hotspotsVisible,
         });
 
-        const active = state.points.find(point => point.id === state.activePointId);
-        if (this.ui.pointName) this.ui.pointName.textContent = active?.name ?? '未选择点位';
-        if (this.ui.roomName) this.ui.roomName.textContent = active?.roomName || '未分配房间';
         if (this.ui.heightValue && this.editController?.getState().workingPoint) {
             this.ui.heightValue.textContent = `${Math.round(this.editController.getState().workingPoint.z)} mm`;
         }
+        this._syncPrimaryActions();
     }
 
     _setPhase(phase, detail = '') {
@@ -339,6 +336,7 @@ export class PanoramaApp {
         if (this.ui.loadingDetail && phase === 'loading') {
             this.ui.loadingDetail.textContent = '正在加载户型与相机点位…';
         }
+        this._syncPrimaryActions();
     }
 
     _startRenderLoop() {
@@ -435,6 +433,23 @@ export class PanoramaApp {
         }) : false;
     }
 
+    async setCurrentEntryView() {
+        const active = this._activePoint();
+        const pose = this.sceneManager?.getCameraPresetPose?.();
+        const view = {
+            yaw: Number(pose?.yaw),
+            pitch: Number(pose?.pitch),
+            fov: Number(pose?.fov),
+        };
+        if (!active || !Object.values(view).every(Number.isFinite)) {
+            this.showToast('当前视角不可保存');
+            return false;
+        }
+        const changed = await this.store.setEntryView(active.id, view);
+        this.showToast(changed ? '已设为进入视角' : '当前已是进入视角');
+        return changed;
+    }
+
     resetView() {
         const active = this._activePoint();
         if (!active) return false;
@@ -529,7 +544,13 @@ export class PanoramaApp {
         this.document?.body?.classList?.toggle('panorama-editing', editing);
         if (this.ui.browseControls) this.ui.browseControls.hidden = editing;
         if (this.ui.editControls) this.ui.editControls.hidden = !editing;
-        if (this.ui.editToggle) this.ui.editToggle.disabled = editing;
+        this._syncPrimaryActions(editing);
+    }
+
+    _syncPrimaryActions(editing = this.inputPolicy?.mode === 'edit') {
+        const enabled = this.phase === 'ready' && Boolean(this._activePoint());
+        if (this.ui.editToggle) this.ui.editToggle.disabled = !enabled || editing;
+        if (this.ui.submitRender) this.ui.submitRender.disabled = !enabled || editing;
     }
 
     setHeightPreset(name) {

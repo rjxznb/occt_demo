@@ -15,7 +15,6 @@ test('loads, renders, forces white model, shows ceilings, and enters the initial
     assert.equal(documentRef.getElementById('panorama-loading').hidden, true);
     assert.equal(documentRef.getElementById('panorama-error').hidden, true);
     assert.equal(documentRef.getElementById('panorama-empty').hidden, true);
-    assert.equal(documentRef.getElementById('panorama-point-name').textContent, '点位 A');
     assert.equal(app.getState().phase, 'ready');
 });
 

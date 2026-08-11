@@ -58,6 +58,27 @@ test('switching points saves the live view of the previous point before entering
     ]);
 });
 
+test('sets the active live camera pose as the persistent entry view', async () => {
+    const { app, sceneManager } = createHarness({
+        cameraList: [
+            cameraRecord(1000, 1000, 'Point A'),
+            cameraRecord(2500, 1500, 'Point B'),
+        ],
+    });
+    await app.init();
+    const [, second] = app.getState().points;
+    await app.selectPoint(second.id);
+    sceneManager.pose = { ...sceneManager.pose, yaw: 137, pitch: -8, fov: 102 };
+
+    assert.equal(await app.setCurrentEntryView(), true);
+    assert.equal(app.getState().initialPointId, second.id);
+    assert.deepEqual(app.getState().views[second.id], {
+        yaw: 137,
+        pitch: -8,
+        fov: 102,
+    });
+});
+
 test('browse WASD selects a point in the live camera direction', async () => {
     const { app, sceneManager, windowRef, calls } = createHarness({
         cameraList: [
@@ -124,18 +145,27 @@ test('edit cancel restores its entry snapshot and save commits a valid preview',
     const { app, documentRef } = createHarness();
     await app.init();
     const activeId = app.getState().activePointId;
+    const edit = documentRef.getElementById('panorama-edit-toggle');
+    const submit = documentRef.getElementById('panorama-submit-render');
 
+    assert.equal(submit.disabled, false);
     assert.equal(app.enterEditMode(), true);
+    assert.equal(edit.disabled, true);
+    assert.equal(submit.disabled, true);
     assert.equal(documentRef.body.classList.contains('panorama-editing'), true);
     app.editController.applyMovement({ forward: 1, right: 0 }, 0.5);
     assert.equal(app.cancelEdit(), true);
     assert.equal(app.getState().points[0].x, 1000);
+    assert.equal(edit.disabled, false);
+    assert.equal(submit.disabled, false);
 
     assert.equal(app.enterEditMode(), true);
     app.editController.applyMovement({ forward: 1, right: 0 }, 0.5);
     assert.equal(await app.saveEdit(), true);
     assert.equal(app.getState().points.find(point => point.id === activeId).x, 1060);
     assert.equal(documentRef.body.classList.contains('panorama-editing'), false);
+    assert.equal(edit.disabled, false);
+    assert.equal(submit.disabled, false);
 });
 
 test('position previews preserve the live camera orientation', async () => {

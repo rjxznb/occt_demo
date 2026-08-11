@@ -4,9 +4,8 @@ import { PanoramaApp } from '../../src/PanoramaApp.js';
 import { FakeDocument, FakeElement } from './fake-dom.js';
 
 const REQUIRED_IDS = [
-    'panorama-app', 'panorama-canvas', 'panorama-topbar', 'panorama-plan-name',
-    'panorama-plan-version', 'panorama-room-name', 'panorama-point-name',
-    'panorama-edit-toggle', 'panorama-generate', 'panorama-minimap',
+    'panorama-app', 'panorama-canvas', 'panorama-edit-toggle',
+    'panorama-primary-actions', 'panorama-submit-render', 'panorama-minimap',
     'panorama-hotspots', 'panorama-browse-controls', 'panorama-edit-controls',
     'panorama-previous', 'panorama-next', 'panorama-reset-view',
     'panorama-hotspot-toggle', 'panorama-fullscreen', 'panorama-height-down',
