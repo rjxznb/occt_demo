@@ -78,9 +78,9 @@ test('rejects full XYZ overlap with a fixed obstacle', () => {
 - Produces: `selectDirectionalPanoramaPoint({ activePoint, points, yaw, direction, coneDegrees = 60 })` returning the selected point or `null`.
 - Direction values: `'forward' | 'backward' | 'left' | 'right'`.
 
-- [ ] **Step 1: Create failing resolver tests** covering yaw-zero forward/right bases, yaw rotation, cone rejection, angle-before-distance ordering, distance tie-breaking, stable source-order ties, and exclusion of active, invalid, and coincident points.
-- [ ] **Step 2: Run** `node --test tests/panorama-directional-navigator.test.js` and verify it fails because the module does not exist.
-- [ ] **Step 3: Implement the minimal pure resolver** using these bases:
+- [x] **Step 1: Create failing resolver tests** covering yaw-zero forward/right bases, yaw rotation, cone rejection, angle-before-distance ordering, distance tie-breaking, stable source-order ties, and exclusion of active, invalid, and coincident points.
+- [x] **Step 2: Run** `node --test tests/panorama-directional-navigator.test.js` and verify it fails because the module does not exist.
+- [x] **Step 3: Implement the minimal pure resolver** using these bases:
 
 ```js
 const yawRadians = yaw * Math.PI / 180;
@@ -90,8 +90,8 @@ const right = { x: Math.sin(yawRadians), y: -Math.cos(yawRadians) };
 
 Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort by descending dot, ascending squared planar distance, and ascending original array index.
 
-- [ ] **Step 4: Run** `node --test tests/panorama-directional-navigator.test.js` and verify all resolver tests pass.
-- [ ] **Step 5: Commit** with message `feat: resolve directional panorama points`.
+- [x] **Step 4: Run** `node --test tests/panorama-directional-navigator.test.js` and verify all resolver tests pass.
+- [x] **Step 5: Commit** with message `feat: resolve directional panorama points`.
 
 ### Task 3: Browse-mode WASD integration
 
