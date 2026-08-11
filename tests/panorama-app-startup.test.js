@@ -9,7 +9,7 @@ test('loads, renders, forces white model, shows ceilings, and enters the initial
     assert.equal(await app.init(), true);
 
     assert.deepEqual(calls.map(call => call[0]), [
-        'load', 'render', 'white', 'ceilings', 'camera', 'animate',
+        'load', 'render', 'room-labels', 'white', 'ceilings', 'camera', 'animate',
     ]);
     assert.deepEqual(calls.find(call => call[0] === 'white'), ['white', false]);
     assert.equal(documentRef.getElementById('panorama-loading').hidden, true);
@@ -17,6 +17,15 @@ test('loads, renders, forces white model, shows ceilings, and enters the initial
     assert.equal(documentRef.getElementById('panorama-empty').hidden, true);
     assert.equal(documentRef.getElementById('panorama-point-name').textContent, '点位 A');
     assert.equal(app.getState().phase, 'ready');
+});
+
+test('hides only room labels after the standalone panorama scene renders', async () => {
+    const { app, calls } = createHarness();
+
+    assert.equal(await app.init(), true);
+    assert.deepEqual(calls.filter(call => call[0] === 'room-labels'), [
+        ['room-labels', false],
+    ]);
 });
 
 test('supplies the complete passive wall registry expected by RoomRenderer', async () => {

@@ -229,6 +229,7 @@ export class PanoramaApp {
                 roomNames: clone(data.rooms?.roomNames ?? []),
             };
             await this.roomRenderer.render(clone(data), PASSIVE_WALL_REGISTRY);
+            this.roomRenderer.setRoomLabelsVisible(false);
             this.sceneManager.setMaterialRestorationEnabled(false);
 
             const originalPoints = normalizePanoramaPoints(

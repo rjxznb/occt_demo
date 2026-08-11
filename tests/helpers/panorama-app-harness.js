@@ -68,6 +68,7 @@ export function createHarness({
     };
     const roomRenderer = {
         async render(data) { calls.push(['render', data]); return { contentFailures: 0 }; },
+        setRoomLabelsVisible(value) { calls.push(['room-labels', value]); return value; },
         setCeilingsVisible(value) { calls.push(['ceilings', value]); return value; },
         dispose() { calls.push(['room-dispose']); },
     };
