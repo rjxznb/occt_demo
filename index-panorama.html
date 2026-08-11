@@ -12,33 +12,20 @@
         <div id="panorama-canvas" class="panorama-canvas" aria-label="白模全景视图"></div>
         <div id="panorama-hotspots" class="panorama-hotspots" aria-label="其他全景点位"></div>
 
-        <header id="panorama-topbar" class="panorama-glass panorama-topbar">
-            <div class="panorama-brand">
-                <span class="panorama-brand-mark" aria-hidden="true">⌾</span>
-                <div>
-                    <strong id="panorama-plan-name">当前方案</strong>
-                    <span id="panorama-plan-version">本地预览</span>
-                </div>
-            </div>
-            <div class="panorama-context" aria-live="polite">
-                <span id="panorama-room-name">正在识别房间</span>
-                <span class="panorama-context-divider" aria-hidden="true"></span>
-                <strong id="panorama-point-name">正在加载点位</strong>
-                <span class="panorama-white-badge">白模</span>
-            </div>
-            <div class="panorama-top-actions">
-                <button id="panorama-edit-toggle" type="button" class="panorama-button panorama-button-primary">
-                    编辑点位
-                </button>
-                <button id="panorama-generate" type="button" class="panorama-button" disabled
-                    title="离线渲染将在后续阶段接入">
-                    生成全景图
-                </button>
-            </div>
-        </header>
-
         <aside id="panorama-minimap" class="panorama-glass panorama-minimap"
             aria-label="全景点位小地图"></aside>
+
+        <section id="panorama-primary-actions"
+            class="panorama-glass panorama-primary-actions"
+            aria-label="全景操作">
+            <button id="panorama-edit-toggle" type="button"
+                class="panorama-button panorama-button-primary">
+                位置微调
+            </button>
+            <button id="panorama-submit-render" type="button" class="panorama-button">
+                提交渲染
+            </button>
+        </section>
 
         <section id="panorama-browse-controls" class="panorama-glass panorama-control-dock"
             aria-label="全景浏览控制">
@@ -80,7 +67,7 @@
         <section id="panorama-empty" class="panorama-state-card panorama-glass" hidden>
             <span class="panorama-state-icon" aria-hidden="true">＋</span>
             <strong>还没有全景点位</strong>
-            <p>请在左上角小地图中选择一个房间内的位置，创建第一个点位。</p>
+            <p>请在右上角小地图中选择一个房间内的位置，创建第一个点位。</p>
             <button id="panorama-empty-create" type="button" class="panorama-button panorama-button-primary">
                 创建第一个点位
             </button>

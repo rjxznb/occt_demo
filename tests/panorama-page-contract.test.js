@@ -8,8 +8,9 @@ const cssUrl = new URL('../src/panorama/panorama.css', import.meta.url);
 test('standalone panorama page exposes the complete browse, edit, and recovery surface', async () => {
     const html = await readFile(htmlUrl, 'utf8');
     const requiredIds = [
-        'panorama-app', 'panorama-canvas', 'panorama-topbar',
+        'panorama-app', 'panorama-canvas',
         'panorama-minimap', 'panorama-hotspots',
+        'panorama-primary-actions', 'panorama-edit-toggle', 'panorama-submit-render',
         'panorama-browse-controls', 'panorama-edit-controls',
         'panorama-loading', 'panorama-empty', 'panorama-error',
         'panorama-retry', 'panorama-toast',
@@ -23,6 +24,10 @@ test('standalone panorama page exposes the complete browse, edit, and recovery s
     assert.match(html, /data-height-preset="child"/);
     assert.match(html, /data-height-preset="standard"/);
     assert.match(html, /data-height-preset="high"/);
+    assert.doesNotMatch(html, /id=["']panorama-topbar["']/);
+    assert.match(html, />\s*位置微调\s*</);
+    assert.match(html, />\s*提交渲染\s*</);
+    assert.doesNotMatch(html, /生成全景图/);
     for (const removedId of [
         'panorama-point-panel', 'panorama-point-count', 'panorama-point-panel-toggle',
         'panorama-point-list', 'panorama-add-point', 'panorama-restore-all',
@@ -53,6 +58,11 @@ test('panorama styles provide glass fallback, keyboard focus, motion preference,
     assert.match(css, /@media\s+\(prefers-reduced-motion:\s*reduce\)/);
     assert.match(css, /\.panorama-editing/);
     assert.match(css, /\.is-offscreen/);
+    assert.match(css, /\.panorama-minimap\s*\{[\s\S]*?right:\s*16px/);
+    assert.match(css, /\.panorama-primary-actions\s*\{[\s\S]*?right:\s*16px[\s\S]*?bottom:/);
+    assert.match(css, /\.panorama-app::after/);
+    assert.match(css, /\.panorama-editing\s+\.panorama-app::after[\s\S]*?opacity:\s*1/);
+    assert.match(css, /inset\s+0\s+0\s+32px[\s\S]*?rgba\(79,\s*139,\s*188,\s*0\.22\)/);
 });
 
 test('loading and empty states conceal the orbit camera before a panorama point is active', async () => {
