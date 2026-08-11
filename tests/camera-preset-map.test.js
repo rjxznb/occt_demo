@@ -32,3 +32,17 @@ test('Rotation vector takes precedence and mini-map flips world Y into screen to
     assert.equal(layout.toPercent(100, 100).left, 100);
     assert.equal(layout.toPercent(100, 100).top, 0);
 });
+
+test('legacy camera normalization exposes the stable panorama point identity', () => {
+    const record = {
+        TypeId: '27d2',
+        BasePoint: 'X=10 Y=20 Z=0',
+        BlockInnerInfo: { 离地高度: 1500 },
+    };
+
+    const [first] = normalizeCameraPresets([record]);
+    const [second] = normalizeCameraPresets([structuredClone(record)]);
+
+    assert.match(first.id, /^camera:/);
+    assert.equal(first.id, second.id);
+});

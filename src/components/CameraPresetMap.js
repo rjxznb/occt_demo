@@ -1,5 +1,9 @@
-const CAMERA_TYPE_IDS = new Set(['27d2', '27d202']);
-const DEFAULT_CAMERA_HEIGHT = 1500;
+import {
+    normalizeCameraPresets,
+    parseCadVector,
+} from '../panorama/PanoramaPointModel.js';
+
+export { normalizeCameraPresets, parseCadVector };
 
 function pointX(point) {
     return Number(Array.isArray(point) ? point[0] : point?.x);
@@ -7,62 +11,6 @@ function pointX(point) {
 
 function pointY(point) {
     return Number(Array.isArray(point) ? point[1] : point?.y);
-}
-
-export function parseCadVector(value) {
-    if (value && typeof value === 'object') {
-        const x = Number(value.x ?? value.X);
-        const y = Number(value.y ?? value.Y);
-        const z = Number(value.z ?? value.Z);
-        if ([x, y, z].some(Number.isFinite)) {
-            return {
-                x: Number.isFinite(x) ? x : 0,
-                y: Number.isFinite(y) ? y : 0,
-                z: Number.isFinite(z) ? z : 0,
-            };
-        }
-    }
-    const text = String(value ?? '');
-    const numberFor = axis => {
-        const match = text.match(new RegExp(`${axis}=([-+]?\\d*\\.?\\d+(?:e[-+]?\\d+)?)`, 'i'));
-        return match ? Number(match[1]) : 0;
-    };
-    return { x: numberFor('X'), y: numberFor('Y'), z: numberFor('Z') };
-}
-
-export function normalizeCameraPresets(cameraList) {
-    if (!Array.isArray(cameraList)) return [];
-
-    return cameraList.flatMap((record, sourceIndex) => {
-        if (!record || typeof record !== 'object') return [];
-        const typeId = String(record.TypeId ?? record.typeId ?? '').toLowerCase();
-        if (typeId && !CAMERA_TYPE_IDS.has(typeId)) return [];
-
-        const basePoint = parseCadVector(record.BasePoint ?? record.basePoint);
-        const block = record.BlockInnerInfo ?? record.blockInnerInfo ?? {};
-        const rotation = parseCadVector(block.Rotation ?? record.Rotation);
-        const hasRotationVector = block.Rotation != null || record.Rotation != null;
-        const height = Number(block['离地高度'] ?? block.liftoffHeight ?? basePoint.z);
-        const yaw = hasRotationVector
-            ? rotation.y
-            : Number(block['旋转角度'] ?? block.rotationAngle ?? record.OutRotateRadian ?? 0);
-        const pitch = hasRotationVector ? rotation.x : Number(block.Pitch ?? 0);
-        const fov = Number(block.FOV ?? block.fov ?? record.FOV ?? 90);
-
-        if (![basePoint.x, basePoint.y].every(Number.isFinite)) return [];
-        return [{
-            sourceIndex,
-            typeId: typeId || '27d2',
-            name: String(record.DisplayName ?? record.Name ?? `点位 ${sourceIndex + 1}`),
-            x: basePoint.x,
-            y: basePoint.y,
-            z: Number.isFinite(height) && height > 0 ? height : DEFAULT_CAMERA_HEIGHT,
-            yaw: Number.isFinite(yaw) ? yaw : 0,
-            pitch: Number.isFinite(pitch) ? pitch : 0,
-            fov: Number.isFinite(fov) ? Math.min(150, Math.max(30, fov)) : 90,
-            raw: record,
-        }];
-    });
 }
 
 export function calculateMiniMapLayout(roomPoints, presets, padding = 240) {
