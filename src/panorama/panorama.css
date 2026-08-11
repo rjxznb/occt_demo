@@ -57,6 +57,14 @@ button:disabled {
     position: absolute;
     inset: 0;
     background: linear-gradient(160deg, #e9ecef, #d9dee4);
+    opacity: 1;
+    transition: opacity 180ms ease;
+}
+
+.panorama-app[data-state="loading"] .panorama-canvas,
+.panorama-app[data-state="empty"] .panorama-canvas,
+.panorama-app[data-state="error"] .panorama-canvas {
+    opacity: 0;
 }
 
 .panorama-canvas canvas {
@@ -607,4 +615,3 @@ button.panorama-button-primary:hover {
         transition-duration: 1ms !important;
     }
 }
-

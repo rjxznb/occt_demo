@@ -52,6 +52,11 @@ export class FakeElement {
         this.listeners.get(type).push(listener);
     }
 
+    removeEventListener(type, listener) {
+        const listeners = this.listeners.get(type) ?? [];
+        this.listeners.set(type, listeners.filter(candidate => candidate !== listener));
+    }
+
     dispatch(type, event = {}) {
         const payload = {
             target: this,
@@ -73,12 +78,29 @@ export class FakeElement {
 }
 
 export class FakeDocument {
+    constructor() {
+        this.elements = new Map();
+        this.body = new FakeElement('body');
+        this.documentElement = new FakeElement('html');
+        this.fullscreenElement = null;
+    }
+
     createElement(tagName) {
         return new FakeElement(tagName);
     }
 
     createElementNS(_namespace, tagName) {
         return new FakeElement(tagName);
+    }
+
+    registerElement(id, element = new FakeElement('div')) {
+        element.id = id;
+        this.elements.set(id, element);
+        return element;
+    }
+
+    getElementById(id) {
+        return this.elements.get(id) ?? null;
     }
 }
 

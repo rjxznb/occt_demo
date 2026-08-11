@@ -331,6 +331,12 @@ export function applySceneFixture(drawing, fixtureName) {
             })),
         };
     }
+    if (fixtureName === 'panorama-empty') {
+        return {
+            ...drawing,
+            camera_list: [],
+        };
+    }
     const remainingFixture = REMAINING_FIXTURE_BY_TYPE.get(fixtureName);
     if (remainingFixture) {
         const sourceList = Array.isArray(drawing[remainingFixture.listName])

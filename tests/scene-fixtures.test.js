@@ -109,3 +109,14 @@ test('unrelated fixture values leave the drawing untouched', async () => {
         assert.equal(result.window_list.length, 1);
     }
 });
+
+test('fixture=panorama-empty removes camera presets without mutating the drawing', async () => {
+    const camera = { TypeId: '27d2', BasePoint: 'X=100 Y=100 Z=0' };
+    const drawing = { camera_list: [camera], room_list: [] };
+
+    const result = await withFixture(drawingSource(drawing), '?fixture=panorama-empty').loadDrawing();
+
+    assert.deepEqual(result.camera_list, []);
+    assert.deepEqual(drawing.camera_list, [camera]);
+    assert.notEqual(result, drawing);
+});
