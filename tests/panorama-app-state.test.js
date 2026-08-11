@@ -43,7 +43,12 @@ test('switching points saves the live view of the previous point before entering
     const state = app.getState();
     assert.equal(state.activePointId, second.id);
     assert.deepEqual(state.views[first.id], { yaw: 42, pitch: -3, fov: 105 });
-    assert.equal(calls.filter(call => call[0] === 'camera').at(-1)[1], '点位 B');
+    assert.deepEqual(calls.filter(call => call[0] === 'camera'), [
+        ['camera', first.name],
+    ]);
+    assert.deepEqual(calls.filter(call => call[0] === 'camera-transition'), [
+        ['camera-transition', second.name, { duration: 0.8 }],
+    ]);
 });
 
 test('edit cancel restores its entry snapshot and save commits a valid preview', async () => {

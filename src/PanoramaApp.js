@@ -297,6 +297,14 @@ export class PanoramaApp {
         return this.sceneManager.setCameraPreset(this._pointWithView(point));
     }
 
+    _transitionToPoint(point) {
+        if (!point) return false;
+        this.roomRenderer.setCeilingsVisible(true);
+        return this.sceneManager.transitionCameraPreset(this._pointWithView(point), {
+            duration: 0.8,
+        });
+    }
+
     _renderState() {
         if (!this.store) return;
         const state = this.store.getState();
@@ -394,7 +402,7 @@ export class PanoramaApp {
         const selected = await this.store.selectPoint(id);
         if (!selected) return false;
         this.createMode = false;
-        this._enterPoint(this._activePoint());
+        this._transitionToPoint(this._activePoint());
         this._setPhase('ready');
         return true;
     }
