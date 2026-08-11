@@ -45,7 +45,9 @@ For every candidate, it computes the normalized direction from the active point 
 2. shortest planar distance;
 3. stable original point order.
 
-If no candidate qualifies, the active point does not change. A successful command uses the existing `selectPoint` flow, including saving the current live view and performing the 0.8-second smooth transition. Repeated `keydown` events with `event.repeat === true` are ignored so one physical key press triggers at most one transition.
+If no candidate qualifies, the active point does not change. A successful command reuses the point-selection state flow, including saving the current live view, but supplies a directional transition pose as described below. Repeated `keydown` events with `event.repeat === true` are ignored so one physical key press triggers at most one transition.
+
+WASD transitions preserve the complete live view from the source point. The transition target combines the selected point's `x`, `y`, and `z` with the source camera's live `yaw`, `pitch`, and `fov`. The 0.8-second transition therefore changes position only and never turns or zooms the camera. The source point still stores its live view before selection, while the destination point's previously stored view remains unchanged. Selecting a point through the mini-map, a panorama hotspot, or the previous/next controls continues to use that destination point's saved view.
 
 The browse-mode key handler prevents the default action only for recognized WASD commands and only when the application is ready and not editing.
 
@@ -81,6 +83,8 @@ Automated tests will cover:
 - each direction uses the live yaw basis and the 60-degree cone;
 - angular alignment wins before distance and ties remain stable;
 - browse WASD dispatches one directional transition while repeated keys and edit mode do not;
+- browse WASD preserves live yaw, pitch, and FOV while changing only the destination position;
+- mini-map, hotspot, and previous/next selection still restore the destination point's saved view;
 - the panorama page no longer exposes the point-information panel;
 - mini-map actions invoke their callbacks and collapse with the map;
 - the full test suite and production 3D build remain successful.
