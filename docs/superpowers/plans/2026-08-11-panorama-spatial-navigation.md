@@ -125,13 +125,13 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - Extends: `PanoramaApp.selectPoint(id, { transitionView = null } = {})` so a caller may supply the transition's `yaw`, `pitch`, and `fov` without modifying the destination point's stored view.
 - Keeps: ordinary `selectPoint(id)` callers use the destination point's saved view.
 
-- [ ] **Step 1: Add a failing app test** that gives the source live pose `{ yaw: 37, pitch: -6, fov: 104 }`, assigns a different stored view to the directional destination, invokes `selectDirectionalPoint('forward')`, and asserts the transition target combines the destination `x/y/z` with the source live yaw/pitch/FOV.
-- [ ] **Step 2: Assert in the same test** that the destination's stored view remains unchanged, then add a separate assertion that ordinary `selectPoint` still transitions with the destination view.
-- [ ] **Step 3: Run** `node --test tests/panorama-app-state.test.js` and verify the WASD transition assertion fails by receiving the destination view.
-- [ ] **Step 4: Extend `selectPoint` minimally** with a `transitionView` option and build the transition pose from the active destination point plus that optional view.
-- [ ] **Step 5: Pass the already captured live pose** from `selectDirectionalPoint` into `selectPoint` as `transitionView`, without calling `store.updateView` for the destination.
-- [ ] **Step 6: Run** `node --test tests/panorama-app-state.test.js` and verify both directional and ordinary selection behaviors pass.
-- [ ] **Step 7: Commit** with message `fix: preserve panorama view during wasd navigation`.
+- [x] **Step 1: Add a failing app test** that gives the source live pose `{ yaw: 37, pitch: -6, fov: 104 }`, assigns a different stored view to the directional destination, invokes `selectDirectionalPoint('forward')`, and asserts the transition target combines the destination `x/y/z` with the source live yaw/pitch/FOV.
+- [x] **Step 2: Assert in the same test** that the destination's stored view remains unchanged, then add a separate assertion that ordinary `selectPoint` still transitions with the destination view.
+- [x] **Step 3: Run** `node --test tests/panorama-app-state.test.js` and verify the WASD transition assertion fails by receiving the destination view.
+- [x] **Step 4: Extend `selectPoint` minimally** with a `transitionView` option and build the transition pose from the active destination point plus that optional view.
+- [x] **Step 5: Pass the already captured live pose** from `selectDirectionalPoint` into `selectPoint` as `transitionView`, without calling `store.updateView` for the destination.
+- [x] **Step 6: Run** `node --test tests/panorama-app-state.test.js` and verify both directional and ordinary selection behaviors pass.
+- [x] **Step 7: Commit** with message `fix: preserve panorama view during wasd navigation`.
 
 ### Task 4: Consolidate controls into the mini-map card
 

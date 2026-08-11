@@ -293,12 +293,16 @@ export class PanoramaApp {
         return this.sceneManager.setCameraPreset(this._pointWithView(point));
     }
 
-    _transitionToPoint(point) {
+    _transitionToPoint(point, viewOverride = null) {
         if (!point) return false;
         this.roomRenderer.setCeilingsVisible(true);
-        return this.sceneManager.transitionCameraPreset(this._pointWithView(point), {
+        const target = this._pointWithView(point);
+        return this.sceneManager.transitionCameraPreset(
+            viewOverride ? { ...target, ...viewOverride } : target,
+            {
             duration: 0.8,
-        });
+            },
+        );
     }
 
     _renderState() {
@@ -388,7 +392,7 @@ export class PanoramaApp {
         });
     }
 
-    async selectPoint(id) {
+    async selectPoint(id, { transitionView = null } = {}) {
         const state = this.store?.getState();
         if (!state || id === state.activePointId) return false;
         const target = state.points.find(point => point.id === id && point.valid !== false);
@@ -397,7 +401,7 @@ export class PanoramaApp {
         const selected = await this.store.selectPoint(id);
         if (!selected) return false;
         this.createMode = false;
-        this._transitionToPoint(this._activePoint());
+        this._transitionToPoint(this._activePoint(), transitionView);
         this._setPhase('ready');
         return true;
     }
@@ -422,7 +426,13 @@ export class PanoramaApp {
             yaw: Number(pose.yaw),
             direction,
         });
-        return target ? this.selectPoint(target.id) : false;
+        return target ? this.selectPoint(target.id, {
+            transitionView: {
+                yaw: Number(pose.yaw),
+                pitch: Number(pose.pitch),
+                fov: Number(pose.fov),
+            },
+        }) : false;
     }
 
     resetView() {

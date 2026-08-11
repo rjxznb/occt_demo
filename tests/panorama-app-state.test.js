@@ -38,6 +38,7 @@ test('switching points saves the live view of the previous point before entering
     });
     await app.init();
     const [first, second] = app.getState().points;
+    await app.store.updateView(second.id, { yaw: 120, pitch: 5, fov: 80 });
     sceneManager.pose = { x: 1000, y: 1000, z: 1500, yaw: 42, pitch: -3, fov: 105 };
 
     assert.equal(await app.selectPoint(second.id), true);
@@ -45,6 +46,10 @@ test('switching points saves the live view of the previous point before entering
     const state = app.getState();
     assert.equal(state.activePointId, second.id);
     assert.deepEqual(state.views[first.id], { yaw: 42, pitch: -3, fov: 105 });
+    assert.deepEqual(
+        { yaw: sceneManager.pose.yaw, pitch: sceneManager.pose.pitch, fov: sceneManager.pose.fov },
+        { yaw: 120, pitch: 5, fov: 80 },
+    );
     assert.deepEqual(calls.filter(call => call[0] === 'camera'), [
         ['camera', first.name],
     ]);
@@ -63,7 +68,10 @@ test('browse WASD selects a point in the live camera direction', async () => {
     });
     await app.init();
     const [, forward] = app.getState().points;
-    sceneManager.pose = { ...sceneManager.pose, yaw: 0 };
+    const destinationView = { yaw: 150, pitch: 8, fov: 72 };
+    const sourceView = { yaw: 37, pitch: -6, fov: 104 };
+    await app.store.updateView(forward.id, destinationView);
+    sceneManager.pose = { ...sceneManager.pose, ...sourceView };
     const event = {
         code: 'KeyW',
         repeat: false,
@@ -75,6 +83,11 @@ test('browse WASD selects a point in the live camera direction', async () => {
 
     assert.equal(event.prevented, true);
     assert.equal(app.getState().activePointId, forward.id);
+    assert.deepEqual(
+        { yaw: sceneManager.pose.yaw, pitch: sceneManager.pose.pitch, fov: sceneManager.pose.fov },
+        sourceView,
+    );
+    assert.deepEqual(app.getState().views[forward.id], destinationView);
     assert.equal(calls.filter(call => call[0] === 'camera-transition').at(-1)[1], forward.name);
 });
 
