@@ -13,6 +13,8 @@ export class PanoramaMiniMap {
         onSelect = () => {},
         onCreate = () => {},
         onToggle = () => {},
+        onAdd = () => {},
+        onRestoreAll = () => {},
         documentRef = globalThis.document,
         padding = 240,
     } = {}) {
@@ -20,6 +22,8 @@ export class PanoramaMiniMap {
         this.onSelect = onSelect;
         this.onCreate = onCreate;
         this.onToggle = onToggle;
+        this.onAdd = onAdd;
+        this.onRestoreAll = onRestoreAll;
         this.document = documentRef;
         this.padding = padding;
         this.collapsed = false;
@@ -58,6 +62,7 @@ export class PanoramaMiniMap {
             this.collapsed = !this.collapsed;
             this.container.classList.toggle('is-collapsed', this.collapsed);
             stage.hidden = this.collapsed;
+            actions.hidden = this.collapsed;
             toggle.textContent = this.collapsed ? '展开' : '折叠';
             toggle.setAttribute('aria-expanded', String(!this.collapsed));
             this.onToggle(this.collapsed);
@@ -69,9 +74,32 @@ export class PanoramaMiniMap {
         const stage = this._element('div', 'panorama-minimap-stage');
         stage.dataset.role = 'minimap-stage';
         stage.hidden = this.collapsed;
+        const actions = this._element('div', 'panorama-minimap-actions');
+        actions.dataset.role = 'minimap-actions';
+        actions.hidden = this.collapsed;
+        const addButton = this._element('button', 'panorama-button');
+        addButton.classList.add('panorama-button-primary');
+        addButton.type = 'button';
+        addButton.dataset.action = 'add-point';
+        addButton.textContent = '新增点位';
+        addButton.addEventListener('click', event => {
+            event.stopPropagation();
+            this.onAdd();
+        });
+        const restoreButton = this._element('button', 'panorama-button');
+        restoreButton.type = 'button';
+        restoreButton.dataset.action = 'restore-all';
+        restoreButton.textContent = '恢复全部';
+        restoreButton.addEventListener('click', event => {
+            event.stopPropagation();
+            this.onRestoreAll();
+        });
+        actions.appendChild(addButton);
+        actions.appendChild(restoreButton);
         if (!layout) {
             stage.classList.add('is-empty');
             this.container.appendChild(stage);
+            this.container.appendChild(actions);
             return;
         }
 
@@ -122,6 +150,7 @@ export class PanoramaMiniMap {
             });
         });
         this.container.appendChild(stage);
+        this.container.appendChild(actions);
     }
 
     dispose() {

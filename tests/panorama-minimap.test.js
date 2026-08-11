@@ -48,19 +48,32 @@ test('reports collapse and world-space create intents through callbacks', () => 
     const container = new FakeElement('aside');
     const toggles = [];
     const creates = [];
+    const actions = [];
     const map = new PanoramaMiniMap(container, {
         documentRef: new FakeDocument(),
         padding: 0,
         onToggle: collapsed => toggles.push(collapsed),
         onCreate: point => creates.push(point),
+        onAdd: () => actions.push('add'),
+        onRestoreAll: () => actions.push('restore'),
     });
     map.render({ roomPoints: ROOM_POINTS, points: POINTS, createMode: true });
 
+    const add = findByDataset(container, 'action', 'add-point');
+    const restore = findByDataset(container, 'action', 'restore-all');
+    const actionRow = findByDataset(container, 'role', 'minimap-actions');
+    assert.ok(add);
+    assert.ok(restore);
+    add.click();
+    restore.click();
     findByDataset(container, 'action', 'toggle-map').click();
     const stage = findByDataset(container, 'role', 'minimap-stage');
+    assert.equal(stage.hidden, true);
+    assert.equal(actionRow.hidden, true);
     stage.rect = { left: 0, top: 0, width: 200, height: 100 };
     stage.dispatch('click', { clientX: 150, clientY: 50 });
 
+    assert.deepEqual(actions, ['add', 'restore']);
     assert.deepEqual(toggles, [true]);
     assert.deepEqual(creates, [{ x: 75, y: 50 }]);
 });

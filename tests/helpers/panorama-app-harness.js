@@ -7,8 +7,6 @@ const REQUIRED_IDS = [
     'panorama-app', 'panorama-canvas', 'panorama-topbar', 'panorama-plan-name',
     'panorama-plan-version', 'panorama-room-name', 'panorama-point-name',
     'panorama-edit-toggle', 'panorama-generate', 'panorama-minimap',
-    'panorama-point-panel', 'panorama-point-count', 'panorama-point-panel-toggle',
-    'panorama-point-list', 'panorama-add-point', 'panorama-restore-all',
     'panorama-hotspots', 'panorama-browse-controls', 'panorama-edit-controls',
     'panorama-previous', 'panorama-next', 'panorama-reset-view',
     'panorama-hotspot-toggle', 'panorama-fullscreen', 'panorama-height-down',

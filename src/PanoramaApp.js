@@ -12,7 +12,6 @@ import { validatePanoramaPoint } from './panorama/PanoramaPointValidator.js';
 import { PanoramaEditController } from './panorama/PanoramaEditController.js';
 import { PanoramaInputPolicy } from './panorama/PanoramaInputPolicy.js';
 import { PanoramaMiniMap } from './panorama/PanoramaMiniMap.js';
-import { PanoramaPointList } from './panorama/PanoramaPointList.js';
 import { PanoramaHotspots } from './panorama/PanoramaHotspots.js';
 import { selectDirectionalPanoramaPoint } from './panorama/PanoramaDirectionalNavigator.js';
 
@@ -82,7 +81,6 @@ export class PanoramaApp {
         repository = undefined,
         storeFactory = options => new PanoramaPointStore(options),
         miniMapFactory = (container, options) => new PanoramaMiniMap(container, options),
-        pointListFactory = (container, options) => new PanoramaPointList(container, options),
         hotspotsFactory = (container, options) => new PanoramaHotspots(container, options),
         logger = console,
     } = {}) {
@@ -97,7 +95,6 @@ export class PanoramaApp {
             : repository;
         this.storeFactory = storeFactory;
         this.miniMapFactory = miniMapFactory;
-        this.pointListFactory = pointListFactory;
         this.hotspotsFactory = hotspotsFactory;
         this.logger = logger;
 
@@ -114,7 +111,6 @@ export class PanoramaApp {
         this.editController = null;
         this.inputPolicy = null;
         this.miniMap = null;
-        this.pointList = null;
         this.hotspots = null;
         this.rooms = { roomPoints: [], roomNames: [] };
         this.obstacles = null;
@@ -133,9 +129,7 @@ export class PanoramaApp {
         const ids = [
             'panorama-app', 'panorama-canvas', 'panorama-plan-name', 'panorama-plan-version',
             'panorama-room-name', 'panorama-point-name', 'panorama-edit-toggle',
-            'panorama-minimap', 'panorama-point-panel', 'panorama-point-count',
-            'panorama-point-panel-toggle', 'panorama-point-list', 'panorama-add-point',
-            'panorama-restore-all', 'panorama-hotspots', 'panorama-browse-controls',
+            'panorama-minimap', 'panorama-hotspots', 'panorama-browse-controls',
             'panorama-edit-controls', 'panorama-previous', 'panorama-next',
             'panorama-reset-view', 'panorama-hotspot-toggle', 'panorama-fullscreen',
             'panorama-height-down', 'panorama-height-value', 'panorama-height-up',
@@ -163,15 +157,12 @@ export class PanoramaApp {
         this._listen(this.ui.resetView, 'click', () => this.resetView());
         this._listen(this.ui.hotspotToggle, 'click', () => this.toggleHotspots());
         this._listen(this.ui.fullscreen, 'click', () => void this.toggleFullscreen());
-        this._listen(this.ui.addPoint, 'click', () => this.beginCreatePoint());
         this._listen(this.ui.emptyCreate, 'click', () => this.beginCreatePoint());
-        this._listen(this.ui.restoreAll, 'click', () => void this.restoreAllPoints());
         this._listen(this.ui.editSave, 'click', () => void this.saveEdit());
         this._listen(this.ui.editCancel, 'click', () => this.cancelEdit());
         this._listen(this.ui.heightDown, 'click', () => this.nudgeHeight(-HEIGHT_NUDGE));
         this._listen(this.ui.heightUp, 'click', () => this.nudgeHeight(HEIGHT_NUDGE));
         this._listen(this.ui.retry, 'click', () => void this.retry());
-        this._listen(this.ui.pointPanelToggle, 'click', () => this.togglePointPanel());
 
         for (const button of this.document?.querySelectorAll?.('[data-height-preset]') ?? []) {
             this._listen(button, 'click', () => this.setHeightPreset(button.dataset.heightPreset));
@@ -201,14 +192,8 @@ export class PanoramaApp {
             documentRef: this.document,
             onSelect: id => void this.selectPoint(id),
             onCreate: point => void this.createPoint(point),
-        });
-        this.pointList = this.pointListFactory(this.ui.pointList, {
-            documentRef: this.document,
-            onSelect: id => void this.selectPoint(id),
-            onRename: id => void this.renamePoint(id),
-            onDelete: id => void this.deletePoint(id),
-            onSetInitial: id => void this.setInitialPoint(id),
-            onRestore: id => void this.restorePoint(id),
+            onAdd: () => this.beginCreatePoint(),
+            onRestoreAll: () => void this.restoreAllPoints(),
         });
         this.hotspots = this.hotspotsFactory(this.ui.hotspots, {
             documentRef: this.document,
@@ -326,7 +311,6 @@ export class PanoramaApp {
             dirtyPointIds: state.dirtyPointIds,
             createMode: this.createMode,
         });
-        this.pointList?.render(state);
         this.hotspots?.render({
             points: state.points,
             activePointId: state.activePointId,
@@ -336,7 +320,6 @@ export class PanoramaApp {
         const active = state.points.find(point => point.id === state.activePointId);
         if (this.ui.pointName) this.ui.pointName.textContent = active?.name ?? '未选择点位';
         if (this.ui.roomName) this.ui.roomName.textContent = active?.roomName || '未分配房间';
-        if (this.ui.pointCount) this.ui.pointCount.textContent = `${state.points.length} 个点位`;
         if (this.ui.heightValue && this.editController?.getState().workingPoint) {
             this.ui.heightValue.textContent = `${Math.round(this.editController.getState().workingPoint.z)} mm`;
         }
@@ -551,46 +534,6 @@ export class PanoramaApp {
         return changed;
     }
 
-    async renamePoint(id) {
-        const point = this.store?.getState().points.find(candidate => candidate.id === id);
-        if (!point) return false;
-        const name = this.window?.prompt?.('输入点位名称', point.name);
-        if (name == null) return false;
-        return this.store.renamePoint(id, name);
-    }
-
-    async deletePoint(id) {
-        const point = this.store?.getState().points.find(candidate => candidate.id === id);
-        if (!point) return false;
-        if (this.window?.confirm && !this.window.confirm(`确定删除“${point.name}”吗？`)) return false;
-        const deleted = await this.store.deletePoint(id);
-        if (!deleted) return false;
-        const active = this._activePoint();
-        if (active) {
-            this._enterPoint(active);
-            this._setPhase('ready');
-        } else {
-            this.roomRenderer.setCeilingsVisible(false);
-            this._setPhase('empty');
-        }
-        return true;
-    }
-
-    async setInitialPoint(id) {
-        const changed = await this.store.setInitialPoint(id);
-        if (changed) this.showToast('已设为初始点位');
-        return changed;
-    }
-
-    async restorePoint(id) {
-        const changed = await this.store.restorePoint(id);
-        if (changed) {
-            const active = this._activePoint();
-            if (active) this._enterPoint(active);
-        }
-        return changed;
-    }
-
     async restoreAllPoints() {
         if (this.window?.confirm && !this.window.confirm('确定恢复全部原始点位吗？')) return false;
         const changed = await this.store.restoreAll();
@@ -599,15 +542,6 @@ export class PanoramaApp {
             if (active) this._enterPoint(active);
         }
         return changed;
-    }
-
-    togglePointPanel() {
-        const collapsed = this.ui.pointPanel?.classList?.toggle('is-collapsed') ?? false;
-        if (this.ui.pointPanelToggle) {
-            this.ui.pointPanelToggle.setAttribute?.('aria-expanded', String(!collapsed));
-            this.ui.pointPanelToggle.textContent = collapsed ? '›' : '‹';
-        }
-        return collapsed;
     }
 
     async toggleFullscreen() {
@@ -643,7 +577,6 @@ export class PanoramaApp {
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = null;
         this.miniMap?.dispose();
-        this.pointList?.dispose();
         this.hotspots?.dispose();
         if (this.roomRenderer?.dispose) {
             this.roomRenderer.dispose(this.sceneManager?.getScene?.());
@@ -655,7 +588,6 @@ export class PanoramaApp {
         this.editController = null;
         this.inputPolicy = null;
         this.miniMap = null;
-        this.pointList = null;
         this.hotspots = null;
         this.runtimeActive = false;
         this.lastFrameTime = null;

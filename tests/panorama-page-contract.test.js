@@ -9,7 +9,7 @@ test('standalone panorama page exposes the complete browse, edit, and recovery s
     const html = await readFile(htmlUrl, 'utf8');
     const requiredIds = [
         'panorama-app', 'panorama-canvas', 'panorama-topbar',
-        'panorama-minimap', 'panorama-point-list', 'panorama-hotspots',
+        'panorama-minimap', 'panorama-hotspots',
         'panorama-browse-controls', 'panorama-edit-controls',
         'panorama-loading', 'panorama-empty', 'panorama-error',
         'panorama-retry', 'panorama-toast',
@@ -23,6 +23,12 @@ test('standalone panorama page exposes the complete browse, edit, and recovery s
     assert.match(html, /data-height-preset="child"/);
     assert.match(html, /data-height-preset="standard"/);
     assert.match(html, /data-height-preset="high"/);
+    for (const removedId of [
+        'panorama-point-panel', 'panorama-point-count', 'panorama-point-panel-toggle',
+        'panorama-point-list', 'panorama-add-point', 'panorama-restore-all',
+    ]) {
+        assert.doesNotMatch(html, new RegExp(`id=["']${removedId}["']`), removedId);
+    }
 });
 
 test('panorama page does not expose the legacy model and material editor controls', async () => {

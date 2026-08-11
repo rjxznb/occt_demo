@@ -131,16 +131,16 @@ Filter candidates with `dot >= Math.cos(coneDegrees * Math.PI / 180)`, then sort
 - Removes from page contract: `panorama-point-panel`, `panorama-point-count`, `panorama-point-panel-toggle`, and `panorama-point-list`.
 - Keeps: `PanoramaPointStore` persistence and point mutation methods.
 
-- [ ] **Step 1: Add failing mini-map tests** asserting an action row contains `data-action="add-point"` and `data-action="restore-all"`, invokes both callbacks, and hides together with the stage when collapsed.
-- [ ] **Step 2: Update the page-contract test first** to retain the mini-map container and reject the removed point-panel IDs; the component test from Step 1 owns the runtime action-button contract.
-- [ ] **Step 3: Run** `node --test tests/panorama-minimap.test.js tests/panorama-page-contract.test.js` and verify the new assertions fail.
-- [ ] **Step 4: Extend `PanoramaMiniMap`** to render the two-button footer, wire `onAdd` and `onRestoreAll`, and toggle the footer's `hidden` state alongside the stage.
-- [ ] **Step 5: Remove the point panel from `index-panorama.html`** and keep no duplicate static add/restore buttons outside the mini-map.
-- [ ] **Step 6: Remove `PanoramaPointList` construction, rendering, disposal, UI bindings, and unreachable page methods** from `PanoramaApp`; pass mini-map callbacks to `beginCreatePoint` and `restoreAllPoints`.
-- [ ] **Step 7: Remove point-panel CSS** and add a compact two-column `.panorama-minimap-actions` footer that follows the existing Liquid Glass button treatment.
-- [ ] **Step 8: Update the app harness required IDs** and any page contract assertions to match the new DOM.
-- [ ] **Step 9: Run** `node --test tests/panorama-minimap.test.js tests/panorama-page-contract.test.js tests/panorama-app-state.test.js` and verify all UI tests pass.
-- [ ] **Step 10: Commit** with message `refactor: consolidate panorama point controls`.
+- [x] **Step 1: Add failing mini-map tests** asserting an action row contains `data-action="add-point"` and `data-action="restore-all"`, invokes both callbacks, and hides together with the stage when collapsed.
+- [x] **Step 2: Update the page-contract test first** to retain the mini-map container and reject the removed point-panel IDs; the component test from Step 1 owns the runtime action-button contract.
+- [x] **Step 3: Run** `node --test tests/panorama-minimap.test.js tests/panorama-page-contract.test.js` and verify the new assertions fail.
+- [x] **Step 4: Extend `PanoramaMiniMap`** to render the two-button footer, wire `onAdd` and `onRestoreAll`, and toggle the footer's `hidden` state alongside the stage.
+- [x] **Step 5: Remove the point panel from `index-panorama.html`** and keep no duplicate static add/restore buttons outside the mini-map.
+- [x] **Step 6: Remove `PanoramaPointList` construction, rendering, disposal, UI bindings, and unreachable page methods** from `PanoramaApp`; pass mini-map callbacks to `beginCreatePoint` and `restoreAllPoints`.
+- [x] **Step 7: Remove point-panel CSS** and add a compact two-column `.panorama-minimap-actions` footer that follows the existing Liquid Glass button treatment.
+- [x] **Step 8: Update the app harness required IDs** and any page contract assertions to match the new DOM.
+- [x] **Step 9: Run** `node --test tests/panorama-minimap.test.js tests/panorama-page-contract.test.js tests/panorama-app-state.test.js` and verify all UI tests pass.
+- [x] **Step 10: Commit** with message `refactor: consolidate panorama point controls`.
 
 ### Task 5: Full verification and browser QA
 
