@@ -49,7 +49,17 @@ test('real Drawing2 deterministically produces isolated room candidates', async 
     assert.deepEqual(first, repeated);
     assert.ok(first.candidates.length > 0);
     assert.ok(first.candidates.some(view => view.roomType === 'primary'));
-    assert.ok(first.candidates.every(view => [view.x, view.y, view.z, view.yaw, view.fov].every(Number.isFinite)));
+    assert.ok(first.candidates.every(view => [
+        view.x, view.y, view.z, view.yaw, view.pitch, view.fov,
+    ].every(Number.isFinite)));
+    const candidateRoomIds = new Set(first.candidates.map(view => view.roomId));
+    assert.ok(candidateRoomIds.size > 1, 'the all-room workbench receives candidates from multiple rooms');
+    assert.deepEqual(
+        [...candidateRoomIds].sort(),
+        [...new Set(first.roomResults
+            .filter(room => first.candidates.some(view => view.roomId === room.roomId))
+            .map(room => room.roomId))].sort(),
+    );
     for (const room of first.roomResults) {
         assert.ok(first.candidates.filter(view => view.roomId === room.roomId).length <= 4);
         assert.ok(first.candidates.filter(view => view.roomId === room.roomId && view.selected).length <= 1);

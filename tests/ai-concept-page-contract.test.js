@@ -41,5 +41,6 @@ test('AI concept styles provide blue liquid glass, editing glow, motion fallback
     assert.match(css, /\.ai-view-card\[data-thumbnail-state="loading"\]/);
     assert.match(css, /\.ai-view-card\[data-thumbnail-state="error"\]/);
     assert.match(css, /\.ai-view-map-point\.is-active/);
+    assert.match(css, /\.ai-view-minimap-room\s*\{[\s\S]*?stroke-width:\s*1\.4/);
     assert.doesNotMatch(css, /\.ai-view-map-direction/);
 });

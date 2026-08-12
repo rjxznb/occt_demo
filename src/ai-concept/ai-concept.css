@@ -207,7 +207,13 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
     background: rgba(242, 246, 249, 0.72);
 }
 .ai-view-minimap-stage svg { position: absolute; inset: 7px; width: calc(100% - 14px); height: calc(100% - 14px); }
-.ai-view-minimap-room { fill: rgba(255, 255, 255, 0.68); stroke: #9aacba; stroke-width: 34; vector-effect: non-scaling-stroke; }
+.ai-view-minimap-room {
+    fill: rgba(209, 218, 226, 0.34);
+    stroke: rgba(61, 72, 82, 0.7);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+}
 .ai-view-map-point {
     position: absolute;
     width: 12px;
