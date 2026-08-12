@@ -11,6 +11,7 @@
 - [项目结构](#项目结构)
 - [安装运行](#安装运行)
 - [独立全景白模页](#独立全景白模页)
+- [示意图候选视角页](#示意图候选视角页)
 - [数据格式](#数据格式)
 - [使用说明](#使用说明)
 - [开发指南](#开发指南)
@@ -118,6 +119,18 @@ npm run preview    # 预览构建产物
 
 ```text
 http://127.0.0.1:3030/index-panorama.html?fixture=cameras&planId=demo&version=1#debug
+```
+
+## 示意图候选视角页
+
+`index-ai-concept.html` 是独立的白模候选视角工作台。页面会按房间确定性生成候选
+视角，并允许浏览、多选、微调、排除、恢复和新增自定义视角；点位草稿与全景
+`camera_list` 完全隔离。第一阶段的下一步仅进入生图条件框架，不创建模拟任务或结果。
+
+开发环境示例：
+
+```text
+http://127.0.0.1:3030/index-ai-concept.html?planId=demo&version=1#debug
 ```
 
 - `fixture=cameras`：为内置图纸补充测试相机点位。

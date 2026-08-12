@@ -21,6 +21,7 @@ export default defineConfig({
         preview: resolve(__dirname, 'index-3d.html'),
         vr: resolve(__dirname, 'index-vr.html'),
         panorama: resolve(__dirname, 'index-panorama.html'),
+        aiConcept: resolve(__dirname, 'index-ai-concept.html'),
       },
     },
   },
