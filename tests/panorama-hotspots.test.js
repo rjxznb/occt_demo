@@ -17,32 +17,50 @@ function createCamera() {
     return camera;
 }
 
-test('projects visible points into the viewport and clamps points behind the camera to an edge', () => {
+test('shows front and side points while hiding rear and coincident points', () => {
     const camera = createCamera();
+    const viewport = { width: 800, height: 600, margin: 40 };
 
-    const visible = projectPanoramaHotspot({ x: 0, y: 0, z: -10 }, camera, {
-        width: 800,
-        height: 600,
-        margin: 40,
-    });
-    const behind = projectPanoramaHotspot({ x: 0, y: 0, z: 10 }, camera, {
-        width: 800,
-        height: 600,
-        margin: 40,
-    });
+    const front = projectPanoramaHotspot({ x: 0, y: 0, z: -10 }, camera, viewport);
+    const side = projectPanoramaHotspot({ x: 10, y: 0, z: 0 }, camera, viewport);
+    const behind = projectPanoramaHotspot({ x: 0, y: 0, z: 10 }, camera, viewport);
+    const coincident = projectPanoramaHotspot({ x: 0, y: 0, z: 0 }, camera, viewport);
 
-    assert.deepEqual(visible, {
+    assert.deepEqual(front, {
+        visible: true,
         inView: true,
         left: 400,
         top: 300,
         angle: 0,
     });
-    assert.equal(behind.inView, false);
-    assert.ok(behind.left >= 40 && behind.left <= 760);
-    assert.ok(behind.top >= 40 && behind.top <= 560);
+    assert.equal(side.visible, true);
+    assert.equal(side.inView, false);
+    assert.equal(side.left, 760);
+    assert.equal(side.top, 300);
+    assert.deepEqual(behind, {
+        visible: false,
+        inView: false,
+        left: 0,
+        top: 0,
+        angle: 0,
+    });
+    assert.equal(coincident.visible, false);
 });
 
-test('renders hotspot and direction states, reports selection, and disables hidden hotspots', () => {
+test('keeps front offscreen points as clamped edge hints', () => {
+    const projection = projectPanoramaHotspot(
+        { x: 20, y: 0, z: -10 },
+        createCamera(),
+        { width: 800, height: 600, margin: 40 },
+    );
+
+    assert.equal(projection.visible, true);
+    assert.equal(projection.inView, false);
+    assert.ok(projection.left >= 40 && projection.left <= 760);
+    assert.ok(projection.top >= 40 && projection.top <= 560);
+});
+
+test('updates hotspot visibility as the camera rotates and preserves selection', () => {
     const container = new FakeElement('div');
     container.rect = { left: 0, top: 0, width: 800, height: 600 };
     const selected = [];
@@ -59,18 +77,29 @@ test('renders hotspot and direction states, reports selection, and disables hidd
         activePointId: 'active',
         visible: true,
     });
-    hotspots.update(createCamera());
+    const camera = createCamera();
+    hotspots.update(camera);
 
     const front = findByDataset(container, 'pointId', 'front');
     const back = findByDataset(container, 'pointId', 'back');
     assert.equal(findByDataset(container, 'pointId', 'active'), null);
+    assert.equal(front.hidden, false);
+    assert.equal(back.hidden, true);
     assert.equal(front.classList.contains('is-offscreen'), false);
-    assert.equal(back.classList.contains('is-offscreen'), true);
     front.click();
     assert.deepEqual(selected, ['front']);
+
+    camera.lookAt(0, 0, 1);
+    camera.updateMatrixWorld(true);
+    hotspots.update(camera);
+
+    assert.equal(front.hidden, true);
+    assert.equal(back.hidden, false);
+    back.click();
+    assert.deepEqual(selected, ['front', 'back']);
 
     hotspots.setVisible(false);
     assert.equal(container.hidden, true);
     back.click();
-    assert.deepEqual(selected, ['front']);
+    assert.deepEqual(selected, ['front', 'back']);
 });

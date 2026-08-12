@@ -11,6 +11,18 @@ export function projectPanoramaHotspot(point, camera, {
 } = {}) {
     const world = new THREE.Vector3(Number(point.x), Number(point.y), Number(point.z));
     const local = world.clone().applyMatrix4(camera.matrixWorldInverse);
+    const coincident = local.lengthSq() <= 1e-12;
+    const visible = !coincident && local.z <= 1e-6;
+    if (!visible) {
+        return {
+            visible: false,
+            inView: false,
+            left: 0,
+            top: 0,
+            angle: 0,
+        };
+    }
+
     const ndc = world.clone().project(camera);
     const inFront = local.z < 0;
     const inView = inFront
@@ -20,6 +32,7 @@ export function projectPanoramaHotspot(point, camera, {
         && ndc.z <= 1;
     if (inView) {
         return {
+            visible: true,
             inView: true,
             left: ((ndc.x + 1) / 2) * width,
             top: ((1 - ndc.y) / 2) * height,
@@ -29,10 +42,6 @@ export function projectPanoramaHotspot(point, camera, {
 
     let directionX = local.x;
     let directionY = -local.y;
-    if (!inFront) {
-        directionX *= -1;
-        directionY *= -1;
-    }
     if (Math.abs(directionX) + Math.abs(directionY) < 1e-9) directionY = -1;
     const length = Math.hypot(directionX, directionY) || 1;
     directionX /= length;
@@ -44,6 +53,7 @@ export function projectPanoramaHotspot(point, camera, {
         Math.abs(directionY) > 1e-9 ? halfHeight / Math.abs(directionY) : Infinity,
     );
     return {
+        visible: true,
         inView: false,
         left: clamp(width / 2 + directionX * scale, margin, width - margin),
         top: clamp(height / 2 + directionY * scale, margin, height - margin),
@@ -96,6 +106,8 @@ export class PanoramaHotspots {
                 height: rect.height,
                 margin: this.margin,
             });
+            button.hidden = !projection.visible;
+            if (!projection.visible) continue;
             button.style.left = `${projection.left}px`;
             button.style.top = `${projection.top}px`;
             button.style.setProperty?.('--hotspot-angle', `${projection.angle}deg`);
