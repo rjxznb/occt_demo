@@ -390,7 +390,11 @@ export class SceneManager {
         
         // 更新透视相机
         this.perspectiveCamera.aspect = aspect;
-        this.perspectiveCamera.updateProjectionMatrix();
+        if (this.cameraPresetViewState && Number.isFinite(this.cameraPresetHorizontalFov)) {
+            this.applyCameraPresetHorizontalFov(this.cameraPresetHorizontalFov);
+        } else {
+            this.perspectiveCamera.updateProjectionMatrix();
+        }
         
         // 更新正交相机
         const frustumSize = 2000;

@@ -190,3 +190,24 @@ test('wheel zoom changes horizontal FOV while projecting a vertical Three.js FOV
     assert.equal(manager.getCameraPresetPose().fov, 110);
     closeTo(manager.perspectiveCamera.fov, 77.55214286225282);
 });
+
+test('viewport resize preserves horizontal FOV and recomputes vertical projection', t => {
+    const originalWindow = globalThis.window;
+    t.after(() => {
+        if (originalWindow === undefined) delete globalThis.window;
+        else globalThis.window = originalWindow;
+    });
+    globalThis.window = { innerWidth: 1200, innerHeight: 900 };
+
+    const manager = createActiveManager();
+    manager.applyCameraPresetHorizontalFov(90);
+    manager.orthographicCamera = { updateProjectionMatrix() {} };
+    manager.renderer = { setSize() {} };
+    manager.composer = null;
+
+    manager.onWindowResize();
+
+    assert.equal(manager.getCameraPresetPose().fov, 90);
+    assert.equal(manager.perspectiveCamera.aspect, 4 / 3);
+    closeTo(manager.perspectiveCamera.fov, 73.73979529168804);
+});
