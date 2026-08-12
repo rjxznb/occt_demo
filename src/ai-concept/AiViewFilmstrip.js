@@ -10,6 +10,22 @@ function button(documentRef, text, action, handler, attributes = {}) {
     });
     return element;
 }
+
+function groupByRoom(views) {
+    const groups = [];
+    const byId = new Map();
+    for (const view of views) {
+        let group = byId.get(view.roomId);
+        if (!group) {
+            group = { id: view.roomId, name: view.roomName || '未命名房间', views: [] };
+            byId.set(view.roomId, group);
+            groups.push(group);
+        }
+        group.views.push(view);
+    }
+    return groups;
+}
+
 export class AiViewFilmstrip {
     constructor(container, {
         documentRef = globalThis.document,
@@ -19,43 +35,36 @@ export class AiViewFilmstrip {
         onDelete = () => {},
         onRestore = () => {},
         onAdd = () => {},
-        onRoomFilter = () => {},
+        onRetryThumbnail = () => {},
     } = {}) {
         this.container = container;
         this.document = documentRef;
-        this.handlers = { onActivate, onToggleSelected, onEdit, onDelete, onRestore, onAdd, onRoomFilter };
+        this.handlers = {
+            onActivate, onToggleSelected, onEdit, onDelete, onRestore, onAdd, onRetryThumbnail,
+        };
     }
 
-    render({ views = [], activeViewId = null, activeRoomId = null } = {}) {
+    render({ views = [], activeViewId = null, thumbnails = new Map() } = {}) {
         if (!this.container || !this.document) return;
         const visible = views.filter(view => !['excluded', 'disabled'].includes(view.status));
-        const rooms = [];
-        for (const view of visible) {
-            if (!rooms.some(room => room.id === view.roomId)) {
-                rooms.push({ id: view.roomId, name: view.roomName || '未命名房间' });
-            }
-        }
-
-        const roomNav = this.document.createElement('nav');
-        roomNav.classList.add('ai-room-tabs');
-        roomNav.setAttribute('aria-label', '房间筛选');
-        for (const room of rooms) {
-            const roomButton = button(
-                this.document,
-                room.name,
-                'room-filter',
-                () => this.handlers.onRoomFilter(room.id),
-                { 'aria-pressed': String(room.id === activeRoomId) },
-            );
-            roomButton.dataset.roomId = room.id;
-            roomButton.classList.toggle('is-active', room.id === activeRoomId);
-            roomNav.appendChild(roomButton);
-        }
-
         const track = this.document.createElement('div');
         track.classList.add('ai-view-track');
-        const filtered = visible.filter(view => !activeRoomId || view.roomId === activeRoomId);
-        for (const view of filtered) track.appendChild(this._card(view, view.id === activeViewId));
+        for (const group of groupByRoom(visible)) {
+            const room = this.document.createElement('section');
+            room.classList.add('ai-view-room-group');
+            room.dataset.roomGroupId = group.id;
+            const title = this.document.createElement('strong');
+            title.classList.add('ai-view-room-title');
+            title.textContent = group.name;
+            const cards = this.document.createElement('div');
+            cards.classList.add('ai-view-room-cards');
+            for (const view of group.views) {
+                cards.appendChild(this._card(view, view.id === activeViewId, thumbnails.get(view.id)));
+            }
+            room.appendChild(title);
+            room.appendChild(cards);
+            track.appendChild(room);
+        }
 
         const add = button(this.document, '＋ 添加自定义视角', 'add', this.handlers.onAdd);
         add.classList.add('ai-view-add');
@@ -66,11 +75,39 @@ export class AiViewFilmstrip {
         if (views.some(view => view.status === 'excluded')) {
             footer.appendChild(button(this.document, '恢复已排除视角', 'restore', this.handlers.onRestore));
         }
-
-        this.container.replaceChildren(roomNav, track, footer);
+        this.container.replaceChildren(track, footer);
     }
 
-    _card(view, active) {
+    _thumbnail(view, thumbnail) {
+        const preview = this.document.createElement('div');
+        preview.classList.add('ai-view-thumbnail');
+        const status = thumbnail?.status === 'ready' && thumbnail.url
+            ? 'ready'
+            : thumbnail?.status === 'error' ? 'error' : 'loading';
+        if (status === 'ready') {
+            const image = this.document.createElement('img');
+            image.setAttribute('src', thumbnail.url);
+            image.setAttribute('alt', `${view.roomName} ${view.name}`);
+            image.setAttribute('loading', 'lazy');
+            image.setAttribute('decoding', 'async');
+            preview.appendChild(image);
+        } else if (status === 'error') {
+            const retry = button(
+                this.document,
+                '重新生成',
+                'retry-thumbnail',
+                () => this.handlers.onRetryThumbnail(view.id),
+                { 'aria-label': `重新生成${view.name}缩略图` },
+            );
+            preview.appendChild(retry);
+        } else {
+            preview.setAttribute('role', 'status');
+            preview.setAttribute('aria-label', `${view.name}缩略图生成中`);
+        }
+        return { preview, status };
+    }
+
+    _card(view, active, thumbnail) {
         const card = this.document.createElement('article');
         card.dataset.viewId = view.id;
         card.classList.add('ai-view-card');
@@ -95,6 +132,8 @@ export class AiViewFilmstrip {
         trash.appendChild(icon);
         toolbar.appendChild(trash);
 
+        const { preview, status } = this._thumbnail(view, thumbnail);
+        card.dataset.thumbnailState = status;
         const activate = button(
             this.document,
             `${view.roomName} ${view.name}`,
@@ -103,6 +142,7 @@ export class AiViewFilmstrip {
             { 'aria-current': active ? 'true' : 'false' },
         );
         activate.classList.add('ai-view-preview');
+        activate.appendChild(preview);
 
         const select = button(
             this.document,
@@ -117,5 +157,14 @@ export class AiViewFilmstrip {
         card.appendChild(activate);
         card.appendChild(select);
         return card;
+    }
+
+    scrollViewIntoView(viewId) {
+        const card = Array.from(this.container?.children ?? [])
+            .flatMap(child => child.children ?? [])
+            .flatMap(child => child.children ?? [])
+            .flatMap(child => child.children ?? [])
+            .find(element => element.dataset?.viewId === viewId);
+        card?.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'smooth' });
     }
 }

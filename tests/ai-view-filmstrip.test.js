@@ -15,7 +15,7 @@ const views = [{
     source: 'auto', status: 'excluded', selected: false, valid: true,
 }];
 
-test('renders room labels, text edit controls, trash buttons, and selection separately', () => {
+test('renders every room group and candidate even when one room is active', () => {
     const calls = [];
     const container = new FakeElement('section');
     const filmstrip = new AiViewFilmstrip(container, {
@@ -26,13 +26,16 @@ test('renders room labels, text edit controls, trash buttons, and selection sepa
         onDelete: id => calls.push(['delete', id]),
         onRestore: () => calls.push(['restore']),
         onAdd: () => calls.push(['add']),
-        onRoomFilter: id => calls.push(['room', id]),
     });
 
     filmstrip.render({ views, activeViewId: 'living-entry', activeRoomId: 'room-0' });
 
+    assert.ok(findByDataset(container, 'roomGroupId', 'room-0'));
+    assert.ok(findByDataset(container, 'roomGroupId', 'room-1'));
     const active = findByDataset(container, 'viewId', 'living-entry');
+    const otherRoom = findByDataset(container, 'viewId', 'bedroom-corner');
     assert.equal(active.classList.contains('is-active'), true);
+    assert.ok(otherRoom, 'the inactive room candidate remains visible');
     assert.match(active.textContent, /客厅.*入口广角/);
     assert.doesNotMatch(active.textContent, /自动|手动/);
     assert.equal(findByDataset(active, 'action', 'edit').textContent, '微调');
@@ -46,12 +49,36 @@ test('renders room labels, text edit controls, trash buttons, and selection sepa
     findByDataset(active, 'action', 'delete').click();
     findByDataset(container, 'action', 'restore').click();
     findByDataset(container, 'action', 'add').click();
-    findByDataset(container, 'roomId', 'room-1').click();
 
     assert.deepEqual(calls, [
         ['activate', 'living-entry'], ['select', 'living-entry'],
         ['edit', 'living-entry'], ['delete', 'living-entry'],
-        ['restore'], ['add'], ['room', 'room-1'],
+        ['restore'], ['add'],
     ]);
     assert.ok(descendants(container).some(element => element.getAttribute('aria-label') === '垃圾桶'));
+});
+
+test('renders ready images and recoverable thumbnail failures', () => {
+    const calls = [];
+    const container = new FakeElement('section');
+    const filmstrip = new AiViewFilmstrip(container, {
+        documentRef: new FakeDocument(),
+        onRetryThumbnail: id => calls.push(id),
+    });
+    const thumbnails = new Map([
+        ['living-entry', { status: 'ready', url: 'blob:living' }],
+        ['bedroom-corner', { status: 'error' }],
+    ]);
+
+    filmstrip.render({ views, activeViewId: 'living-entry', thumbnails });
+
+    const ready = findByDataset(container, 'viewId', 'living-entry');
+    const failed = findByDataset(container, 'viewId', 'bedroom-corner');
+    assert.equal(ready.dataset.thumbnailState, 'ready');
+    assert.equal(failed.dataset.thumbnailState, 'error');
+    const image = descendants(ready).find(element => element.tagName === 'IMG');
+    assert.equal(image?.getAttribute('src'), 'blob:living');
+    assert.equal(image?.getAttribute('alt'), '客厅 入口广角');
+    findByDataset(failed, 'action', 'retry-thumbnail').click();
+    assert.deepEqual(calls, ['bedroom-corner']);
 });
