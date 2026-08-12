@@ -1,0 +1,444 @@
+import { SceneManager } from './core/SceneManager.js';
+import { RoomRenderer } from './components/RoomRenderer.js';
+import { geometryService } from './core/GeometryService.js';
+import { BundledDataSource, withSceneFixture } from './core/DataSource.js';
+import { collectContentObstacleBounds } from './shared/ContentObstacleBounds.js';
+import { validatePanoramaPoint } from './panorama/PanoramaPointValidator.js';
+import { PanoramaInputPolicy } from './panorama/PanoramaInputPolicy.js';
+import { resolveAiDocumentContext } from './ai-concept/AiDocumentContext.js';
+import { LocalAiViewRepository } from './ai-concept/AiViewRepository.js';
+import { generateAiViewCandidates } from './ai-concept/AiViewCandidateGenerator.js';
+import { AiViewStore } from './ai-concept/AiViewStore.js';
+import { AiViewFilmstrip } from './ai-concept/AiViewFilmstrip.js';
+import { AiViewEditController } from './ai-concept/AiViewEditController.js';
+
+const PASSIVE_WALL_REGISTRY = Object.freeze({ addWall() {}, addWalls() {} });
+const HEIGHT_NUDGE = 50;
+
+function clone(value) {
+    return value == null ? value : structuredClone(value);
+}
+
+function messageOf(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+
+export async function loadAiConceptSceneData(service = geometryService) {
+    await service.init();
+    const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
+        service.getOutline(),
+        service.getRooms(),
+        service.getDoorsAndWindows(),
+        service.getSoftlists(),
+        service.getContentModels(),
+    ]);
+    return { outline, rooms, doorWindows, softlists, contentModels };
+}
+
+export class AiConceptApp {
+    constructor({
+        documentRef = globalThis.document,
+        windowRef = globalThis.window,
+        dataSourceId = 'data/Drawing2.json',
+        dataLoader = () => loadAiConceptSceneData(),
+        sceneManagerFactory = container => new SceneManager(container),
+        roomRendererFactory = manager => new RoomRenderer(manager),
+        repository = undefined,
+        storeFactory = options => new AiViewStore(options),
+        generator = generateAiViewCandidates,
+        filmstripFactory = (container, options) => new AiViewFilmstrip(container, options),
+        logger = console,
+    } = {}) {
+        this.document = documentRef;
+        this.window = windowRef;
+        this.dataSourceId = dataSourceId;
+        this.dataLoader = dataLoader;
+        this.sceneManagerFactory = sceneManagerFactory;
+        this.roomRendererFactory = roomRendererFactory;
+        this.repository = repository === undefined ? new LocalAiViewRepository() : repository;
+        this.storeFactory = storeFactory;
+        this.generator = generator;
+        this.filmstripFactory = filmstripFactory;
+        this.logger = logger;
+        this.phase = 'idle';
+        this.initializing = null;
+        this.disposed = false;
+        this.runtimeActive = false;
+        this.uiBound = false;
+        this.uiDisposers = [];
+        this.storeUnsubscribe = null;
+        this.sceneManager = null;
+        this.roomRenderer = null;
+        this.store = null;
+        this.filmstrip = null;
+        this.editController = null;
+        this.inputPolicy = null;
+        this.rooms = { roomPoints: [], roomNames: [], roomInfo: [] };
+        this.obstacles = null;
+        this.lastFrameTime = null;
+        this.ui = {};
+    }
+
+    _element(id) { return this.document?.getElementById?.(id) ?? null; }
+
+    _collectUi() {
+        const ids = [
+            'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
+            'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
+            'ai-concept-selection-count', 'ai-concept-continue',
+            'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
+            'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
+            'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
+            'ai-concept-error-message', 'ai-concept-retry', 'ai-concept-toast',
+            'ai-concept-conditions',
+        ];
+        this.ui = Object.fromEntries(ids.map(id => [
+            id.replace(/^ai-concept-/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()),
+            this._element(id),
+        ]));
+    }
+
+    _listen(target, type, listener) {
+        if (!target?.addEventListener) return;
+        target.addEventListener(type, listener);
+        this.uiDisposers.push(() => target.removeEventListener?.(type, listener));
+    }
+
+    _bindUi() {
+        if (this.uiBound) return;
+        this.uiBound = true;
+        this._collectUi();
+        this._listen(this.ui.previous, 'click', () => void this.selectRelativeView(-1));
+        this._listen(this.ui.next, 'click', () => void this.selectRelativeView(1));
+        this._listen(this.ui.continue, 'click', () => this.continueToConditions());
+        this._listen(this.ui.editCancel, 'click', () => this.cancelEdit());
+        this._listen(this.ui.editSave, 'click', () => void this.saveEdit());
+        this._listen(this.ui.heightDown, 'click', () => this.nudgeHeight(-HEIGHT_NUDGE));
+        this._listen(this.ui.heightUp, 'click', () => this.nudgeHeight(HEIGHT_NUDGE));
+        this._listen(this.ui.retry, 'click', () => void this.retry());
+        for (const preset of this.document?.querySelectorAll?.('[data-height-preset]') ?? []) {
+            this._listen(preset, 'click', () => this.setHeightPreset(preset.dataset.heightPreset));
+        }
+        this._listen(this.window, 'keydown', event => this.inputPolicy?.handleKeyDown(event));
+        this._listen(this.window, 'keyup', event => this.inputPolicy?.handleKeyUp(event));
+        this._listen(this.window, 'blur', () => this.inputPolicy?.reset());
+        this._listen(this.window, 'beforeunload', () => this.dispose());
+    }
+
+    _createRuntime() {
+        this.sceneManager = this.sceneManagerFactory(this.ui.canvas);
+        this.roomRenderer = this.roomRendererFactory(this.sceneManager);
+        this.store = this.storeFactory({ repository: this.repository });
+        this.inputPolicy = new PanoramaInputPolicy();
+        this.filmstrip = this.filmstripFactory(this.ui.filmstrip, {
+            documentRef: this.document,
+            onActivate: id => void this.selectView(id),
+            onToggleSelected: id => void this.toggleSelected(id),
+            onEdit: id => void this.enterEditMode(id),
+            onDelete: id => void this.deleteView(id),
+            onRestore: () => void this.restoreExcluded(),
+            onAdd: () => void this.addCustomView(),
+            onRoomFilter: id => void this.selectRoom(id),
+        });
+        this.runtimeActive = true;
+    }
+
+    async init() {
+        if (this.disposed) return false;
+        if (this.initializing) return this.initializing;
+        this.initializing = this._initialize();
+        try { return await this.initializing; } finally { this.initializing = null; }
+    }
+
+    async _initialize() {
+        this._bindUi();
+        this._setPhase('loading');
+        if (!this.runtimeActive) this._createRuntime();
+        try {
+            const data = await this.dataLoader();
+            this.rooms = {
+                roomPoints: clone(data.rooms?.roomPoints ?? []),
+                roomNames: clone(data.rooms?.roomNames ?? []),
+                roomInfo: clone(data.rooms?.roomInfo ?? []),
+            };
+            if (!this.rooms.roomPoints.length) throw new Error('户型中没有可分析的房间');
+            await this.roomRenderer.render(clone(data), PASSIVE_WALL_REGISTRY);
+            this.roomRenderer.setRoomLabelsVisible(false);
+            this.roomRenderer.setCeilingsVisible(true);
+            this.sceneManager.setMaterialRestorationEnabled(false);
+            this.obstacles = collectContentObstacleBounds(this.roomRenderer.sceneGroup);
+            const context = resolveAiDocumentContext({
+                search: this.window?.location?.search ?? '',
+                dataSourceId: this.dataSourceId,
+                roomPoints: this.rooms.roomPoints,
+                roomNames: this.rooms.roomNames,
+                contentModels: data.contentModels?.contentModels ?? [],
+            });
+            const generated = this.generator({
+                context,
+                rooms: this.rooms,
+                doorWindows: data.doorWindows,
+                obstacles: this.obstacles,
+            });
+            await this.store.initialize({
+                generatedViews: generated.candidates,
+                roomResults: generated.roomResults,
+                context,
+            });
+            this.editController = new AiViewEditController({
+                store: this.store,
+                validator: view => this._validateView(view),
+                onPreview: preview => this._previewEdit(preview),
+            });
+            this.storeUnsubscribe = this.store.subscribe(() => this._renderState());
+            this._renderState();
+            const active = this._activeView();
+            if (active) {
+                this._enterView(active);
+                this._setPhase('ready');
+            } else {
+                this._setPhase('empty');
+            }
+            this._startRenderLoop();
+            return true;
+        } catch (error) {
+            this.logger?.error?.('[AiConceptApp] initialization failed', error);
+            this._setPhase('error', messageOf(error));
+            return false;
+        }
+    }
+
+    _validateView(view) {
+        return validatePanoramaPoint(view, {
+            roomPoints: this.rooms.roomPoints,
+            roomNames: this.rooms.roomNames,
+            obstacles: this.obstacles,
+            minWallDistance: 80,
+            cameraRadius: 80,
+        });
+    }
+
+    _activeView() {
+        const state = this.store?.getState();
+        return state?.views?.find(view => view.id === state.activeViewId) ?? null;
+    }
+
+    _enterView(view) {
+        if (!view) return false;
+        this.roomRenderer.setCeilingsVisible(true);
+        return this.sceneManager.setCameraPreset(view);
+    }
+
+    _transitionView(view) {
+        if (!view) return false;
+        this.roomRenderer.setCeilingsVisible(true);
+        return this.sceneManager.transitionCameraPreset(view, { duration: 0.55 });
+    }
+
+    getState() {
+        return { ...(this.store?.getState() ?? { views: [], activeViewId: null }), phase: this.phase };
+    }
+
+    _setPhase(phase, detail = '') {
+        this.phase = phase;
+        if (this.ui.app) this.ui.app.dataset.state = phase;
+        if (this.ui.loading) this.ui.loading.hidden = phase !== 'loading';
+        if (this.ui.empty) this.ui.empty.hidden = phase !== 'empty';
+        if (this.ui.error) this.ui.error.hidden = phase !== 'error';
+        if (this.ui.conditions) this.ui.conditions.hidden = phase !== 'conditions';
+        if (this.ui.errorMessage && detail) this.ui.errorMessage.textContent = detail;
+        this._syncActions();
+    }
+
+    _renderState() {
+        const state = this.store?.getState();
+        if (!state) return;
+        this.filmstrip?.render(state);
+        if (this.ui.selectionCount) {
+            this.ui.selectionCount.textContent = `已选择 ${state.views.filter(view => view.selected && view.valid !== false).length} 个视角`;
+        }
+        if (this.ui.heightValue && this.editController?.getState().workingView) {
+            this.ui.heightValue.textContent = `${Math.round(this.editController.getState().workingView.z)} mm`;
+        }
+        this._syncActions();
+    }
+
+    _syncActions() {
+        const state = this.store?.getState();
+        const editing = this.phase === 'editing';
+        if (this.ui.previous) this.ui.previous.disabled = editing || this.phase !== 'ready';
+        if (this.ui.next) this.ui.next.disabled = editing || this.phase !== 'ready';
+        if (this.ui.continue) this.ui.continue.disabled = editing || !state?.canContinue || this.phase !== 'ready';
+        if (this.ui.editControls) this.ui.editControls.hidden = !editing;
+        this.document?.documentElement?.classList?.toggle('ai-concept-editing', editing);
+    }
+
+    async selectView(id) {
+        if (this.phase !== 'ready') return false;
+        const changed = await this.store.setActiveView(id);
+        if (!changed) return false;
+        this._transitionView(this._activeView());
+        return true;
+    }
+
+    async selectRelativeView(offset) {
+        if (this.phase !== 'ready') return false;
+        const state = this.store.getState();
+        const views = state.views.filter(view => view.roomId === state.activeRoomId
+            && view.valid !== false && !['excluded', 'disabled'].includes(view.status));
+        if (views.length < 2) return false;
+        const index = Math.max(0, views.findIndex(view => view.id === state.activeViewId));
+        return this.selectView(views[(index + offset + views.length) % views.length].id);
+    }
+
+    async selectRoom(roomId) {
+        if (this.phase !== 'ready') return false;
+        const changed = await this.store.setRoomFilter(roomId);
+        if (changed) this._transitionView(this._activeView());
+        return changed;
+    }
+
+    async toggleSelected(id) { return this.phase === 'ready' ? this.store.toggleSelected(id) : false; }
+
+    async excludeView(id) {
+        if (this.phase !== 'ready') return false;
+        const changed = await this.store.excludeView(id);
+        if (changed) this._transitionView(this._activeView());
+        return changed;
+    }
+
+    async deleteView(id) {
+        const view = this.store?.getState().views.find(candidate => candidate.id === id);
+        if (!view || this.phase !== 'ready') return false;
+        if (view.source === 'auto') return this.excludeView(id);
+        if (!this.window?.confirm?.(`确认删除“${view.name}”吗？`)) return false;
+        const changed = await this.store.deleteCustomView(id);
+        if (changed) this._transitionView(this._activeView());
+        return changed;
+    }
+
+    async restoreExcluded() { return this.phase === 'ready' ? this.store.restoreExcluded() : false; }
+
+    async addCustomView() {
+        if (this.phase !== 'ready') return false;
+        const active = this._activeView();
+        if (!active) return false;
+        const custom = await this.store.addCustomView({
+            ...active,
+            id: undefined,
+            name: `自定义视角 ${this.store.getState().views.filter(view => view.source === 'custom').length + 1}`,
+            source: 'custom',
+            selected: false,
+            generationReason: 'custom',
+        });
+        this._enterView(custom);
+        await this.enterEditMode(custom.id);
+        return custom;
+    }
+
+    async enterEditMode(id = this.store?.getState().activeViewId) {
+        if (this.phase !== 'ready') return false;
+        if (id !== this.store.getState().activeViewId) await this.selectView(id);
+        const entered = this.editController.enter(id, this.sceneManager.getCameraPresetPose());
+        if (!entered) return false;
+        this.inputPolicy.setMode('edit');
+        await this.store.setPhase('editing', id);
+        this._setPhase('editing');
+        return true;
+    }
+
+    async saveEdit() {
+        if (this.phase !== 'editing') return false;
+        const result = await this.editController.save();
+        if (result && result.valid === false) return result;
+        this.inputPolicy.setMode('browse');
+        await this.store.setPhase('ready');
+        this._setPhase('ready');
+        this._enterView(this._activeView());
+        return result;
+    }
+
+    cancelEdit() {
+        if (this.phase !== 'editing' || !this.editController.cancel()) return false;
+        this.inputPolicy.setMode('browse');
+        void this.store.setPhase('ready');
+        this._setPhase('ready');
+        return true;
+    }
+
+    setHeightPreset(name) { return this.editController?.setHeightPreset(name) ?? false; }
+    nudgeHeight(delta) { return this.editController?.nudgeHeight(delta) ?? false; }
+
+    _previewEdit({ point, view }) {
+        this.sceneManager.updateCameraPresetPose({ ...point, ...view }, { resetView: true });
+        this._renderState();
+    }
+
+    _startRenderLoop() {
+        this.lastFrameTime = null;
+        this.sceneManager.animate(() => {
+            const now = globalThis.performance?.now?.() ?? Date.now();
+            const delta = this.lastFrameTime == null ? 0 : Math.min(0.05, Math.max(0, (now - this.lastFrameTime) / 1000));
+            this.lastFrameTime = now;
+            if (this.phase !== 'editing') return;
+            const intent = this.inputPolicy.getMovementIntent();
+            if (intent.forward || intent.right) {
+                this.editController.applyMovement(intent, delta, this.sceneManager.getCameraPresetPose());
+            }
+        });
+    }
+
+    continueToConditions() {
+        const state = this.store?.getState();
+        if (this.phase !== 'ready' || !state?.canContinue) return false;
+        const payload = {
+            context: clone(state.context),
+            selectedViews: clone(state.views.filter(view => view.selected && view.valid !== false
+                && !['excluded', 'disabled'].includes(view.status))),
+        };
+        this._setPhase('conditions');
+        return payload;
+    }
+
+    async retry() {
+        if (this.phase !== 'error') return false;
+        this._destroyRuntime();
+        return this.init();
+    }
+
+    _destroyRuntime() {
+        if (!this.runtimeActive) return;
+        this.storeUnsubscribe?.();
+        this.storeUnsubscribe = null;
+        this.roomRenderer?.dispose?.(this.sceneManager?.getScene?.());
+        this.sceneManager?.destroy?.();
+        this.sceneManager = null;
+        this.roomRenderer = null;
+        this.store = null;
+        this.filmstrip = null;
+        this.editController = null;
+        this.inputPolicy = null;
+        this.runtimeActive = false;
+    }
+
+    dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+        this._destroyRuntime();
+        for (const disposeListener of this.uiDisposers.splice(0)) disposeListener();
+        this.document?.documentElement?.classList?.remove('ai-concept-editing');
+    }
+}
+
+function bootAiConceptPage() {
+    const bundledData = new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf');
+    geometryService.setDataSource(withSceneFixture(bundledData, globalThis.location?.search ?? ''));
+    const app = new AiConceptApp({ dataSourceId: bundledData.drawingUrl });
+    globalThis.occtAiConceptApp = app;
+    void app.init();
+}
+
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootAiConceptPage, { once: true });
+    else queueMicrotask(bootAiConceptPage);
+}
