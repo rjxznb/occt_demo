@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <title>示意图候选视角</title>
+    <link rel="stylesheet" href="./src/ai-concept/ai-concept.css">
+</head>
+<body>
+    <main id="ai-concept-app" class="ai-concept-app" data-state="loading">
+        <div id="ai-concept-canvas" class="ai-concept-canvas" aria-label="白模固定视角"></div>
+
+        <div id="ai-concept-status" class="ai-glass ai-concept-status" role="status">
+            <span aria-hidden="true"></span>固定视角
+        </div>
+
+        <button id="ai-concept-previous" class="ai-glass ai-view-arrow ai-view-arrow-left"
+            type="button" aria-label="上一个候选视角">‹</button>
+        <button id="ai-concept-next" class="ai-glass ai-view-arrow ai-view-arrow-right"
+            type="button" aria-label="下一个候选视角">›</button>
+
+        <section id="ai-concept-filmstrip" class="ai-glass ai-concept-filmstrip"
+            aria-label="候选视角"></section>
+
+        <section class="ai-glass ai-concept-primary-actions" aria-label="生图条件操作">
+            <span id="ai-concept-selection-count">已选择 0 个视角</span>
+            <button id="ai-concept-continue" type="button" class="ai-button ai-button-primary" disabled>
+                下一步：生图条件
+            </button>
+        </section>
+
+        <section id="ai-concept-edit-controls" class="ai-glass ai-concept-edit-controls"
+            aria-label="候选视角微调" hidden>
+            <div class="ai-edit-status"><span aria-hidden="true"></span>正在微调当前视角</div>
+            <div class="ai-height-controls">
+                <button type="button" data-height-preset="child">儿童</button>
+                <button type="button" data-height-preset="standard">标准</button>
+                <button type="button" data-height-preset="high">加高</button>
+                <button id="ai-concept-height-down" type="button" aria-label="降低相机高度">−</button>
+                <output id="ai-concept-height-value">1500 mm</output>
+                <button id="ai-concept-height-up" type="button" aria-label="升高相机高度">＋</button>
+            </div>
+            <div class="ai-edit-actions">
+                <button id="ai-concept-edit-cancel" type="button">取消</button>
+                <button id="ai-concept-edit-save" type="button" class="ai-button-primary">保存</button>
+            </div>
+        </section>
+
+        <section id="ai-concept-loading" class="ai-glass ai-state-card"
+            role="status" aria-live="polite" aria-busy="true">
+            <span class="ai-spinner" aria-hidden="true"></span>
+            <strong>正在准备候选视角</strong>
+            <span>正在加载户型白模并分析房间…</span>
+        </section>
+
+        <section id="ai-concept-empty" class="ai-glass ai-state-card" hidden>
+            <strong>当前房间暂无可用候选</strong>
+            <p>可以切换其他房间，或从当前合法位置添加自定义视角。</p>
+        </section>
+
+        <section id="ai-concept-error" class="ai-glass ai-state-card" role="alert" hidden>
+            <strong>候选视角页面加载失败</strong>
+            <p id="ai-concept-error-message">请检查户型数据后重试。</p>
+            <button id="ai-concept-retry" type="button" class="ai-button ai-button-primary">重新加载</button>
+        </section>
+
+        <section id="ai-concept-conditions" class="ai-glass ai-conditions-card" hidden>
+            <strong>生图条件</strong>
+            <p>候选视角已准备完成，风格与环境配置将在服务接入阶段启用。</p>
+        </section>
+
+        <div id="ai-concept-toast" class="ai-glass ai-toast" role="status" aria-live="polite" hidden></div>
+    </main>
+    <noscript>此页面需要启用 JavaScript 才能显示候选视角。</noscript>
+    <script type="module" src="./src/AiConceptApp.js"></script>
+</body>
+</html>
