@@ -9,6 +9,10 @@ import { AutoRotationManager } from '../components/AutoRotationManager.js';
 import { isGlassMaterial } from '../components/WindowGlassMaterial.js';
 import { createOutdoorPanoramaTexture } from '../components/OutdoorPanorama.js';
 import { configureOrbitControls } from './OrbitControlPolicy.js';
+import {
+    clampPanoramaHorizontalFov,
+    horizontalToVerticalFov,
+} from './CameraFov.js';
 
 // 主光源方向（场景为 Z 轴向上）。只表示方向，实际距离由场景尺度决定。
 const KEY_LIGHT_DIR = new THREE.Vector3(100, 80, 120).normalize();
@@ -45,6 +49,7 @@ export class SceneManager {
         this.cameraPresetPointer = null;
         this.cameraPresetYaw = 0;
         this.cameraPresetPitch = 0;
+        this.cameraPresetHorizontalFov = null;
         this._cameraPresetTransition = null;
         
         this.init();
@@ -585,8 +590,9 @@ export class SceneManager {
         const camera = this.perspectiveCamera;
         camera.up.set(0, 0, 1);
         camera.position.set(preset.x, preset.y, preset.z);
-        camera.fov = preset.fov || 90;
-        camera.updateProjectionMatrix();
+        this.applyCameraPresetHorizontalFov(
+            Number.isFinite(Number(preset.fov)) ? Number(preset.fov) : 90,
+        );
 
         this.cameraPresetYaw = THREE.MathUtils.degToRad(preset.yaw || 0);
         this.cameraPresetPitch = THREE.MathUtils.degToRad(preset.pitch || 0);
@@ -606,8 +612,23 @@ export class SceneManager {
             z: camera.position.z,
             yaw: Number(THREE.MathUtils.radToDeg(this.cameraPresetYaw).toFixed(10)),
             pitch: Number(THREE.MathUtils.radToDeg(this.cameraPresetPitch).toFixed(10)),
-            fov: camera.fov,
+            fov: Number.isFinite(this.cameraPresetHorizontalFov)
+                ? this.cameraPresetHorizontalFov
+                : camera.fov,
         };
+    }
+
+    /** Keep CAD/UE horizontal FOV authoritative and project it for Three.js. */
+    applyCameraPresetHorizontalFov(horizontalFov) {
+        const numeric = Number(horizontalFov);
+        if (!Number.isFinite(numeric) || !this.perspectiveCamera) return false;
+        this.cameraPresetHorizontalFov = clampPanoramaHorizontalFov(numeric);
+        this.perspectiveCamera.fov = horizontalToVerticalFov(
+            this.cameraPresetHorizontalFov,
+            this.perspectiveCamera.aspect,
+        );
+        this.perspectiveCamera.updateProjectionMatrix();
+        return true;
     }
 
     /** Smoothly move between fixed panorama points without leaving preset mode. */
@@ -657,7 +678,7 @@ export class SceneManager {
             camera.position.set(transition.to.x, transition.to.y, transition.to.z);
             this.cameraPresetYaw = THREE.MathUtils.degToRad(transition.to.yaw);
             this.cameraPresetPitch = THREE.MathUtils.degToRad(transition.to.pitch);
-            camera.fov = transition.to.fov;
+            this.applyCameraPresetHorizontalFov(transition.to.fov);
         } else {
             camera.position.set(
                 mix(transition.from.x, transition.to.x),
@@ -670,10 +691,8 @@ export class SceneManager {
             this.cameraPresetPitch = THREE.MathUtils.degToRad(
                 mix(transition.from.pitch, transition.to.pitch),
             );
-            camera.fov = mix(transition.from.fov, transition.to.fov);
+            this.applyCameraPresetHorizontalFov(mix(transition.from.fov, transition.to.fov));
         }
-
-        camera.updateProjectionMatrix();
         this.updateCameraPresetOrientation();
         if (progress >= 1) this._cameraPresetTransition = null;
     }
@@ -701,8 +720,7 @@ export class SceneManager {
                 );
             }
             if (Number.isFinite(fov)) {
-                camera.fov = THREE.MathUtils.clamp(fov, 30, 150);
-                camera.updateProjectionMatrix();
+                this.applyCameraPresetHorizontalFov(fov);
             }
         }
 
@@ -792,8 +810,10 @@ export class SceneManager {
         event.preventDefault();
         event.stopImmediatePropagation();
         const camera = this.perspectiveCamera;
-        camera.fov = THREE.MathUtils.clamp(camera.fov + event.deltaY * 0.025, 30, 120);
-        camera.updateProjectionMatrix();
+        const horizontalFov = Number.isFinite(this.cameraPresetHorizontalFov)
+            ? this.cameraPresetHorizontalFov
+            : camera.fov;
+        this.applyCameraPresetHorizontalFov(horizontalFov + event.deltaY * 0.025);
     }
 
     exitCameraPreset() {
@@ -812,6 +832,7 @@ export class SceneManager {
         camera.quaternion.copy(saved.quaternion);
         camera.fov = saved.fov;
         camera.updateProjectionMatrix();
+        this.cameraPresetHorizontalFov = null;
         this.controls.target.copy(saved.target);
         this.enableAutoRotation(saved.autoRotationEnabled);
         this.controls.enabled = saved.controlsEnabled;

@@ -4,6 +4,36 @@ import * as THREE from 'three';
 import { SceneManager } from '../src/core/SceneManager.js';
 import { RoomRenderer } from '../src/components/RoomRenderer.js';
 
+const closeTo = (actual, expected, epsilon = 1e-6) => {
+    assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} is not close to ${expected}`);
+};
+
+test('entering a camera preset interprets point FOV as horizontal degrees', () => {
+    const manager = Object.create(SceneManager.prototype);
+    manager.cameraPresetViewState = null;
+    manager.cameraPresetHorizontalFov = null;
+    manager.currentViewMode = '3d';
+    manager.perspectiveCamera = new THREE.PerspectiveCamera(75, 16 / 9, 1, 10000);
+    manager.controls = { target: new THREE.Vector3(), enabled: true };
+    manager.renderer = { domElement: { classList: { add() {} } } };
+    manager.getAutoRotationStatus = () => ({ enabled: false });
+    manager.switchToPerspectiveView = () => {};
+    manager.enableAutoRotation = () => {};
+    manager.activateOutdoorPanorama = () => false;
+
+    assert.equal(manager.setCameraPreset({
+        x: 100,
+        y: 200,
+        z: 1500,
+        yaw: 0,
+        pitch: 0,
+        fov: 90,
+    }), true);
+
+    assert.equal(manager.getCameraPresetPose().fov, 90);
+    closeTo(manager.perspectiveCamera.fov, 58.71550708558255);
+});
+
 test('camera preset pointer drag rotates view without moving the camera origin', () => {
     const manager = Object.create(SceneManager.prototype);
     manager.cameraPresetViewState = {};

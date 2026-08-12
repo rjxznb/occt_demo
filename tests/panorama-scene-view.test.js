@@ -4,12 +4,17 @@ import * as THREE from 'three';
 
 import { SceneManager } from '../src/core/SceneManager.js';
 
+const closeTo = (actual, expected, epsilon = 1e-6) => {
+    assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} is not close to ${expected}`);
+};
+
 function createActiveManager() {
     const manager = Object.create(SceneManager.prototype);
     manager.cameraPresetViewState = {};
     manager.cameraPresetYaw = THREE.MathUtils.degToRad(45);
     manager.cameraPresetPitch = THREE.MathUtils.degToRad(-10);
-    manager.perspectiveCamera = new THREE.PerspectiveCamera(100, 1, 1, 10000);
+    manager.cameraPresetHorizontalFov = 100;
+    manager.perspectiveCamera = new THREE.PerspectiveCamera(100, 16 / 9, 1, 10000);
     manager.perspectiveCamera.up.set(0, 0, 1);
     manager.perspectiveCamera.position.set(100, 200, 1500);
     manager.controls = { target: new THREE.Vector3(), enabled: false };
@@ -66,6 +71,7 @@ test('resets orientation and FOV from the selected point without leaving fixed-p
         pitch: 8,
         fov: 70,
     });
+    closeTo(manager.perspectiveCamera.fov, 42.99566141876367);
     assert.equal(manager.cameraPresetViewState instanceof Object, true);
     assert.equal(manager.controls.enabled ?? false, false);
 });
@@ -94,6 +100,7 @@ test('transitions a fixed-point camera with eased position, shortest yaw, pitch,
     assert.equal(Math.abs(Math.abs(halfway.yaw) - 180) < 1e-8, true);
     assert.equal(halfway.pitch, 0);
     assert.equal(halfway.fov, 90);
+    closeTo(manager.perspectiveCamera.fov, 58.71550708558255);
 
     manager._updateCameraPresetTransition(0.4);
     assert.deepEqual(manager.getCameraPresetPose(), {
@@ -169,4 +176,17 @@ test('an immediate edit preview cancels the active camera transition', () => {
     assert.equal(manager.updateCameraPresetPose({ x: 300, y: 400, z: 1600 }), true);
     assert.equal(manager._cameraPresetTransition, null);
     assert.deepEqual(manager.perspectiveCamera.position.toArray(), [300, 400, 1600]);
+});
+
+test('wheel zoom changes horizontal FOV while projecting a vertical Three.js FOV', () => {
+    const manager = createActiveManager();
+
+    manager.onCameraPresetWheel({
+        deltaY: 400,
+        preventDefault() {},
+        stopImmediatePropagation() {},
+    });
+
+    assert.equal(manager.getCameraPresetPose().fov, 110);
+    closeTo(manager.perspectiveCamera.fov, 77.55214286225282);
 });
