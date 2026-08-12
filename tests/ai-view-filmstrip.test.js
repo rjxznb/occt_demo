@@ -105,6 +105,24 @@ test('centers an interior selected card in the filmstrip viewport', () => {
     assert.deepEqual(track.scrollToOptions, { left: 510, behavior: 'smooth' });
 });
 
+test('centers cards when nested children are browser-like collections', () => {
+    const { container, filmstrip, track } = createScrollableFilmstrip();
+    const card = findByDataset(container, 'viewId', 'bedroom-corner');
+    card.rect = { left: 620, top: 0, width: 180, height: 130 };
+    const group = card.parentNode.parentNode;
+    const originalChildren = group.children;
+    group.children = {
+        0: originalChildren[0],
+        1: originalChildren[1],
+        length: originalChildren.length,
+        [Symbol.iterator]: function* iterator() { yield* originalChildren; },
+    };
+
+    filmstrip.scrollViewIntoView('bedroom-corner');
+
+    assert.deepEqual(track.scrollToOptions, { left: 510, behavior: 'smooth' });
+});
+
 test('clamps a selected card at the leading scroll boundary', () => {
     const { container, filmstrip, track } = createScrollableFilmstrip();
     const card = findByDataset(container, 'viewId', 'living-entry');

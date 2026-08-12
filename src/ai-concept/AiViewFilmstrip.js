@@ -165,8 +165,8 @@ export class AiViewFilmstrip {
         if (!track) return;
 
         const card = Array.from(track.children ?? [])
-            .flatMap(child => child.children ?? [])
-            .flatMap(child => child.children ?? [])
+            .flatMap(child => Array.from(child.children ?? []))
+            .flatMap(child => Array.from(child.children ?? []))
             .find(element => element.dataset?.viewId === viewId);
         if (!card || typeof track.scrollTo !== 'function') return;
 
