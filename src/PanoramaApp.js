@@ -1,5 +1,3 @@
-import * as THREE from 'three';
-
 import { SceneManager } from './core/SceneManager.js';
 import { RoomRenderer } from './components/RoomRenderer.js';
 import { geometryService } from './core/GeometryService.js';
@@ -14,6 +12,9 @@ import { PanoramaInputPolicy } from './panorama/PanoramaInputPolicy.js';
 import { PanoramaMiniMap } from './panorama/PanoramaMiniMap.js';
 import { PanoramaHotspots } from './panorama/PanoramaHotspots.js';
 import { selectDirectionalPanoramaPoint } from './panorama/PanoramaDirectionalNavigator.js';
+import { collectContentObstacleBounds } from './shared/ContentObstacleBounds.js';
+
+export { collectContentObstacleBounds } from './shared/ContentObstacleBounds.js';
 
 const PASSIVE_WALL_REGISTRY = Object.freeze({
     addWall() {},
@@ -34,32 +35,6 @@ export async function loadPanoramaSceneData(service = geometryService) {
         service.getCameraPresets(),
     ]);
     return { outline, rooms, doorWindows, softlists, contentModels, cameraPresets };
-}
-
-export function collectContentObstacleBounds(sceneGroup) {
-    if (!sceneGroup?.traverse) return null;
-    const obstacles = [];
-    sceneGroup.updateMatrixWorld?.(true);
-    sceneGroup.traverse(object => {
-        if (object?.userData?.contentModelRoot !== true) return;
-        const box = new THREE.Box3().setFromObject(object);
-        if (box.isEmpty()) return;
-        obstacles.push({
-            id: String(
-                object.userData.instanceId
-                ?? object.userData.sourceIndex
-                ?? object.uuid
-                ?? obstacles.length,
-            ),
-            minX: box.min.x,
-            minY: box.min.y,
-            minZ: box.min.z,
-            maxX: box.max.x,
-            maxY: box.max.y,
-            maxZ: box.max.z,
-        });
-    });
-    return obstacles;
 }
 
 function clone(value) {
