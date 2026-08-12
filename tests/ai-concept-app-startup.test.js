@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createAiConceptHarness } from './helpers/ai-concept-app-harness.js';
+import { descendants, findByDataset } from './helpers/fake-dom.js';
 
 test('starts in the best primary room candidate using white model fixed view', async () => {
     const { app, calls } = createAiConceptHarness();
@@ -22,4 +23,37 @@ test('shows a recoverable error when scene loading fails', async () => {
     assert.equal(app.getState().phase, 'error');
     assert.equal(documentRef.getElementById('ai-concept-error').hidden, false);
     assert.equal(documentRef.getElementById('ai-concept-error-message').textContent, 'drawing missing');
+});
+
+test('starts thumbnail capture in the background and renders the linked mini-map', async () => {
+    let resolveCapture;
+    const captureDeferred = {
+        promise: new Promise(resolve => { resolveCapture = resolve; }),
+    };
+    const { app, captureCalls, documentRef, roomRenderer, sceneManager } = createAiConceptHarness({ captureDeferred });
+
+    assert.equal(await app.init(), true, 'ready state does not wait for thumbnail encoding');
+    assert.deepEqual(captureCalls[0], ['create', roomRenderer.sceneGroup, sceneManager.getRenderer()]);
+    assert.ok(captureCalls.some(call => call[0] === 'capture'));
+    const filmstrip = documentRef.getElementById('ai-concept-filmstrip');
+    assert.ok(descendants(filmstrip).some(element => element.dataset.thumbnailState === 'loading'));
+    const minimap = documentRef.getElementById('ai-concept-minimap');
+    assert.ok(descendants(minimap).some(element => element.dataset.viewId));
+
+    resolveCapture({ status: 'ready', url: 'blob:first', cacheKey: 'first' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(descendants(filmstrip).some(element => element.dataset.thumbnailState === 'ready'));
+});
+
+test('mini-map selection activates and scrolls the matching candidate card', async () => {
+    const { app, documentRef } = createAiConceptHarness();
+    await app.init();
+    const before = app.getState().activeViewId;
+    const target = app.getState().views.find(view => view.id !== before);
+    findByDataset(documentRef.getElementById('ai-concept-minimap'), 'viewId', target.id).click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(app.getState().activeViewId, target.id);
+    const card = findByDataset(documentRef.getElementById('ai-concept-filmstrip'), 'viewId', target.id);
+    assert.equal(card.scrollIntoViewOptions?.behavior, 'smooth');
 });

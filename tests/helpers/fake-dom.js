@@ -12,6 +12,7 @@ export class FakeElement {
         this.type = '';
         this.listeners = new Map();
         this.rect = { left: 0, top: 0, width: 200, height: 100 };
+        this.scrollIntoViewOptions = null;
         const classes = new Set();
         this.classList = {
             add: (...names) => names.forEach(name => classes.add(name)),
@@ -74,6 +75,10 @@ export class FakeElement {
 
     getBoundingClientRect() {
         return { ...this.rect, right: this.rect.left + this.rect.width, bottom: this.rect.top + this.rect.height };
+    }
+
+    scrollIntoView(options) {
+        this.scrollIntoViewOptions = options;
     }
 }
 

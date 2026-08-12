@@ -6,6 +6,7 @@ import { FakeDocument, FakeElement } from './fake-dom.js';
 const REQUIRED_IDS = [
     'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
     'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
+    'ai-concept-minimap',
     'ai-concept-selection-count', 'ai-concept-continue',
     'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
     'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
@@ -33,8 +34,9 @@ export function sceneData() {
     };
 }
 
-export function createAiConceptHarness({ loader, repository = null } = {}) {
+export function createAiConceptHarness({ loader, repository = null, captureDeferred = null } = {}) {
     const calls = [];
+    const captureCalls = [];
     const documentRef = createDocument();
     const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 10000);
     const sceneManager = {
@@ -45,6 +47,8 @@ export function createAiConceptHarness({ loader, repository = null } = {}) {
         getCameraPresetPose() { return this.pose ? { ...this.pose } : null; },
         updateCameraPresetPose(view, options) { this.pose = { ...this.pose, ...view }; calls.push(['preview', view.id, options]); return true; },
         getCamera() { return camera; },
+        getScene() { return roomRenderer.sceneGroup; },
+        getRenderer() { return { name: 'renderer' }; },
         animate(callback) { this.frame = callback; calls.push(['animate']); },
         destroy() { calls.push(['scene-destroy']); },
     };
@@ -54,6 +58,15 @@ export function createAiConceptHarness({ loader, repository = null } = {}) {
         setRoomLabelsVisible(value) { calls.push(['room-labels', value]); },
         setCeilingsVisible(value) { calls.push(['ceilings', value]); },
         dispose() { calls.push(['room-dispose']); },
+    };
+    const thumbnailCapture = {
+        capture(view) {
+            captureCalls.push(['capture', view.id]);
+            return captureDeferred?.promise
+                ?? Promise.resolve({ status: 'ready', url: `blob:${view.id}`, cacheKey: view.id });
+        },
+        invalidate(id) { captureCalls.push(['invalidate', id]); },
+        dispose() { captureCalls.push(['dispose']); },
     };
     const windowRef = {
         location: { search: '?planId=test-plan&version=v1', hash: '#debug' },
@@ -70,7 +83,11 @@ export function createAiConceptHarness({ loader, repository = null } = {}) {
         sceneManagerFactory: () => sceneManager,
         roomRendererFactory: () => roomRenderer,
         repository,
+        thumbnailCaptureFactory: ({ scene, renderer }) => {
+            captureCalls.push(['create', scene, renderer]);
+            return thumbnailCapture;
+        },
         logger: { error() {} },
     });
-    return { app, calls, documentRef, windowRef, sceneManager, roomRenderer };
+    return { app, calls, captureCalls, documentRef, windowRef, sceneManager, roomRenderer, thumbnailCapture };
 }

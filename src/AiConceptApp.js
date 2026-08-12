@@ -11,6 +11,8 @@ import { generateAiViewCandidates } from './ai-concept/AiViewCandidateGenerator.
 import { AiViewStore } from './ai-concept/AiViewStore.js';
 import { AiViewFilmstrip } from './ai-concept/AiViewFilmstrip.js';
 import { AiViewEditController } from './ai-concept/AiViewEditController.js';
+import { AiViewMiniMap } from './ai-concept/AiViewMiniMap.js';
+import { AiViewThumbnailCapture } from './ai-concept/AiViewThumbnailCapture.js';
 
 const PASSIVE_WALL_REGISTRY = Object.freeze({ addWall() {}, addWalls() {} });
 const HEIGHT_NUDGE = 50;
@@ -47,6 +49,8 @@ export class AiConceptApp {
         storeFactory = options => new AiViewStore(options),
         generator = generateAiViewCandidates,
         filmstripFactory = (container, options) => new AiViewFilmstrip(container, options),
+        miniMapFactory = (container, options) => new AiViewMiniMap(container, options),
+        thumbnailCaptureFactory = options => new AiViewThumbnailCapture(options),
         logger = console,
     } = {}) {
         this.document = documentRef;
@@ -59,6 +63,8 @@ export class AiConceptApp {
         this.storeFactory = storeFactory;
         this.generator = generator;
         this.filmstripFactory = filmstripFactory;
+        this.miniMapFactory = miniMapFactory;
+        this.thumbnailCaptureFactory = thumbnailCaptureFactory;
         this.logger = logger;
         this.phase = 'idle';
         this.initializing = null;
@@ -71,6 +77,10 @@ export class AiConceptApp {
         this.roomRenderer = null;
         this.store = null;
         this.filmstrip = null;
+        this.miniMap = null;
+        this.thumbnailCapture = null;
+        this.thumbnailStates = new Map();
+        this.runtimeGeneration = 0;
         this.editController = null;
         this.inputPolicy = null;
         this.rooms = { roomPoints: [], roomNames: [], roomInfo: [] };
@@ -85,6 +95,7 @@ export class AiConceptApp {
         const ids = [
             'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
             'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
+            'ai-concept-minimap',
             'ai-concept-selection-count', 'ai-concept-continue',
             'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
             'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
@@ -138,8 +149,13 @@ export class AiConceptApp {
             onDelete: id => void this.deleteView(id),
             onRestore: () => void this.restoreExcluded(),
             onAdd: () => void this.addCustomView(),
-            onRoomFilter: id => void this.selectRoom(id),
+            onRetryThumbnail: id => void this.retryThumbnail(id),
         });
+        this.miniMap = this.miniMapFactory(this.ui.minimap, {
+            documentRef: this.document,
+            onSelect: id => void this.selectView(id),
+        });
+        this.runtimeGeneration += 1;
         this.runtimeActive = true;
     }
 
@@ -167,6 +183,10 @@ export class AiConceptApp {
             this.roomRenderer.setCeilingsVisible(true);
             this.sceneManager.setMaterialRestorationEnabled(false);
             this.obstacles = collectContentObstacleBounds(this.roomRenderer.sceneGroup);
+            this.thumbnailCapture = this.thumbnailCaptureFactory({
+                scene: this.sceneManager.getScene(),
+                renderer: this.sceneManager.getRenderer(),
+            });
             const context = resolveAiDocumentContext({
                 search: this.window?.location?.search ?? '',
                 dataSourceId: this.dataSourceId,
@@ -196,6 +216,7 @@ export class AiConceptApp {
             if (active) {
                 this._enterView(active);
                 this._setPhase('ready');
+                this._queueMissingThumbnails(this.store.getState().views);
             } else {
                 this._setPhase('empty');
             }
@@ -253,7 +274,12 @@ export class AiConceptApp {
     _renderState() {
         const state = this.store?.getState();
         if (!state) return;
-        this.filmstrip?.render(state);
+        this.filmstrip?.render({ ...state, thumbnails: this.thumbnailStates });
+        this.miniMap?.render({
+            roomPoints: this.rooms.roomPoints,
+            views: state.views,
+            activeViewId: state.activeViewId,
+        });
         if (this.ui.selectionCount) {
             this.ui.selectionCount.textContent = `已选择 ${state.views.filter(view => view.selected && view.valid !== false).length} 个视角`;
         }
@@ -278,14 +304,15 @@ export class AiConceptApp {
         const changed = await this.store.setActiveView(id);
         if (!changed) return false;
         this._transitionView(this._activeView());
+        this.filmstrip?.scrollViewIntoView?.(id);
         return true;
     }
 
     async selectRelativeView(offset) {
         if (this.phase !== 'ready') return false;
         const state = this.store.getState();
-        const views = state.views.filter(view => view.roomId === state.activeRoomId
-            && view.valid !== false && !['excluded', 'disabled'].includes(view.status));
+        const views = state.views.filter(view => view.valid !== false
+            && !['excluded', 'disabled'].includes(view.status));
         if (views.length < 2) return false;
         const index = Math.max(0, views.findIndex(view => view.id === state.activeViewId));
         return this.selectView(views[(index + offset + views.length) % views.length].id);
@@ -303,7 +330,11 @@ export class AiConceptApp {
     async excludeView(id) {
         if (this.phase !== 'ready') return false;
         const changed = await this.store.excludeView(id);
-        if (changed) this._transitionView(this._activeView());
+        if (changed) {
+            this.thumbnailCapture?.invalidate?.(id);
+            this.thumbnailStates.delete(id);
+            this._transitionView(this._activeView());
+        }
         return changed;
     }
 
@@ -313,11 +344,20 @@ export class AiConceptApp {
         if (view.source === 'auto') return this.excludeView(id);
         if (!this.window?.confirm?.(`确认删除“${view.name}”吗？`)) return false;
         const changed = await this.store.deleteCustomView(id);
-        if (changed) this._transitionView(this._activeView());
+        if (changed) {
+            this.thumbnailCapture?.invalidate?.(id);
+            this.thumbnailStates.delete(id);
+            this._transitionView(this._activeView());
+        }
         return changed;
     }
 
-    async restoreExcluded() { return this.phase === 'ready' ? this.store.restoreExcluded() : false; }
+    async restoreExcluded() {
+        if (this.phase !== 'ready') return false;
+        const changed = await this.store.restoreExcluded();
+        if (changed) this._queueMissingThumbnails(this.store.getState().views);
+        return changed;
+    }
 
     async addCustomView() {
         if (this.phase !== 'ready') return false;
@@ -355,6 +395,12 @@ export class AiConceptApp {
         await this.store.setPhase('ready');
         this._setPhase('ready');
         this._enterView(this._activeView());
+        const active = this._activeView();
+        if (active) {
+            this.thumbnailCapture?.invalidate?.(active.id);
+            this.thumbnailStates.delete(active.id);
+            this._queueThumbnail(active, { force: true });
+        }
         return result;
     }
 
@@ -372,6 +418,36 @@ export class AiConceptApp {
     _previewEdit({ point, view }) {
         this.sceneManager.updateCameraPresetPose({ ...point, ...view }, { resetView: true });
         this._renderState();
+    }
+
+    _queueMissingThumbnails(views = []) {
+        for (const view of views) this._queueThumbnail(view);
+    }
+
+    _queueThumbnail(view, { force = false } = {}) {
+        if (!view || view.valid === false || ['excluded', 'disabled'].includes(view.status)
+            || !this.thumbnailCapture || !this.runtimeActive) return false;
+        const current = this.thumbnailStates.get(view.id);
+        if (!force && ['loading', 'ready'].includes(current?.status)) return false;
+        const generation = this.runtimeGeneration;
+        this.thumbnailStates.set(view.id, { status: 'loading' });
+        this._renderState();
+        void this.thumbnailCapture.capture(view).then(result => {
+            if (!this.runtimeActive || generation !== this.runtimeGeneration) return;
+            this.thumbnailStates.set(view.id, result);
+            this._renderState();
+        }).catch(error => {
+            if (!this.runtimeActive || generation !== this.runtimeGeneration) return;
+            this.thumbnailStates.set(view.id, { status: 'error', code: messageOf(error) });
+            this._renderState();
+        });
+        return true;
+    }
+
+    retryThumbnail(id) {
+        if (this.phase !== 'ready') return false;
+        const view = this.store?.getState().views.find(candidate => candidate.id === id);
+        return this._queueThumbnail(view, { force: true });
     }
 
     _startRenderLoop() {
@@ -408,14 +484,20 @@ export class AiConceptApp {
 
     _destroyRuntime() {
         if (!this.runtimeActive) return;
+        this.runtimeGeneration += 1;
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = null;
         this.roomRenderer?.dispose?.(this.sceneManager?.getScene?.());
         this.sceneManager?.destroy?.();
+        this.thumbnailCapture?.dispose?.();
+        this.miniMap?.dispose?.();
         this.sceneManager = null;
         this.roomRenderer = null;
         this.store = null;
         this.filmstrip = null;
+        this.miniMap = null;
+        this.thumbnailCapture = null;
+        this.thumbnailStates.clear();
         this.editController = null;
         this.inputPolicy = null;
         this.runtimeActive = false;

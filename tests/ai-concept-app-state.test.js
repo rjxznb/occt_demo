@@ -42,3 +42,27 @@ test('continue exposes selected views and context without creating fake work', a
     assert.equal(app.getState().tasks, undefined);
     assert.equal(app.getState().results, undefined);
 });
+
+test('saving an edit refreshes only that thumbnail while cancelling keeps the cache', async () => {
+    const { app, captureCalls } = createAiConceptHarness();
+    await app.init();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const active = app.getState().activeViewId;
+    const initialCaptures = captureCalls.filter(call => call[0] === 'capture').length;
+
+    await app.enterEditMode(active);
+    app.nudgeHeight(50);
+    await app.saveEdit();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(captureCalls.filter(call => call[0] === 'invalidate'), [['invalidate', active]]);
+    assert.equal(captureCalls.filter(call => call[0] === 'capture').length, initialCaptures + 1);
+
+    await app.enterEditMode(active);
+    app.nudgeHeight(50);
+    app.cancelEdit();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(captureCalls.filter(call => call[0] === 'invalidate').length, 1);
+
+    app.dispose();
+    assert.equal(captureCalls.filter(call => call[0] === 'dispose').length, 1);
+});
