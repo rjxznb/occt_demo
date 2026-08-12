@@ -13,6 +13,10 @@ export class FakeElement {
         this.listeners = new Map();
         this.rect = { left: 0, top: 0, width: 200, height: 100 };
         this.scrollIntoViewOptions = null;
+        this.scrollLeft = 0;
+        this.scrollWidth = 0;
+        this.clientWidth = 0;
+        this.scrollToOptions = null;
         const classes = new Set();
         this.classList = {
             add: (...names) => names.forEach(name => classes.add(name)),
@@ -79,6 +83,11 @@ export class FakeElement {
 
     scrollIntoView(options) {
         this.scrollIntoViewOptions = options;
+    }
+
+    scrollTo(options) {
+        this.scrollToOptions = options;
+        if (Number.isFinite(options?.left)) this.scrollLeft = options.left;
     }
 }
 

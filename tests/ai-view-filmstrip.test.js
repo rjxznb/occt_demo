@@ -82,3 +82,45 @@ test('renders ready images and recoverable thumbnail failures', () => {
     findByDataset(failed, 'action', 'retry-thumbnail').click();
     assert.deepEqual(calls, ['bedroom-corner']);
 });
+
+function createScrollableFilmstrip() {
+    const container = new FakeElement('section');
+    const filmstrip = new AiViewFilmstrip(container, { documentRef: new FakeDocument() });
+    filmstrip.render({ views, activeViewId: 'living-entry' });
+    const track = container.children[0];
+    track.rect = { left: 100, top: 0, width: 600, height: 150 };
+    track.clientWidth = 600;
+    track.scrollWidth = 1400;
+    track.scrollLeft = 200;
+    return { container, filmstrip, track };
+}
+
+test('centers an interior selected card in the filmstrip viewport', () => {
+    const { container, filmstrip, track } = createScrollableFilmstrip();
+    const card = findByDataset(container, 'viewId', 'bedroom-corner');
+    card.rect = { left: 620, top: 0, width: 180, height: 130 };
+
+    filmstrip.scrollViewIntoView('bedroom-corner');
+
+    assert.deepEqual(track.scrollToOptions, { left: 510, behavior: 'smooth' });
+});
+
+test('clamps a selected card at the leading scroll boundary', () => {
+    const { container, filmstrip, track } = createScrollableFilmstrip();
+    const card = findByDataset(container, 'viewId', 'living-entry');
+    card.rect = { left: -180, top: 0, width: 180, height: 130 };
+
+    filmstrip.scrollViewIntoView('living-entry');
+
+    assert.equal(track.scrollToOptions.left, 0);
+});
+
+test('clamps a selected card at the trailing scroll boundary', () => {
+    const { container, filmstrip, track } = createScrollableFilmstrip();
+    const card = findByDataset(container, 'viewId', 'bedroom-corner');
+    card.rect = { left: 1220, top: 0, width: 180, height: 130 };
+
+    filmstrip.scrollViewIntoView('bedroom-corner');
+
+    assert.equal(track.scrollToOptions.left, 800);
+});

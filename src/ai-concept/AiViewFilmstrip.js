@@ -160,11 +160,28 @@ export class AiViewFilmstrip {
     }
 
     scrollViewIntoView(viewId) {
-        const card = Array.from(this.container?.children ?? [])
-            .flatMap(child => child.children ?? [])
+        const track = Array.from(this.container?.children ?? [])
+            .find(element => element.classList?.contains('ai-view-track'));
+        if (!track) return;
+
+        const card = Array.from(track.children ?? [])
             .flatMap(child => child.children ?? [])
             .flatMap(child => child.children ?? [])
             .find(element => element.dataset?.viewId === viewId);
-        card?.scrollIntoView?.({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+        if (!card || typeof track.scrollTo !== 'function') return;
+
+        const trackRect = track.getBoundingClientRect();
+        const cardRect = card.getBoundingClientRect();
+        const currentLeft = Number(track.scrollLeft) || 0;
+        const centeredLeft = currentLeft
+            + cardRect.left + cardRect.width / 2
+            - (trackRect.left + trackRect.width / 2);
+        const maximumLeft = Math.max(
+            0,
+            (Number(track.scrollWidth) || 0) - (Number(track.clientWidth) || trackRect.width),
+        );
+        const left = Math.min(maximumLeft, Math.max(0, centeredLeft));
+
+        track.scrollTo({ left, behavior: 'smooth' });
     }
 }

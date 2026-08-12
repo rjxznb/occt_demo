@@ -54,6 +54,8 @@ test('mini-map selection activates and scrolls the matching candidate card', asy
     await new Promise(resolve => setTimeout(resolve, 0));
 
     assert.equal(app.getState().activeViewId, target.id);
-    const card = findByDataset(documentRef.getElementById('ai-concept-filmstrip'), 'viewId', target.id);
-    assert.equal(card.scrollIntoViewOptions?.behavior, 'smooth');
+    const filmstrip = documentRef.getElementById('ai-concept-filmstrip');
+    const track = descendants(filmstrip)
+        .find(element => element.classList.contains('ai-view-track'));
+    assert.equal(track.scrollToOptions?.behavior, 'smooth');
 });
