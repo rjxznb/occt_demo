@@ -10,6 +10,7 @@ test('AI concept page exposes the candidate workbench without a panorama-style t
     const requiredIds = [
         'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
         'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
+        'ai-concept-minimap',
         'ai-concept-selection-count', 'ai-concept-continue',
         'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
         'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
@@ -33,4 +34,12 @@ test('AI concept styles provide blue liquid glass, editing glow, motion fallback
     assert.match(css, /rgba\(79,\s*139,\s*188,\s*0\.22\)/);
     assert.match(css, /@media\s+\(max-width:\s*760px\)/);
     assert.match(css, /@media\s+\(prefers-reduced-motion:\s*reduce\)/);
+    assert.match(css, /\.ai-view-minimap\s*\{[\s\S]*?position:\s*absolute[\s\S]*?top:[\s\S]*?right:/);
+    assert.match(css, /\.ai-view-room-group\s*\{/);
+    assert.match(css, /\.ai-view-thumbnail\s*\{[\s\S]*?aspect-ratio:\s*16\s*\/\s*9/);
+    assert.match(css, /\.ai-view-thumbnail\s+img\s*\{[\s\S]*?object-fit:\s*cover/);
+    assert.match(css, /\.ai-view-card\[data-thumbnail-state="loading"\]/);
+    assert.match(css, /\.ai-view-card\[data-thumbnail-state="error"\]/);
+    assert.match(css, /\.ai-view-map-point\.is-active/);
+    assert.doesNotMatch(css, /\.ai-view-map-direction/);
 });
