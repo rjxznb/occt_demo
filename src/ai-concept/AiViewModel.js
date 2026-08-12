@@ -73,6 +73,8 @@ export function normalizeAiView(candidate = {}, context = {}) {
         valid: candidate.valid !== false,
         invalidReason: candidate.invalidReason == null ? null : String(candidate.invalidReason),
         validationMode: String(candidate.validationMode ?? 'full'),
+        taskIds: Array.isArray(candidate.taskIds) ? candidate.taskIds.map(String) : [],
+        resultIds: Array.isArray(candidate.resultIds) ? candidate.resultIds.map(String) : [],
         createdAt: String(candidate.createdAt ?? ''),
         updatedAt: String(candidate.updatedAt ?? ''),
     };
