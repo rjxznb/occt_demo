@@ -37,7 +37,8 @@ export class AiViewMiniMap {
         const svg = this.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', `${layout.minX} ${-layout.maxY} ${layout.width} ${layout.height}`);
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('role', 'group');
+        svg.setAttribute('aria-label', '候选视角平面位置');
         for (const room of roomPoints) {
             if (!Array.isArray(room) || room.length < 3) continue;
             const polygon = this.document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
@@ -47,15 +48,17 @@ export class AiViewMiniMap {
         }
         stage.appendChild(svg);
 
+        const markerRadius = Math.max(layout.width, layout.height) * 0.025;
         for (const view of visible) {
-            const position = layout.toPercent(Number(view.x), Number(view.y));
-            const marker = this.document.createElement('button');
-            marker.type = 'button';
+            const marker = this.document.createElementNS('http://www.w3.org/2000/svg', 'circle');
             marker.classList.add('ai-view-map-point');
             marker.classList.toggle('is-active', view.id === activeViewId);
             marker.dataset.viewId = view.id;
-            marker.style.left = `${position.left}%`;
-            marker.style.top = `${position.top}%`;
+            marker.setAttribute('cx', String(Number(view.x)));
+            marker.setAttribute('cy', String(-Number(view.y)));
+            marker.setAttribute('r', String(markerRadius));
+            marker.setAttribute('role', 'button');
+            marker.setAttribute('tabindex', '0');
             marker.title = `${view.roomName || '房间'} · ${view.name || '候选视角'}`;
             marker.setAttribute('aria-label', `进入${view.roomName || ''}${view.name || '候选视角'}`);
             marker.setAttribute('aria-pressed', String(view.id === activeViewId));
@@ -63,7 +66,12 @@ export class AiViewMiniMap {
                 event.stopPropagation?.();
                 this.onSelect(view.id);
             });
-            stage.appendChild(marker);
+            marker.addEventListener('keydown', event => {
+                if (!['Enter', ' '].includes(event.key)) return;
+                event.preventDefault?.();
+                this.onSelect(view.id);
+            });
+            svg.appendChild(marker);
         }
         this.container.appendChild(header);
         this.container.appendChild(stage);

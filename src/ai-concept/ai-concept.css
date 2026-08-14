@@ -219,18 +219,17 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
     stroke-linejoin: round;
 }
 .ai-view-map-point {
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    padding: 0;
-    border: 2px solid rgba(255, 255, 255, 0.94);
-    border-radius: 50%;
-    background: #91a2b1;
-    box-shadow: 0 2px 7px rgba(42, 63, 82, 0.24);
-    transform: translate(-50%, -50%);
+    fill: #91a2b1;
+    stroke: rgba(255, 255, 255, 0.94);
+    stroke-width: 3;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 2px 3px rgba(42, 63, 82, 0.28));
+    cursor: pointer;
+    transition: fill 140ms ease, filter 140ms ease;
 }
-.ai-view-map-point:hover:not(:disabled) { transform: translate(-50%, -50%) scale(1.12); }
-.ai-view-map-point.is-active { background: #347fc9; box-shadow: 0 0 0 5px rgba(52, 127, 201, 0.17), 0 2px 8px rgba(35, 84, 131, 0.28); }
+.ai-view-map-point:hover { fill: #5f91bd; filter: drop-shadow(0 2px 4px rgba(42, 63, 82, 0.4)); }
+.ai-view-map-point:focus-visible { outline: none; stroke: #1c69b2; stroke-width: 5; }
+.ai-view-map-point.is-active { fill: #347fc9; stroke: rgba(225, 242, 255, 0.98); stroke-width: 5; filter: drop-shadow(0 2px 5px rgba(35, 84, 131, 0.48)); }
 
 .ai-concept-primary-actions {
     position: absolute;

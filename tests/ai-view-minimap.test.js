@@ -26,7 +26,13 @@ test('renders every room and available candidate without direction lines', () =>
 
     assert.equal(container.hidden, false);
     assert.equal(descendants(container).filter(node => node.tagName === 'POLYGON').length, 2);
-    assert.equal(findByDataset(container, 'viewId', 'view-b').classList.contains('is-active'), true);
+    const activeMarker = findByDataset(container, 'viewId', 'view-b');
+    assert.equal(activeMarker.classList.contains('is-active'), true);
+    assert.equal(activeMarker.tagName, 'CIRCLE');
+    assert.equal(activeMarker.parentNode.tagName, 'SVG');
+    assert.equal(activeMarker.parentNode.getAttribute('aria-hidden'), null);
+    assert.equal(activeMarker.getAttribute('cx'), '2600');
+    assert.equal(activeMarker.getAttribute('cy'), '-800');
     assert.equal(findByDataset(container, 'viewId', 'excluded'), null);
     assert.equal(descendants(container).some(node => node.classList.contains('camera-map-direction')), false);
     findByDataset(container, 'viewId', 'view-a').click();
