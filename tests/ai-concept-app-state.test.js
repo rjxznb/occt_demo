@@ -7,6 +7,43 @@ function selectedIds(state) {
     return state.views.filter(view => view.selected).map(view => view.id);
 }
 
+function focusVisibility(documentRef) {
+    return Object.fromEntries([
+        'ai-concept-filmstrip',
+        'ai-concept-previous',
+        'ai-concept-next',
+        'ai-concept-primary-actions',
+    ].map(id => [id, documentRef.getElementById(id).hidden]));
+}
+
+test('editing an existing view hides browsing and generation controls until cancel', async () => {
+    const { app, documentRef } = createAiConceptHarness();
+    await app.init();
+    assert.deepEqual(focusVisibility(documentRef), {
+        'ai-concept-filmstrip': false,
+        'ai-concept-previous': false,
+        'ai-concept-next': false,
+        'ai-concept-primary-actions': false,
+    });
+
+    await app.enterEditMode();
+    assert.ok(Object.values(focusVisibility(documentRef)).every(Boolean));
+
+    app.cancelEdit();
+    assert.ok(Object.values(focusVisibility(documentRef)).every(hidden => hidden === false));
+});
+
+test('adding a custom view hides browsing and generation controls until save', async () => {
+    const { app, documentRef } = createAiConceptHarness();
+    await app.init();
+
+    await app.addCustomView();
+    assert.ok(Object.values(focusVisibility(documentRef)).every(Boolean));
+
+    await app.saveEdit();
+    assert.ok(Object.values(focusVisibility(documentRef)).every(hidden => hidden === false));
+});
+
 test('browsing keeps generation selection while editing blocks navigation and continue', async () => {
     const { app } = createAiConceptHarness();
     await app.init();

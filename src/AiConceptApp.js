@@ -102,7 +102,7 @@ export class AiConceptApp {
             'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
             'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
             'ai-concept-minimap',
-            'ai-concept-continue',
+            'ai-concept-primary-actions', 'ai-concept-continue',
             'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
             'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
             'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
@@ -302,6 +302,10 @@ export class AiConceptApp {
         if (this.ui.previous) this.ui.previous.disabled = editing || this.phase !== 'ready';
         if (this.ui.next) this.ui.next.disabled = editing || this.phase !== 'ready';
         if (this.ui.continue) this.ui.continue.disabled = editing || !state?.canContinue || this.phase !== 'ready';
+        if (this.ui.filmstrip) this.ui.filmstrip.hidden = editing;
+        if (this.ui.previous) this.ui.previous.hidden = editing;
+        if (this.ui.next) this.ui.next.hidden = editing;
+        if (this.ui.primaryActions) this.ui.primaryActions.hidden = editing;
         if (this.ui.editControls) this.ui.editControls.hidden = !editing;
         this.document?.documentElement?.classList?.toggle('ai-concept-editing', editing);
     }

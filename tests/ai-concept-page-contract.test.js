@@ -11,7 +11,7 @@ test('AI concept page exposes the candidate workbench without a panorama-style t
         'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
         'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
         'ai-concept-minimap',
-        'ai-concept-continue',
+        'ai-concept-primary-actions', 'ai-concept-continue',
         'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
         'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
         'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
