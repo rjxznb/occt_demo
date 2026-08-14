@@ -21,7 +21,6 @@ test('renders every room group and candidate even when one room is active', () =
     const filmstrip = new AiViewFilmstrip(container, {
         documentRef: new FakeDocument(),
         onActivate: id => calls.push(['activate', id]),
-        onToggleSelected: id => calls.push(['select', id]),
         onEdit: id => calls.push(['edit', id]),
         onDelete: id => calls.push(['delete', id]),
         onRestore: () => calls.push(['restore']),
@@ -40,18 +39,18 @@ test('renders every room group and candidate even when one room is active', () =
     assert.doesNotMatch(active.textContent, /自动|手动/);
     assert.equal(findByDataset(active, 'action', 'edit').textContent, '微调');
     assert.equal(findByDataset(active, 'action', 'delete').getAttribute('aria-label'), '删除入口广角');
-    assert.equal(findByDataset(active, 'action', 'toggle-selected').getAttribute('aria-pressed'), 'true');
+    assert.equal(findByDataset(active, 'action', 'toggle-selected'), null);
+    assert.equal(active.classList.contains('is-selected'), false);
     assert.equal(findByDataset(container, 'viewId', 'excluded'), null);
 
     findByDataset(active, 'action', 'activate').click();
-    findByDataset(active, 'action', 'toggle-selected').click();
     findByDataset(active, 'action', 'edit').click();
     findByDataset(active, 'action', 'delete').click();
     findByDataset(container, 'action', 'restore').click();
     findByDataset(container, 'action', 'add').click();
 
     assert.deepEqual(calls, [
-        ['activate', 'living-entry'], ['select', 'living-entry'],
+        ['activate', 'living-entry'],
         ['edit', 'living-entry'], ['delete', 'living-entry'],
         ['restore'], ['add'],
     ]);

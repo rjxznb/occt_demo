@@ -31,13 +31,17 @@ test('excluding and restoring an automatic view keeps the page usable', async ()
     assert.equal(app.getState().views.find(view => view.id === active).status, 'available');
 });
 
-test('continue exposes selected views and context without creating fake work', async () => {
+test('continue exposes every usable view and context without creating fake work', async () => {
     const { app } = createAiConceptHarness();
     await app.init();
     const payload = app.continueToConditions();
 
     assert.deepEqual(Object.keys(payload).sort(), ['context', 'selectedViews']);
-    assert.equal(payload.selectedViews.length, 1);
+    const usable = app.getState().views.filter(view => view.valid !== false
+        && !['excluded', 'disabled'].includes(view.status));
+    assert.equal(payload.selectedViews.length, usable.length);
+    assert.deepEqual(payload.selectedViews.map(view => view.id), usable.map(view => view.id));
+    assert.ok(payload.selectedViews.some(view => view.selected === false));
     assert.equal(app.getState().phase, 'conditions');
     assert.equal(app.getState().tasks, undefined);
     assert.equal(app.getState().results, undefined);

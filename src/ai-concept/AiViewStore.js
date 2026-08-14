@@ -95,7 +95,7 @@ export class AiViewStore {
             editingViewId: this.editingViewId,
             draftRecovered: this.draftRecovered,
             persistenceError: clone(this.persistenceError),
-            canContinue: this.views.some(view => canUse(view) && view.selected),
+            canContinue: this.views.some(view => canUse(view)),
         });
     }
 

@@ -25,6 +25,12 @@ function messageOf(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
+function canSubmitView(view) {
+    return Boolean(view)
+        && view.valid !== false
+        && !['excluded', 'disabled'].includes(view.status);
+}
+
 export async function loadAiConceptSceneData(service = geometryService) {
     await service.init();
     const [outline, rooms, doorWindows, softlists, contentModels] = await Promise.all([
@@ -96,7 +102,7 @@ export class AiConceptApp {
             'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
             'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
             'ai-concept-minimap',
-            'ai-concept-selection-count', 'ai-concept-continue',
+            'ai-concept-continue',
             'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
             'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
             'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
@@ -144,7 +150,6 @@ export class AiConceptApp {
         this.filmstrip = this.filmstripFactory(this.ui.filmstrip, {
             documentRef: this.document,
             onActivate: id => void this.selectView(id),
-            onToggleSelected: id => void this.toggleSelected(id),
             onEdit: id => void this.enterEditMode(id),
             onDelete: id => void this.deleteView(id),
             onRestore: () => void this.restoreExcluded(),
@@ -285,9 +290,6 @@ export class AiConceptApp {
             views: state.views,
             activeViewId: state.activeViewId,
         });
-        if (this.ui.selectionCount) {
-            this.ui.selectionCount.textContent = `已选择 ${state.views.filter(view => view.selected && view.valid !== false).length} 个视角`;
-        }
         if (this.ui.heightValue && this.editController?.getState().workingView) {
             this.ui.heightValue.textContent = `${Math.round(this.editController.getState().workingView.z)} mm`;
         }
@@ -329,8 +331,6 @@ export class AiConceptApp {
         if (changed) this._transitionView(this._activeView());
         return changed;
     }
-
-    async toggleSelected(id) { return this.phase === 'ready' ? this.store.toggleSelected(id) : false; }
 
     async excludeView(id) {
         if (this.phase !== 'ready') return false;
@@ -474,8 +474,7 @@ export class AiConceptApp {
         if (this.phase !== 'ready' || !state?.canContinue) return false;
         const payload = {
             context: clone(state.context),
-            selectedViews: clone(state.views.filter(view => view.selected && view.valid !== false
-                && !['excluded', 'disabled'].includes(view.status))),
+            selectedViews: clone(state.views.filter(canSubmitView)),
         };
         this._setPhase('conditions');
         return payload;

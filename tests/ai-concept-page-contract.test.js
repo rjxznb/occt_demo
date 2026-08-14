@@ -11,13 +11,14 @@ test('AI concept page exposes the candidate workbench without a panorama-style t
         'ai-concept-app', 'ai-concept-canvas', 'ai-concept-status',
         'ai-concept-previous', 'ai-concept-next', 'ai-concept-filmstrip',
         'ai-concept-minimap',
-        'ai-concept-selection-count', 'ai-concept-continue',
+        'ai-concept-continue',
         'ai-concept-edit-controls', 'ai-concept-edit-cancel', 'ai-concept-edit-save',
         'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
         'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
         'ai-concept-retry', 'ai-concept-toast', 'ai-concept-conditions',
     ];
     for (const id of requiredIds) assert.match(html, new RegExp(`id=["']${id}["']`), id);
+    assert.doesNotMatch(html, /id=["']ai-concept-selection-count["']/);
     assert.match(html, /type="module"\s+src="\.\/src\/AiConceptApp\.js"/);
     assert.doesNotMatch(html, /AI方向示意图|AI 方向示意图/);
     assert.doesNotMatch(html, />\s*位置微调\s*</);
@@ -43,4 +44,5 @@ test('AI concept styles provide blue liquid glass, editing glow, motion fallback
     assert.match(css, /\.ai-view-map-point\.is-active/);
     assert.match(css, /\.ai-view-minimap-room\s*\{[\s\S]*?stroke-width:\s*1\.4/);
     assert.doesNotMatch(css, /\.ai-view-map-direction/);
+    assert.doesNotMatch(css, /\.ai-view-card\.is-selected|toggle-selected/);
 });

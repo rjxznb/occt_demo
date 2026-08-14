@@ -72,6 +72,14 @@ test('active view changes without changing generation selection', async () => {
     assert.equal(state.canContinue, true);
 });
 
+test('generation can continue when usable views are not manually selected', async () => {
+    const store = await createStore();
+    await store.toggleSelected('best');
+
+    assert.deepEqual(store.getState().views.filter(view => view.selected), []);
+    assert.equal(store.getState().canContinue, true);
+});
+
 test('selection rejects invalid excluded and disabled views', async () => {
     const store = await createStore({ generatedViews: [
         view('valid'),

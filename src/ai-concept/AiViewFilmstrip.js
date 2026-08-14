@@ -30,7 +30,6 @@ export class AiViewFilmstrip {
     constructor(container, {
         documentRef = globalThis.document,
         onActivate = () => {},
-        onToggleSelected = () => {},
         onEdit = () => {},
         onDelete = () => {},
         onRestore = () => {},
@@ -40,7 +39,7 @@ export class AiViewFilmstrip {
         this.container = container;
         this.document = documentRef;
         this.handlers = {
-            onActivate, onToggleSelected, onEdit, onDelete, onRestore, onAdd, onRetryThumbnail,
+            onActivate, onEdit, onDelete, onRestore, onAdd, onRetryThumbnail,
         };
     }
 
@@ -112,7 +111,6 @@ export class AiViewFilmstrip {
         card.dataset.viewId = view.id;
         card.classList.add('ai-view-card');
         card.classList.toggle('is-active', active);
-        card.classList.toggle('is-selected', Boolean(view.selected));
         card.classList.toggle('is-invalid', view.valid === false);
         card.textContent = `${view.roomName} ${view.name}`;
 
@@ -144,18 +142,8 @@ export class AiViewFilmstrip {
         activate.classList.add('ai-view-preview');
         activate.appendChild(preview);
 
-        const select = button(
-            this.document,
-            view.selected ? '已选' : '选择',
-            'toggle-selected',
-            () => this.handlers.onToggleSelected(view.id),
-            { 'aria-pressed': String(Boolean(view.selected)) },
-        );
-        select.disabled = view.valid === false;
-
         card.appendChild(toolbar);
         card.appendChild(activate);
-        card.appendChild(select);
         return card;
     }
 
