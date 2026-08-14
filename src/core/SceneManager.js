@@ -46,6 +46,7 @@ export class SceneManager {
         this.whiteModelLightingState = null;
         this.currentViewMode = '3d'; // '3d' 或 '2d'
         this.cameraPresetViewState = null;
+        this.cameraPresetInteractionEnabled = true;
         this.cameraPresetPointer = null;
         this.cameraPresetYaw = 0;
         this.cameraPresetPitch = 0;
@@ -772,8 +773,22 @@ export class SceneManager {
         camera.lookAt(this.controls.target);
     }
 
+    setCameraPresetInteractionEnabled(enabled) {
+        const next = Boolean(enabled);
+        if (this.cameraPresetInteractionEnabled === next) return false;
+        this.cameraPresetInteractionEnabled = next;
+        if (!next && this.cameraPresetPointer) {
+            const pointerId = this.cameraPresetPointer.id;
+            this.renderer?.domElement?.releasePointerCapture?.(pointerId);
+            this.cameraPresetPointer = null;
+            this.renderer?.domElement?.classList?.remove('camera-preset-dragging');
+        }
+        return true;
+    }
+
     onCameraPresetPointerDown(event) {
-        if (!this.cameraPresetViewState || event.button !== 0) return;
+        if (!this.cameraPresetViewState || this.cameraPresetInteractionEnabled === false
+            || event.button !== 0) return;
         this._cameraPresetTransition = null;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -783,7 +798,8 @@ export class SceneManager {
     }
 
     onCameraPresetPointerMove(event) {
-        if (!this.cameraPresetViewState || !this.cameraPresetPointer
+        if (!this.cameraPresetViewState || this.cameraPresetInteractionEnabled === false
+            || !this.cameraPresetPointer
             || event.pointerId !== this.cameraPresetPointer.id) return;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -810,7 +826,7 @@ export class SceneManager {
     }
 
     onCameraPresetWheel(event) {
-        if (!this.cameraPresetViewState) return;
+        if (!this.cameraPresetViewState || this.cameraPresetInteractionEnabled === false) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         const camera = this.perspectiveCamera;

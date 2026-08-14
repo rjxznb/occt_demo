@@ -60,6 +60,53 @@ test('camera preset pointer drag rotates view without moving the camera origin',
     assert.ok(manager.controls.target.distanceTo(originalPosition) > 999);
 });
 
+test('disabled camera preset interaction ignores pointer drag and wheel zoom', () => {
+    const manager = Object.create(SceneManager.prototype);
+    manager.cameraPresetViewState = {};
+    manager.cameraPresetInteractionEnabled = false;
+    manager.cameraPresetPointer = { id: 7, x: 100, y: 100 };
+    manager.cameraPresetYaw = 0;
+    manager.cameraPresetPitch = 0;
+    manager.cameraPresetHorizontalFov = 90;
+    manager.perspectiveCamera = new THREE.PerspectiveCamera(90, 1, 1, 10000);
+    manager.controls = { target: new THREE.Vector3() };
+    manager.applyCameraPresetHorizontalFov = value => { manager.appliedFov = value; };
+
+    manager.onCameraPresetPointerMove({
+        pointerId: 7,
+        clientX: 180,
+        clientY: 60,
+        preventDefault() { throw new Error('disabled drag must not be consumed'); },
+        stopImmediatePropagation() { throw new Error('disabled drag must not be consumed'); },
+    });
+    manager.onCameraPresetWheel({
+        deltaY: 120,
+        preventDefault() { throw new Error('disabled wheel must not be consumed'); },
+        stopImmediatePropagation() { throw new Error('disabled wheel must not be consumed'); },
+    });
+
+    assert.equal(manager.cameraPresetYaw, 0);
+    assert.equal(manager.cameraPresetPitch, 0);
+    assert.equal(manager.appliedFov, undefined);
+});
+
+test('disabling camera preset interaction clears an active pointer capture', () => {
+    const removed = [];
+    const manager = Object.create(SceneManager.prototype);
+    manager.cameraPresetInteractionEnabled = true;
+    manager.cameraPresetPointer = { id: 11, x: 20, y: 30 };
+    manager.renderer = { domElement: {
+        releasePointerCapture(id) { manager.releasedPointerId = id; },
+        classList: { remove(name) { removed.push(name); } },
+    } };
+
+    assert.equal(manager.setCameraPresetInteractionEnabled(false), true);
+    assert.equal(manager.cameraPresetPointer, null);
+    assert.equal(manager.releasedPointerId, 11);
+    assert.deepEqual(removed, ['camera-preset-dragging']);
+    assert.equal(manager.setCameraPresetInteractionEnabled(false), false);
+});
+
 test('exiting a camera preset restores the saved orbit camera state', () => {
     const manager = Object.create(SceneManager.prototype);
     const savedPosition = new THREE.Vector3(10, 20, 3000);
