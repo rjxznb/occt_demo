@@ -120,12 +120,109 @@ test('SceneManager releases the owned outdoor panorama during destruction', () =
     manager.scene = { background: { id: 'outdoor' } };
     manager.outdoorPanoramaTexture = manager.scene.background;
     manager.outdoorPanoramaTexture.dispose = () => { disposed = true; };
+    manager.outdoorPanoramaGeneration = 5;
 
     manager.disposeOutdoorPanorama();
 
     assert.equal(disposed, true);
     assert.equal(manager.scene.background, null);
     assert.equal(manager.outdoorPanoramaTexture, null);
+    assert.equal(manager.outdoorPanoramaGeneration, 6);
+});
+
+test('SceneManager exposes one lifecycle boundary for asynchronously loaded scenery', () => {
+    assert.equal(typeof SceneManager.prototype.installOutdoorPanoramaTexture, 'function');
+});
+
+test('SceneManager replaces an inactive fallback without changing the ordinary background', () => {
+    const manager = Object.create(SceneManager.prototype);
+    const ordinary = new THREE.Color(0x123456);
+    const fallback = new THREE.Texture();
+    const realistic = new THREE.Texture();
+    let fallbackDisposed = false;
+    fallback.dispose = () => { fallbackDisposed = true; };
+    manager.scene = new THREE.Scene();
+    manager.scene.background = ordinary;
+    manager.outdoorPanoramaTexture = fallback;
+    manager.outdoorPanoramaState = null;
+    manager.outdoorPanoramaGeneration = 3;
+
+    assert.equal(manager.installOutdoorPanoramaTexture(realistic, 3), true);
+    assert.equal(manager.outdoorPanoramaTexture, realistic);
+    assert.equal(manager.scene.background, ordinary);
+    assert.equal(fallbackDisposed, true);
+});
+
+test('SceneManager keeps fixed-point scenery active when the realistic image arrives', () => {
+    const manager = Object.create(SceneManager.prototype);
+    const fallback = new THREE.Texture();
+    const realistic = new THREE.Texture();
+    manager.scene = new THREE.Scene();
+    manager.scene.background = fallback;
+    manager.outdoorPanoramaTexture = fallback;
+    manager.outdoorPanoramaState = { background: new THREE.Color(0x123456) };
+    manager.outdoorPanoramaGeneration = 4;
+
+    assert.equal(manager.installOutdoorPanoramaTexture(realistic, 4), true);
+    assert.equal(manager.scene.background, realistic);
+});
+
+test('SceneManager disposes a realistic texture that resolves after panorama shutdown', () => {
+    const manager = Object.create(SceneManager.prototype);
+    const lateTexture = new THREE.Texture();
+    let disposed = false;
+    lateTexture.dispose = () => { disposed = true; };
+    manager.scene = null;
+    manager.outdoorPanoramaTexture = null;
+    manager.outdoorPanoramaGeneration = 8;
+
+    assert.equal(manager.installOutdoorPanoramaTexture(lateTexture, 7), false);
+    assert.equal(disposed, true);
+    assert.equal(manager.outdoorPanoramaTexture, null);
+});
+
+test('SceneManager exposes asynchronous realistic-scenery loading', () => {
+    assert.equal(typeof SceneManager.prototype.loadRealisticOutdoorPanorama, 'function');
+});
+
+test('SceneManager installs a loaded realistic panorama and retains fallback on failure', async () => {
+    const manager = Object.create(SceneManager.prototype);
+    const fallback = new THREE.Texture();
+    const realistic = new THREE.Texture();
+    manager.scene = new THREE.Scene();
+    manager.scene.background = new THREE.Color(0x123456);
+    manager.outdoorPanoramaTexture = fallback;
+    manager.outdoorPanoramaGeneration = 6;
+
+    assert.equal(await manager.loadRealisticOutdoorPanorama(async () => realistic), true);
+    assert.equal(manager.outdoorPanoramaTexture, realistic);
+
+    const retained = manager.outdoorPanoramaTexture;
+    assert.equal(await manager.loadRealisticOutdoorPanorama(async () => {
+        throw new Error('OUTDOOR_PANORAMA_LOAD_FAILED');
+    }), false);
+    assert.equal(manager.outdoorPanoramaTexture, retained);
+});
+
+test('SceneManager environment starts realistic loading after installing the fallback', () => {
+    const manager = Object.create(SceneManager.prototype);
+    const previousDocument = globalThis.document;
+    let loads = 0;
+    manager.scene = new THREE.Scene();
+    manager.outdoorPanoramaGeneration = 0;
+    manager.loadRealisticOutdoorPanorama = () => { loads += 1; return Promise.resolve(true); };
+    globalThis.document = {
+        createElement() { return recordingCanvas().canvas; },
+    };
+    try {
+        manager.setupEnvironment();
+    } finally {
+        globalThis.document = previousDocument;
+    }
+
+    assert.equal(loads, 1);
+    assert.ok(manager.outdoorPanoramaTexture?.isCanvasTexture);
+    assert.equal(manager.outdoorPanoramaGeneration, 1);
 });
 
 test('camera preset activation installs a Z-up outdoor panorama', () => {

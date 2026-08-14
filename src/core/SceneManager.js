@@ -7,7 +7,10 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { AutoRotationManager } from '../components/AutoRotationManager.js';
 import { isGlassMaterial } from '../components/WindowGlassMaterial.js';
-import { createOutdoorPanoramaTexture } from '../components/OutdoorPanorama.js';
+import {
+    createOutdoorPanoramaTexture,
+    loadOutdoorPanoramaTexture,
+} from '../components/OutdoorPanorama.js';
 import { configureOrbitControls } from './OrbitControlPolicy.js';
 import {
     clampPanoramaHorizontalFov,
@@ -36,6 +39,7 @@ export class SceneManager {
         this.outputPass = null;
         this.outdoorPanoramaTexture = null;
         this.outdoorPanoramaState = null;
+        this.outdoorPanoramaGeneration = 0;
         this.materialRestorationEnabled = true;
         this.whiteModelOriginalMaterials = new Map();
         this.whiteModelMaterialCache = new Map();
@@ -136,10 +140,12 @@ export class SceneManager {
      * 设置专业级背景环境
      */
     setupEnvironment() {
+        this.outdoorPanoramaGeneration += 1;
         const outdoorPanorama = createOutdoorPanoramaTexture();
         if (outdoorPanorama) {
             this.outdoorPanoramaTexture = outdoorPanorama;
         }
+        void this.loadRealisticOutdoorPanorama();
 
         // 创建渐变背景
         const canvas = document.createElement('canvas');
@@ -786,6 +792,30 @@ export class SceneManager {
         return true;
     }
 
+    installOutdoorPanoramaTexture(texture, generation = this.outdoorPanoramaGeneration) {
+        if (!texture) return false;
+        if (!this.scene || generation !== this.outdoorPanoramaGeneration) {
+            texture.dispose?.();
+            return false;
+        }
+        const previous = this.outdoorPanoramaTexture;
+        const wasActive = this.scene.background === previous;
+        this.outdoorPanoramaTexture = texture;
+        if (wasActive) this.scene.background = texture;
+        if (previous && previous !== texture) previous.dispose?.();
+        return true;
+    }
+
+    async loadRealisticOutdoorPanorama(loadTexture = loadOutdoorPanoramaTexture) {
+        const generation = this.outdoorPanoramaGeneration;
+        try {
+            const texture = await loadTexture();
+            return this.installOutdoorPanoramaTexture(texture, generation);
+        } catch {
+            return false;
+        }
+    }
+
     onCameraPresetPointerDown(event) {
         if (!this.cameraPresetViewState || this.cameraPresetInteractionEnabled === false
             || event.button !== 0) return;
@@ -1135,6 +1165,7 @@ export class SceneManager {
     }
 
     disposeOutdoorPanorama() {
+        this.outdoorPanoramaGeneration += 1;
         this.restoreOutdoorPanorama();
         const texture = this.outdoorPanoramaTexture;
         if (!texture) return;
