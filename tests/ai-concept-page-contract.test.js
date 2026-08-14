@@ -24,6 +24,12 @@ test('AI concept page exposes the candidate workbench without a panorama-style t
     assert.doesNotMatch(html, />\s*位置微调\s*</);
     assert.match(html, />\s*下一步：生图条件\s*</);
     assert.match(html, /aria-live="polite"/);
+    assert.match(
+        html,
+        /id=["']ai-concept-conditions["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/,
+    );
+    assert.match(html, /aria-labelledby=["']ai-generation-dialog-title["']/);
+    assert.doesNotMatch(html, /风格与环境配置将在服务接入阶段启用/);
 });
 
 test('AI concept styles provide blue liquid glass, editing glow, motion fallback, and narrow layout', async () => {
@@ -57,4 +63,9 @@ test('AI concept styles provide blue liquid glass, editing glow, motion fallback
     assert.match(css, /\.ai-view-minimap-room\s*\{[\s\S]*?stroke-width:\s*1\.4/);
     assert.doesNotMatch(css, /\.ai-view-map-direction/);
     assert.doesNotMatch(css, /\.ai-view-card\.is-selected|toggle-selected/);
+    assert.match(css, /\.ai-generation-dialog\s*\{[\s\S]*?position:\s*fixed[\s\S]*?backdrop-filter:\s*blur\(/);
+    assert.match(css, /\.ai-generation-dialog-panel\s*\{[\s\S]*?max-height:/);
+    assert.match(css, /\.ai-generation-style-grid\s*\{[\s\S]*?grid-template-columns:/);
+    assert.match(css, /\.ai-generation-style-card\.is-selected/);
+    assert.match(css, /\.ai-generation-environment\.is-selected/);
 });

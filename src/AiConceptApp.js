@@ -13,6 +13,15 @@ import { AiViewFilmstrip } from './ai-concept/AiViewFilmstrip.js';
 import { AiViewEditController } from './ai-concept/AiViewEditController.js';
 import { AiViewMiniMap } from './ai-concept/AiViewMiniMap.js';
 import { AiViewThumbnailCapture } from './ai-concept/AiViewThumbnailCapture.js';
+import { AiGenerationConditionsDialog } from './ai-concept/AiGenerationConditionsDialog.js';
+import { LocalAiGenerationConditionRepository } from './ai-concept/AiGenerationConditionRepository.js';
+import {
+    DEFAULT_GENERATION_CONDITIONS,
+    ENVIRONMENT_CATALOG,
+    MAX_IMAGES_PER_JOB,
+    STYLE_CATALOG,
+    normalizeGenerationConditions,
+} from './ai-concept/AiGenerationCatalog.js';
 
 const PASSIVE_WALL_REGISTRY = Object.freeze({ addWall() {}, addWalls() {} });
 const HEIGHT_NUDGE = 50;
@@ -57,6 +66,8 @@ export class AiConceptApp {
         filmstripFactory = (container, options) => new AiViewFilmstrip(container, options),
         miniMapFactory = (container, options) => new AiViewMiniMap(container, options),
         thumbnailCaptureFactory = options => new AiViewThumbnailCapture(options),
+        generationDialogFactory = (container, options) => new AiGenerationConditionsDialog(container, options),
+        generationConditionRepository = undefined,
         logger = console,
     } = {}) {
         this.document = documentRef;
@@ -71,6 +82,10 @@ export class AiConceptApp {
         this.filmstripFactory = filmstripFactory;
         this.miniMapFactory = miniMapFactory;
         this.thumbnailCaptureFactory = thumbnailCaptureFactory;
+        this.generationDialogFactory = generationDialogFactory;
+        this.generationConditionRepository = generationConditionRepository === undefined
+            ? new LocalAiGenerationConditionRepository()
+            : generationConditionRepository;
         this.logger = logger;
         this.phase = 'idle';
         this.initializing = null;
@@ -85,6 +100,8 @@ export class AiConceptApp {
         this.filmstrip = null;
         this.miniMap = null;
         this.thumbnailCapture = null;
+        this.generationDialog = null;
+        this.generationConditions = clone(DEFAULT_GENERATION_CONDITIONS);
         this.thumbnailStates = new Map();
         this.runtimeGeneration = 0;
         this.editController = null;
@@ -160,6 +177,12 @@ export class AiConceptApp {
             documentRef: this.document,
             onSelect: id => void this.selectView(id),
         });
+        this.generationDialog = this.generationDialogFactory(this.ui.conditions, {
+            documentRef: this.document,
+            eventTarget: this.window,
+            onSubmit: conditions => this._submitGenerationConditions(conditions),
+            onCancel: () => this.cancelGenerationConditions(),
+        });
         this.runtimeGeneration += 1;
         this.runtimeActive = true;
     }
@@ -210,6 +233,10 @@ export class AiConceptApp {
                 roomResults: generated.roomResults,
                 context,
             });
+            const conditionDraft = await this.generationConditionRepository?.load?.(context);
+            this.generationConditions = conditionDraft?.ok
+                ? normalizeGenerationConditions(conditionDraft.conditions)
+                : clone(DEFAULT_GENERATION_CONDITIONS);
             this.editController = new AiViewEditController({
                 store: this.store,
                 validator: view => this._validateView(view),
@@ -481,7 +508,33 @@ export class AiConceptApp {
             selectedViews: clone(state.views.filter(canSubmitView)),
         };
         this._setPhase('conditions');
+        this.generationDialog?.open?.({
+            catalog: {
+                styles: STYLE_CATALOG,
+                environments: ENVIRONMENT_CATALOG,
+                maxImagesPerJob: MAX_IMAGES_PER_JOB,
+            },
+            conditions: clone(this.generationConditions),
+            viewCount: payload.selectedViews.length,
+        });
         return payload;
+    }
+
+    cancelGenerationConditions() {
+        if (this.phase !== 'conditions') return false;
+        this.generationDialog?.close?.();
+        this._setPhase('ready');
+        return true;
+    }
+
+    async _submitGenerationConditions(input) {
+        if (this.phase !== 'conditions') return false;
+        const conditions = normalizeGenerationConditions(input);
+        this.generationConditions = clone(conditions);
+        const context = this.store?.getState()?.context;
+        await this.generationConditionRepository?.save?.(context, conditions);
+        this.generationDialog?.showError?.('AI_GENERATION_CLIENT_NOT_READY');
+        return false;
     }
 
     async retry() {
@@ -499,6 +552,7 @@ export class AiConceptApp {
         this.roomRenderer?.dispose?.(this.sceneManager?.getScene?.());
         this.sceneManager?.destroy?.();
         this.thumbnailCapture?.dispose?.();
+        this.generationDialog?.dispose?.();
         this.miniMap?.dispose?.();
         this.sceneManager = null;
         this.roomRenderer = null;
@@ -506,6 +560,7 @@ export class AiConceptApp {
         this.filmstrip = null;
         this.miniMap = null;
         this.thumbnailCapture = null;
+        this.generationDialog = null;
         this.thumbnailStates.clear();
         this.editController = null;
         this.inputPolicy = null;

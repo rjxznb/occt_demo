@@ -100,8 +100,8 @@ test('custom view deletion asks for confirmation and cancellation preserves it',
     assert.equal(calls.filter(call => call[0] === 'confirm').length, 1);
 });
 
-test('continue exposes every usable view and context without creating fake work', async () => {
-    const { app } = createAiConceptHarness();
+test('continue opens generation conditions with every usable view and current context', async () => {
+    const { app, dialogCalls, generationDialog } = createAiConceptHarness();
     await app.init();
     const payload = app.continueToConditions();
 
@@ -114,6 +114,42 @@ test('continue exposes every usable view and context without creating fake work'
     assert.equal(app.getState().phase, 'conditions');
     assert.equal(app.getState().tasks, undefined);
     assert.equal(app.getState().results, undefined);
+    const opened = dialogCalls.find(call => call[0] === 'open')?.[1];
+    assert.equal(opened.viewCount, usable.length);
+    assert.equal(opened.catalog.styles.length, 12);
+    assert.equal(opened.catalog.environments.length, 4);
+    assert.deepEqual(opened.conditions, {
+        styleIds: ['modern-minimalist'], environmentIds: ['sunny-day'],
+    });
+
+    generationDialog.handlers.onCancel();
+    assert.equal(app.getState().phase, 'ready');
+});
+
+test('generation conditions restore their isolated draft and surface the unwired submit boundary', async () => {
+    const saves = [];
+    const repository = {
+        async load(context) {
+            assert.equal(context.planId, 'test-plan');
+            return { ok: true, conditions: { styleIds: ['fresh-cream'], environmentIds: ['night-ambience'] } };
+        },
+        async save(context, conditions) { saves.push([context, conditions]); return { ok: true, conditions }; },
+    };
+    const { app, dialogCalls, generationDialog } = createAiConceptHarness({
+        generationConditionRepository: repository,
+    });
+    await app.init();
+    app.continueToConditions();
+    assert.deepEqual(dialogCalls.find(call => call[0] === 'open')[1].conditions, {
+        styleIds: ['fresh-cream'], environmentIds: ['night-ambience'],
+    });
+
+    await generationDialog.handlers.onSubmit({
+        styleIds: ['fresh-cream'], environmentIds: ['night-ambience'],
+    });
+    assert.equal(saves.length, 1);
+    assert.deepEqual(dialogCalls.at(-1), ['error', 'AI_GENERATION_CLIENT_NOT_READY']);
+    assert.equal(app.getState().phase, 'conditions');
 });
 
 test('saving an edit refreshes only that thumbnail while cancelling keeps the cache', async () => {

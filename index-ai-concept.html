@@ -68,10 +68,9 @@
             <button id="ai-concept-retry" type="button" class="ai-button ai-button-primary">重新加载</button>
         </section>
 
-        <section id="ai-concept-conditions" class="ai-glass ai-conditions-card" hidden>
-            <strong>生图条件</strong>
-            <p>候选视角已准备完成，风格与环境配置将在服务接入阶段启用。</p>
-        </section>
+        <section id="ai-concept-conditions" class="ai-generation-dialog"
+            role="dialog" aria-modal="true" aria-labelledby="ai-generation-dialog-title"
+            aria-hidden="true" hidden></section>
 
         <div id="ai-concept-toast" class="ai-glass ai-toast" role="status" aria-live="polite" hidden></div>
     </main>

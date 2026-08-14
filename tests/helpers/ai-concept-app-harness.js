@@ -39,9 +39,11 @@ export function createAiConceptHarness({
     repository = null,
     captureDeferred = null,
     confirm = () => true,
+    generationConditionRepository = null,
 } = {}) {
     const calls = [];
     const captureCalls = [];
+    const dialogCalls = [];
     const documentRef = createDocument();
     const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 10000);
     const sceneManager = {
@@ -78,6 +80,13 @@ export function createAiConceptHarness({
         invalidate(id) { captureCalls.push(['invalidate', id]); },
         dispose() { captureCalls.push(['dispose']); },
     };
+    const generationDialog = {
+        open(options) { dialogCalls.push(['open', options]); return true; },
+        close() { dialogCalls.push(['close']); },
+        setSubmitting(value) { dialogCalls.push(['submitting', value]); },
+        showError(message) { dialogCalls.push(['error', message]); },
+        dispose() { dialogCalls.push(['dispose']); },
+    };
     const windowRef = {
         location: { search: '?planId=test-plan&version=v1', hash: '#debug' },
         listeners: new Map(),
@@ -100,7 +109,16 @@ export function createAiConceptHarness({
             captureCalls.push(['create', scene, renderer]);
             return thumbnailCapture;
         },
+        generationConditionRepository,
+        generationDialogFactory: (_container, options) => {
+            generationDialog.handlers = options;
+            dialogCalls.push(['create']);
+            return generationDialog;
+        },
         logger: { error() {} },
     });
-    return { app, calls, captureCalls, documentRef, windowRef, sceneManager, roomRenderer, thumbnailCapture };
+    return {
+        app, calls, captureCalls, dialogCalls, generationDialog,
+        documentRef, windowRef, sceneManager, roomRenderer, thumbnailCapture,
+    };
 }
