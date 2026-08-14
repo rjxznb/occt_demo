@@ -68,6 +68,38 @@ test('excluding and restoring an automatic view keeps the page usable', async ()
     assert.equal(app.getState().views.find(view => view.id === active).status, 'available');
 });
 
+test('automatic view deletion asks for confirmation before exclusion', async () => {
+    const { app, calls } = createAiConceptHarness({ confirm: () => false });
+    await app.init();
+    const id = app.getState().activeViewId;
+
+    assert.equal(await app.deleteView(id), false);
+    assert.equal(app.getState().views.find(view => view.id === id).status, 'available');
+    assert.equal(calls.filter(call => call[0] === 'confirm').length, 1);
+});
+
+test('confirmed automatic view deletion keeps recoverable exclusion semantics', async () => {
+    const { app } = createAiConceptHarness();
+    await app.init();
+    const id = app.getState().activeViewId;
+
+    assert.equal(await app.deleteView(id), true);
+    assert.equal(app.getState().views.find(view => view.id === id).status, 'excluded');
+    assert.equal(await app.restoreExcluded(), true);
+    assert.equal(app.getState().views.find(view => view.id === id).status, 'available');
+});
+
+test('custom view deletion asks for confirmation and cancellation preserves it', async () => {
+    const { app, calls } = createAiConceptHarness({ confirm: () => false });
+    await app.init();
+    const custom = await app.addCustomView();
+    app.cancelEdit();
+
+    assert.equal(await app.deleteView(custom.id), false);
+    assert.ok(app.getState().views.some(view => view.id === custom.id));
+    assert.equal(calls.filter(call => call[0] === 'confirm').length, 1);
+});
+
 test('continue exposes every usable view and context without creating fake work', async () => {
     const { app } = createAiConceptHarness();
     await app.init();

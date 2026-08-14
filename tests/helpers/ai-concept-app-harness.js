@@ -34,7 +34,12 @@ export function sceneData() {
     };
 }
 
-export function createAiConceptHarness({ loader, repository = null, captureDeferred = null } = {}) {
+export function createAiConceptHarness({
+    loader,
+    repository = null,
+    captureDeferred = null,
+    confirm = () => true,
+} = {}) {
     const calls = [];
     const captureCalls = [];
     const documentRef = createDocument();
@@ -78,7 +83,10 @@ export function createAiConceptHarness({ loader, repository = null, captureDefer
         listeners: new Map(),
         addEventListener(type, listener) { this.listeners.set(type, listener); },
         removeEventListener(type, listener) { if (this.listeners.get(type) === listener) this.listeners.delete(type); },
-        confirm: () => true,
+        confirm(message) {
+            calls.push(['confirm', message]);
+            return confirm(message);
+        },
     };
     const app = new AiConceptApp({
         documentRef,

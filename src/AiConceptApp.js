@@ -350,8 +350,8 @@ export class AiConceptApp {
     async deleteView(id) {
         const view = this.store?.getState().views.find(candidate => candidate.id === id);
         if (!view || this.phase !== 'ready') return false;
-        if (view.source === 'auto') return this.excludeView(id);
         if (!this.window?.confirm?.(`确认删除“${view.name}”吗？`)) return false;
+        if (view.source === 'auto') return this.excludeView(id);
         const changed = await this.store.deleteCustomView(id);
         if (changed) {
             this.thumbnailCapture?.invalidate?.(id);
