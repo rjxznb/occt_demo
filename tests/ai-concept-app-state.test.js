@@ -153,8 +153,9 @@ test('generation conditions restore their isolated draft and surface the unwired
 });
 
 test('saving an edit refreshes only that thumbnail while cancelling keeps the cache', async () => {
-    const { app, captureCalls } = createAiConceptHarness();
+    const { app, captureCalls, generationCaptureCalls } = createAiConceptHarness();
     await app.init();
+    assert.equal(generationCaptureCalls.filter(call => call[0] === 'create').length, 1);
     await new Promise(resolve => setTimeout(resolve, 0));
     const active = app.getState().activeViewId;
     const initialCaptures = captureCalls.filter(call => call[0] === 'capture').length;
@@ -174,6 +175,7 @@ test('saving an edit refreshes only that thumbnail while cancelling keeps the ca
 
     app.dispose();
     assert.equal(captureCalls.filter(call => call[0] === 'dispose').length, 1);
+    assert.equal(generationCaptureCalls.filter(call => call[0] === 'dispose').length, 1);
 });
 
 test('camera interaction is locked in preview and enabled only while editing', async () => {

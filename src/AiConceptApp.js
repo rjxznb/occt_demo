@@ -13,6 +13,7 @@ import { AiViewFilmstrip } from './ai-concept/AiViewFilmstrip.js';
 import { AiViewEditController } from './ai-concept/AiViewEditController.js';
 import { AiViewMiniMap } from './ai-concept/AiViewMiniMap.js';
 import { AiViewThumbnailCapture } from './ai-concept/AiViewThumbnailCapture.js';
+import { AiViewGenerationCapture } from './ai-concept/AiViewGenerationCapture.js';
 import { AiGenerationConditionsDialog } from './ai-concept/AiGenerationConditionsDialog.js';
 import { LocalAiGenerationConditionRepository } from './ai-concept/AiGenerationConditionRepository.js';
 import {
@@ -66,6 +67,7 @@ export class AiConceptApp {
         filmstripFactory = (container, options) => new AiViewFilmstrip(container, options),
         miniMapFactory = (container, options) => new AiViewMiniMap(container, options),
         thumbnailCaptureFactory = options => new AiViewThumbnailCapture(options),
+        generationCaptureFactory = options => new AiViewGenerationCapture(options),
         generationDialogFactory = (container, options) => new AiGenerationConditionsDialog(container, options),
         generationConditionRepository = undefined,
         logger = console,
@@ -82,6 +84,7 @@ export class AiConceptApp {
         this.filmstripFactory = filmstripFactory;
         this.miniMapFactory = miniMapFactory;
         this.thumbnailCaptureFactory = thumbnailCaptureFactory;
+        this.generationCaptureFactory = generationCaptureFactory;
         this.generationDialogFactory = generationDialogFactory;
         this.generationConditionRepository = generationConditionRepository === undefined
             ? new LocalAiGenerationConditionRepository()
@@ -100,6 +103,7 @@ export class AiConceptApp {
         this.filmstrip = null;
         this.miniMap = null;
         this.thumbnailCapture = null;
+        this.generationCapture = null;
         this.generationDialog = null;
         this.generationConditions = clone(DEFAULT_GENERATION_CONDITIONS);
         this.thumbnailStates = new Map();
@@ -212,6 +216,10 @@ export class AiConceptApp {
             this.sceneManager.setMaterialRestorationEnabled(false);
             this.obstacles = collectContentObstacleBounds(this.roomRenderer.sceneGroup);
             this.thumbnailCapture = this.thumbnailCaptureFactory({
+                scene: this.sceneManager.getScene(),
+                renderer: this.sceneManager.getRenderer(),
+            });
+            this.generationCapture = this.generationCaptureFactory({
                 scene: this.sceneManager.getScene(),
                 renderer: this.sceneManager.getRenderer(),
             });
@@ -552,6 +560,7 @@ export class AiConceptApp {
         this.roomRenderer?.dispose?.(this.sceneManager?.getScene?.());
         this.sceneManager?.destroy?.();
         this.thumbnailCapture?.dispose?.();
+        this.generationCapture?.dispose?.();
         this.generationDialog?.dispose?.();
         this.miniMap?.dispose?.();
         this.sceneManager = null;
@@ -560,6 +569,7 @@ export class AiConceptApp {
         this.filmstrip = null;
         this.miniMap = null;
         this.thumbnailCapture = null;
+        this.generationCapture = null;
         this.generationDialog = null;
         this.thumbnailStates.clear();
         this.editController = null;
