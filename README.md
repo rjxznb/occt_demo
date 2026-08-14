@@ -274,3 +274,23 @@ CSG 失败会被 catch 吞掉并原样返回被减数，所以**先看控制台�
 ## 许可证
 
 [待补充]
+
+## AI 示意图本地服务
+
+AI 生图密钥只在本机进程环境中设置，不要写入源码、配置文件或提交记录：
+
+```powershell
+$env:OPENAI_API_KEY = '<set locally; do not commit>'
+npm.cmd run dev:ai-concept
+```
+
+该命令同时启动 3D/AI 前端和同源 API。未设置 `OPENAI_API_KEY` 时，页面和风格目录仍可打开，提交生成任务会返回 `OPENAI_NOT_CONFIGURED`。任务元数据及输入、输出图片默认保存在 `runtime/ai-concept/`，该目录已被 Git 忽略。
+
+生产构建后可运行：
+
+```powershell
+npm.cmd run build:3d
+npm.cmd run serve:ai-concept
+```
+
+可选环境变量：`AI_CONCEPT_PORT`（默认 `8787`）和 `AI_CONCEPT_CONCURRENCY`（默认 `2`，必须为正整数）。
