@@ -262,6 +262,7 @@ export class AiConceptApp {
 
     _setPhase(phase, detail = '') {
         this.phase = phase;
+        this._syncCameraInteraction();
         if (this.ui.app) this.ui.app.dataset.state = phase;
         if (this.ui.loading) this.ui.loading.hidden = phase !== 'loading';
         if (this.ui.empty) this.ui.empty.hidden = phase !== 'empty';
@@ -269,6 +270,10 @@ export class AiConceptApp {
         if (this.ui.conditions) this.ui.conditions.hidden = phase !== 'conditions';
         if (this.ui.errorMessage && detail) this.ui.errorMessage.textContent = detail;
         this._syncActions();
+    }
+
+    _syncCameraInteraction() {
+        this.sceneManager?.setCameraPresetInteractionEnabled?.(this.phase === 'editing');
     }
 
     _renderState() {
@@ -485,6 +490,7 @@ export class AiConceptApp {
     _destroyRuntime() {
         if (!this.runtimeActive) return;
         this.runtimeGeneration += 1;
+        this.sceneManager?.setCameraPresetInteractionEnabled?.(false);
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = null;
         this.roomRenderer?.dispose?.(this.sceneManager?.getScene?.());

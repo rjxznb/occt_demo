@@ -42,6 +42,11 @@ export function createAiConceptHarness({ loader, repository = null, captureDefer
     const sceneManager = {
         pose: null,
         setMaterialRestorationEnabled(value) { calls.push(['white', value]); },
+        setCameraPresetInteractionEnabled(value) {
+            this.cameraInteractionEnabled = Boolean(value);
+            calls.push(['camera-interaction', Boolean(value)]);
+            return true;
+        },
         setCameraPreset(view) { this.pose = { ...view }; calls.push(['camera', view.id]); return true; },
         transitionCameraPreset(view, options) { this.pose = { ...view }; calls.push(['transition', view.id, options]); return true; },
         getCameraPresetPose() { return this.pose ? { ...this.pose } : null; },

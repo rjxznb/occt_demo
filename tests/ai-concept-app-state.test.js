@@ -66,3 +66,23 @@ test('saving an edit refreshes only that thumbnail while cancelling keeps the ca
     app.dispose();
     assert.equal(captureCalls.filter(call => call[0] === 'dispose').length, 1);
 });
+
+test('camera interaction is locked in preview and enabled only while editing', async () => {
+    const { app, calls, sceneManager } = createAiConceptHarness();
+    await app.init();
+    assert.equal(sceneManager.cameraInteractionEnabled, false);
+
+    assert.equal(await app.enterEditMode(), true);
+    assert.equal(sceneManager.cameraInteractionEnabled, true);
+
+    assert.equal(app.cancelEdit(), true);
+    assert.equal(sceneManager.cameraInteractionEnabled, false);
+
+    assert.equal(await app.enterEditMode(), true);
+    assert.notEqual(await app.saveEdit(), false);
+    assert.equal(sceneManager.cameraInteractionEnabled, false);
+    assert.deepEqual(
+        calls.filter(call => call[0] === 'camera-interaction').map(call => call[1]),
+        [false, true, false, true, false],
+    );
+});
