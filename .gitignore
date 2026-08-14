@@ -24,3 +24,6 @@ Thumbs.db
 # 环境变量
 .env
 .env.local
+
+# AI 示意图运行时任务与图片
+/runtime/ai-concept/
