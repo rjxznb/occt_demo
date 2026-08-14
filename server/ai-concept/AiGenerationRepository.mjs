@@ -90,7 +90,16 @@ export class AiGenerationRepository {
         const temporary = `${target}.${randomUUID()}.tmp`;
         try {
             await writeFile(temporary, bytes);
-            await rename(temporary, target);
+            for (let attempt = 1; ; attempt += 1) {
+                try {
+                    await rename(temporary, target);
+                    break;
+                } catch (error) {
+                    const transient = ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code);
+                    if (!transient || attempt >= 5) throw error;
+                    await new Promise(resolveDelay => setTimeout(resolveDelay, attempt * 5));
+                }
+            }
         } catch (error) {
             try {
                 const { rm } = await import('node:fs/promises');
@@ -117,6 +126,17 @@ export class AiGenerationRepository {
         const metadataPath = this.jobPaths.get(id);
         if (!metadataPath) return null;
         return JSON.parse(await readFile(metadataPath, 'utf8'));
+    }
+
+    async findJobByRequestId(requestId) {
+        const target = String(requestId ?? '');
+        if (!target) return null;
+        await this._index();
+        for (const id of [...this.jobPaths.keys()].sort()) {
+            const job = await this.loadJob(id);
+            if (job?.requestId === target) return job;
+        }
+        return null;
     }
 
     async saveJob(job) {
