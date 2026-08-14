@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import * as outdoorPanorama from '../src/components/OutdoorPanorama.js';
 import { createOutdoorPanoramaTexture } from '../src/components/OutdoorPanorama.js';
 import { SceneManager } from '../src/core/SceneManager.js';
 
@@ -26,6 +27,40 @@ function recordingCanvas() {
         canvas: { width: 0, height: 0, getContext: () => context },
     };
 }
+
+test('real outdoor panorama loader exposes a fixed project-local texture contract', () => {
+    assert.equal(typeof outdoorPanorama.loadOutdoorPanoramaTexture, 'function');
+});
+
+test('real outdoor panorama loader configures the bundled image for equirectangular sRGB', async () => {
+    const texture = new THREE.Texture();
+    let requestedUrl = null;
+    const result = await outdoorPanorama.loadOutdoorPanoramaTexture({
+        textureLoader: {
+            async loadAsync(url) {
+                requestedUrl = url;
+                return texture;
+            },
+        },
+    });
+
+    assert.equal(requestedUrl, './assets/outdoor/residential-community-panorama.png');
+    assert.equal(result, texture);
+    assert.equal(result.mapping, THREE.EquirectangularReflectionMapping);
+    assert.equal(result.colorSpace, THREE.SRGBColorSpace);
+    assert.equal(result.name, 'ResidentialCommunityOutdoorPanorama');
+});
+
+test('real outdoor panorama loader sanitizes image-loading failures', async () => {
+    await assert.rejects(
+        outdoorPanorama.loadOutdoorPanoramaTexture({
+            textureLoader: {
+                async loadAsync() { throw new Error('file:///private/path?token=secret'); },
+            },
+        }),
+        error => error?.message === 'OUTDOOR_PANORAMA_LOAD_FAILED',
+    );
+});
 
 test('outdoor panorama is a local deterministic equirectangular sRGB texture', () => {
     const recording = recordingCanvas();

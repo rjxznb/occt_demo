@@ -2,6 +2,23 @@ import * as THREE from 'three';
 
 export const OUTDOOR_PANORAMA_WIDTH = 2048;
 export const OUTDOOR_PANORAMA_HEIGHT = 1024;
+export const OUTDOOR_PANORAMA_URL = './assets/outdoor/residential-community-panorama.png';
+
+export async function loadOutdoorPanoramaTexture({
+    textureLoader = new THREE.TextureLoader(),
+} = {}) {
+    let texture;
+    try {
+        texture = await textureLoader.loadAsync(OUTDOOR_PANORAMA_URL);
+    } catch {
+        throw new Error('OUTDOOR_PANORAMA_LOAD_FAILED');
+    }
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.name = 'ResidentialCommunityOutdoorPanorama';
+    texture.needsUpdate = true;
+    return texture;
+}
 
 export function drawOutdoorPanorama(context, width, height) {
     const horizon = Math.round(height * 0.58);
