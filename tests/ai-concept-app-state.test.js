@@ -126,7 +126,7 @@ test('continue opens generation conditions with every usable view and current co
     assert.equal(app.getState().phase, 'ready');
 });
 
-test('generation conditions restore their isolated draft and surface the unwired submit boundary', async () => {
+test('generation conditions restore their draft and submit every usable view to a generation job', async () => {
     const saves = [];
     const repository = {
         async load(context) {
@@ -135,7 +135,7 @@ test('generation conditions restore their isolated draft and surface the unwired
         },
         async save(context, conditions) { saves.push([context, conditions]); return { ok: true, conditions }; },
     };
-    const { app, dialogCalls, generationDialog } = createAiConceptHarness({
+    const { app, dialogCalls, generationDialog, generationClientCalls, generationJobCalls } = createAiConceptHarness({
         generationConditionRepository: repository,
     });
     await app.init();
@@ -148,8 +148,49 @@ test('generation conditions restore their isolated draft and surface the unwired
         styleIds: ['fresh-cream'], environmentIds: ['night-ambience'],
     });
     assert.equal(saves.length, 1);
-    assert.deepEqual(dialogCalls.at(-1), ['error', 'AI_GENERATION_CLIENT_NOT_READY']);
+    const create = generationClientCalls.find(call => call[0] === 'create-job');
+    assert.ok(create);
+    assert.equal(create[1].requestId, 'request-1');
+    assert.equal(create[1].planId, 'test-plan');
+    assert.equal(create[1].planVersion, 'v1');
+    assert.equal(create[1].views.length, app.getState().views.length);
+    assert.ok(create[1].views.every(view => view.dataUrl.startsWith('data:image/webp;base64,')));
+    assert.deepEqual(generationJobCalls.find(call => call[0] === 'start'), ['start', 'job-1']);
+    assert.equal(app.getState().phase, 'generation');
+    assert.ok(dialogCalls.some(call => call[0] === 'close'));
+});
+
+test('generation submission failure preserves conditions and exposes only a safe error code', async () => {
+    const generationClient = {
+        async getCatalog() { return { configured: false }; },
+        async createJob() { throw new Error('must not be called'); },
+    };
+    const { app, dialogCalls, generationDialog } = createAiConceptHarness({ generationClient });
+    await app.init();
+    app.continueToConditions();
+
+    assert.equal(await generationDialog.handlers.onSubmit({
+        styleIds: ['modern-minimalist'], environmentIds: ['sunny-day'],
+    }), false);
     assert.equal(app.getState().phase, 'conditions');
+    assert.deepEqual(dialogCalls.at(-1), ['error', 'OPENAI_NOT_CONFIGURED']);
+    assert.ok(!dialogCalls.some(call => call[0] === 'close'));
+});
+
+test('initialization restores the active generation job for the same plan version', async () => {
+    const storage = {
+        getItem(key) {
+            assert.match(key, /test-plan.*v1/);
+            return 'job-restored';
+        },
+        setItem() {},
+        removeItem() {},
+    };
+    const { app, generationJobCalls } = createAiConceptHarness({ generationJobStorage: storage });
+    await app.init();
+
+    assert.equal(app.getState().phase, 'generation');
+    assert.deepEqual(generationJobCalls.find(call => call[0] === 'start'), ['start', 'job-restored']);
 });
 
 test('saving an edit refreshes only that thumbnail while cancelling keeps the cache', async () => {

@@ -16,6 +16,9 @@ import { AiViewThumbnailCapture } from './ai-concept/AiViewThumbnailCapture.js';
 import { AiViewGenerationCapture } from './ai-concept/AiViewGenerationCapture.js';
 import { AiGenerationConditionsDialog } from './ai-concept/AiGenerationConditionsDialog.js';
 import { LocalAiGenerationConditionRepository } from './ai-concept/AiGenerationConditionRepository.js';
+import { AiGenerationClient } from './ai-concept/AiGenerationClient.js';
+import { AiGenerationJobStore } from './ai-concept/AiGenerationJobStore.js';
+import { AiGenerationProgress } from './ai-concept/AiGenerationProgress.js';
 import {
     DEFAULT_GENERATION_CONDITIONS,
     ENVIRONMENT_CATALOG,
@@ -32,7 +35,17 @@ function clone(value) {
 }
 
 function messageOf(error) {
-    return error instanceof Error ? error.message : String(error);
+    return typeof error?.code === 'string'
+        ? error.code
+        : error instanceof Error ? error.message : String(error);
+}
+
+function activeJobKey(context) {
+    return `occt.ai-concept-generation.active:${encodeURIComponent(context?.planId ?? '')}:${encodeURIComponent(context?.version ?? '')}`;
+}
+
+function safeStorageCall(storage, method, ...args) {
+    try { return storage?.[method]?.(...args) ?? null; } catch { return null; }
 }
 
 function canSubmitView(view) {
@@ -70,6 +83,12 @@ export class AiConceptApp {
         generationCaptureFactory = options => new AiViewGenerationCapture(options),
         generationDialogFactory = (container, options) => new AiGenerationConditionsDialog(container, options),
         generationConditionRepository = undefined,
+        generationClientFactory = () => new AiGenerationClient(),
+        generationJobStoreFactory = options => new AiGenerationJobStore(options),
+        generationProgressFactory = (container, options) => new AiGenerationProgress(container, options),
+        generationJobStorage = globalThis.localStorage,
+        requestIdFactory = () => globalThis.crypto?.randomUUID?.()
+            ?? `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
         logger = console,
     } = {}) {
         this.document = documentRef;
@@ -89,6 +108,11 @@ export class AiConceptApp {
         this.generationConditionRepository = generationConditionRepository === undefined
             ? new LocalAiGenerationConditionRepository()
             : generationConditionRepository;
+        this.generationClientFactory = generationClientFactory;
+        this.generationJobStoreFactory = generationJobStoreFactory;
+        this.generationProgressFactory = generationProgressFactory;
+        this.generationJobStorage = generationJobStorage;
+        this.requestIdFactory = requestIdFactory;
         this.logger = logger;
         this.phase = 'idle';
         this.initializing = null;
@@ -105,6 +129,11 @@ export class AiConceptApp {
         this.thumbnailCapture = null;
         this.generationCapture = null;
         this.generationDialog = null;
+        this.generationClient = null;
+        this.generationJobStore = null;
+        this.generationProgress = null;
+        this.generationJobUnsubscribe = null;
+        this.documentContext = null;
         this.generationConditions = clone(DEFAULT_GENERATION_CONDITIONS);
         this.thumbnailStates = new Map();
         this.runtimeGeneration = 0;
@@ -129,6 +158,7 @@ export class AiConceptApp {
             'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
             'ai-concept-error-message', 'ai-concept-retry', 'ai-concept-toast',
             'ai-concept-conditions',
+            'ai-concept-generation-progress',
         ];
         this.ui = Object.fromEntries(ids.map(id => [
             id.replace(/^ai-concept-/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()),
@@ -187,6 +217,16 @@ export class AiConceptApp {
             onSubmit: conditions => this._submitGenerationConditions(conditions),
             onCancel: () => this.cancelGenerationConditions(),
         });
+        this.generationClient = this.generationClientFactory();
+        this.generationJobStore = this.generationJobStoreFactory({ client: this.generationClient });
+        this.generationProgress = this.generationProgressFactory(this.ui.generationProgress, {
+            documentRef: this.document,
+            onRetry: id => void this.generationJobStore?.retry?.(id),
+            onCancel: () => void this.generationJobStore?.cancel?.(),
+        });
+        this.generationJobUnsubscribe = this.generationJobStore?.subscribe?.(state => {
+            this.generationProgress?.render?.(state);
+        }) ?? null;
         this.runtimeGeneration += 1;
         this.runtimeActive = true;
     }
@@ -230,6 +270,7 @@ export class AiConceptApp {
                 roomNames: this.rooms.roomNames,
                 contentModels: data.contentModels?.contentModels ?? [],
             });
+            this.documentContext = context;
             const generated = this.generator({
                 context,
                 rooms: this.rooms,
@@ -255,8 +296,16 @@ export class AiConceptApp {
             const active = this._activeView();
             if (active) {
                 this._enterView(active);
-                this._setPhase('ready');
                 this._queueMissingThumbnails(this.store.getState().views);
+                const activeJobId = safeStorageCall(
+                    this.generationJobStorage, 'getItem', activeJobKey(context),
+                );
+                if (activeJobId) {
+                    this._setPhase('generation');
+                    await this.generationJobStore?.start?.(activeJobId);
+                } else {
+                    this._setPhase('ready');
+                }
             } else {
                 this._setPhase('empty');
             }
@@ -297,7 +346,11 @@ export class AiConceptApp {
     }
 
     getState() {
-        return { ...(this.store?.getState() ?? { views: [], activeViewId: null }), phase: this.phase };
+        return {
+            ...(this.store?.getState() ?? { views: [], activeViewId: null }),
+            phase: this.phase,
+            generation: this.generationJobStore?.getState?.() ?? null,
+        };
     }
 
     _setPhase(phase, detail = '') {
@@ -308,6 +361,7 @@ export class AiConceptApp {
         if (this.ui.empty) this.ui.empty.hidden = phase !== 'empty';
         if (this.ui.error) this.ui.error.hidden = phase !== 'error';
         if (this.ui.conditions) this.ui.conditions.hidden = phase !== 'conditions';
+        if (this.ui.generationProgress) this.ui.generationProgress.hidden = phase !== 'generation';
         if (this.ui.errorMessage && detail) this.ui.errorMessage.textContent = detail;
         this._syncActions();
     }
@@ -334,13 +388,14 @@ export class AiConceptApp {
     _syncActions() {
         const state = this.store?.getState();
         const editing = this.phase === 'editing';
+        const focused = editing || this.phase === 'generation';
         if (this.ui.previous) this.ui.previous.disabled = editing || this.phase !== 'ready';
         if (this.ui.next) this.ui.next.disabled = editing || this.phase !== 'ready';
         if (this.ui.continue) this.ui.continue.disabled = editing || !state?.canContinue || this.phase !== 'ready';
-        if (this.ui.filmstrip) this.ui.filmstrip.hidden = editing;
-        if (this.ui.previous) this.ui.previous.hidden = editing;
-        if (this.ui.next) this.ui.next.hidden = editing;
-        if (this.ui.primaryActions) this.ui.primaryActions.hidden = editing;
+        if (this.ui.filmstrip) this.ui.filmstrip.hidden = focused;
+        if (this.ui.previous) this.ui.previous.hidden = focused;
+        if (this.ui.next) this.ui.next.hidden = focused;
+        if (this.ui.primaryActions) this.ui.primaryActions.hidden = focused;
         if (this.ui.editControls) this.ui.editControls.hidden = !editing;
         this.document?.documentElement?.classList?.toggle('ai-concept-editing', editing);
     }
@@ -540,9 +595,48 @@ export class AiConceptApp {
         const conditions = normalizeGenerationConditions(input);
         this.generationConditions = clone(conditions);
         const context = this.store?.getState()?.context;
-        await this.generationConditionRepository?.save?.(context, conditions);
-        this.generationDialog?.showError?.('AI_GENERATION_CLIENT_NOT_READY');
-        return false;
+        this.generationDialog?.setSubmitting?.(true);
+        try {
+            await this.generationConditionRepository?.save?.(context, conditions);
+            const catalog = await this.generationClient.getCatalog();
+            if (catalog?.configured !== true) {
+                const error = new Error('OPENAI_NOT_CONFIGURED');
+                error.code = 'OPENAI_NOT_CONFIGURED';
+                throw error;
+            }
+            const views = this.store.getState().views.filter(canSubmitView);
+            const captures = await this.generationCapture.captureAll(views);
+            const captureById = new Map(captures.map(capture => [capture.viewId, capture]));
+            const payload = {
+                requestId: this.requestIdFactory(),
+                planId: context.planId,
+                planVersion: context.version,
+                whiteModelVersion: context.version,
+                styleIds: conditions.styleIds,
+                environmentIds: conditions.environmentIds,
+                views: views.map(view => ({
+                    id: view.id,
+                    roomId: view.roomId,
+                    roomName: view.roomName,
+                    name: view.name,
+                    x: view.x, y: view.y, z: view.z,
+                    yaw: view.yaw, pitch: view.pitch, fov: view.fov,
+                    dataUrl: captureById.get(view.id)?.dataUrl,
+                })),
+            };
+            const job = await this.generationClient.createJob(payload);
+            if (!job?.id) throw new Error('INVALID_RESPONSE');
+            safeStorageCall(this.generationJobStorage, 'setItem', activeJobKey(context), job.id);
+            this.generationDialog?.setSubmitting?.(false);
+            this.generationDialog?.close?.();
+            this._setPhase('generation');
+            await this.generationJobStore.start(job.id);
+            return true;
+        } catch (error) {
+            this.generationDialog?.setSubmitting?.(false);
+            this.generationDialog?.showError?.(messageOf(error));
+            return false;
+        }
     }
 
     async retry() {
@@ -562,6 +656,8 @@ export class AiConceptApp {
         this.thumbnailCapture?.dispose?.();
         this.generationCapture?.dispose?.();
         this.generationDialog?.dispose?.();
+        this.generationJobUnsubscribe?.();
+        this.generationJobStore?.stop?.();
         this.miniMap?.dispose?.();
         this.sceneManager = null;
         this.roomRenderer = null;
@@ -571,6 +667,11 @@ export class AiConceptApp {
         this.thumbnailCapture = null;
         this.generationCapture = null;
         this.generationDialog = null;
+        this.generationClient = null;
+        this.generationJobStore = null;
+        this.generationProgress = null;
+        this.generationJobUnsubscribe = null;
+        this.documentContext = null;
         this.thumbnailStates.clear();
         this.editController = null;
         this.inputPolicy = null;

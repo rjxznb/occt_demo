@@ -12,7 +12,7 @@ const REQUIRED_IDS = [
     'ai-concept-height-down', 'ai-concept-height-value', 'ai-concept-height-up',
     'ai-concept-loading', 'ai-concept-empty', 'ai-concept-error',
     'ai-concept-error-message', 'ai-concept-retry', 'ai-concept-toast',
-    'ai-concept-conditions',
+    'ai-concept-conditions', 'ai-concept-generation-progress',
 ];
 
 function createDocument() {
@@ -40,11 +40,18 @@ export function createAiConceptHarness({
     captureDeferred = null,
     confirm = () => true,
     generationConditionRepository = null,
+    generationCaptures = null,
+    generationClient = null,
+    generationJobStore = null,
+    generationJobStorage = null,
 } = {}) {
     const calls = [];
     const captureCalls = [];
     const generationCaptureCalls = [];
     const dialogCalls = [];
+    const generationClientCalls = [];
+    const generationJobCalls = [];
+    const generationProgressCalls = [];
     const documentRef = createDocument();
     const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 10000);
     const sceneManager = {
@@ -91,9 +98,40 @@ export function createAiConceptHarness({
     const generationCapture = {
         captureAll(views) {
             generationCaptureCalls.push(['capture-all', views.map(view => view.id)]);
-            return Promise.resolve([]);
+            return Promise.resolve(generationCaptures ?? views.map(view => ({
+                viewId: view.id,
+                mimeType: 'image/webp',
+                dataUrl: `data:image/webp;base64,${view.id}`,
+                digestSource: view.id,
+            })));
         },
         dispose() { generationCaptureCalls.push(['dispose']); },
+    };
+    const client = generationClient ?? {
+        async getCatalog() {
+            generationClientCalls.push(['catalog']);
+            return { configured: true };
+        },
+        async createJob(payload) {
+            generationClientCalls.push(['create-job', payload]);
+            return { id: 'job-1', status: 'queued', items: [] };
+        },
+    };
+    const jobStore = generationJobStore ?? {
+        listener: null,
+        subscribe(listener) { this.listener = listener; return () => { this.listener = null; }; },
+        async start(id) {
+            generationJobCalls.push(['start', id]);
+            this.listener?.({ status: 'loading', jobId: id, job: null, error: null });
+            return true;
+        },
+        async retry(id) { generationJobCalls.push(['retry', id]); return true; },
+        async cancel() { generationJobCalls.push(['cancel']); return true; },
+        stop(options) { generationJobCalls.push(['stop', options]); },
+        getState() { return { status: 'idle', jobId: null, job: null, error: null }; },
+    };
+    const generationProgress = {
+        render(state) { generationProgressCalls.push(['render', state]); },
     };
     const windowRef = {
         location: { search: '?planId=test-plan&version=v1', hash: '#debug' },
@@ -122,6 +160,11 @@ export function createAiConceptHarness({
             return generationCapture;
         },
         generationConditionRepository,
+        generationClientFactory: () => client,
+        generationJobStoreFactory: () => jobStore,
+        generationProgressFactory: () => generationProgress,
+        generationJobStorage,
+        requestIdFactory: () => 'request-1',
         generationDialogFactory: (_container, options) => {
             generationDialog.handlers = options;
             dialogCalls.push(['create']);
@@ -131,6 +174,7 @@ export function createAiConceptHarness({
     });
     return {
         app, calls, captureCalls, generationCaptureCalls, dialogCalls, generationDialog,
+        generationClientCalls, generationJobCalls, generationProgressCalls,
         documentRef, windowRef, sceneManager, roomRenderer, thumbnailCapture,
     };
 }
