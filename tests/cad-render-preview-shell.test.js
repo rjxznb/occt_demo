@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const cadPluginRoot = process.env.CAD_PLUGIN_ROOT;
+const configuredRendererRoot = process.env.CAD_RENDERER_ROOT;
 
 class FakeElement {
   constructor(tagName) {
@@ -78,15 +79,15 @@ function createShellHarness() {
 }
 
 test('CAD render preview keeps 2D unchanged and exposes the three migrated pages', {
-  skip: !cadPluginRoot,
+  skip: !cadPluginRoot && !configuredRendererRoot,
 }, async () => {
-  const rendererRoot = path.join(
-    cadPluginRoot,
-    'build_resource',
-    'PluginResource',
-    'html',
-    'renderer',
-  );
+  const rendererRoot = configuredRendererRoot ?? path.join(
+      cadPluginRoot,
+      'build_resource',
+      'PluginResource',
+      'html',
+      'renderer',
+    );
   const source = await readFile(path.join(rendererRoot, 'render_preview.js'), 'utf8');
   const harness = createShellHarness();
 
