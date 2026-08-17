@@ -45,6 +45,9 @@ export class AiViewFilmstrip {
 
     render({ views = [], activeViewId = null, thumbnails = new Map() } = {}) {
         if (!this.container || !this.document) return;
+        const previousTrack = Array.from(this.container.children ?? [])
+            .find(element => element.classList?.contains('ai-view-track'));
+        const previousScrollLeft = Number(previousTrack?.scrollLeft) || 0;
         const visible = views.filter(view => !['excluded', 'disabled'].includes(view.status));
         const track = this.document.createElement('div');
         track.classList.add('ai-view-track');
@@ -74,6 +77,7 @@ export class AiViewFilmstrip {
         if (views.some(view => view.status === 'excluded')) {
             footer.appendChild(button(this.document, '恢复已排除视角', 'restore', this.handlers.onRestore));
         }
+        track.scrollLeft = previousScrollLeft;
         this.container.replaceChildren(track, footer);
     }
 

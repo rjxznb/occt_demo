@@ -237,7 +237,7 @@ test('camera preset activation installs a Z-up outdoor panorama', () => {
 
     assert.equal(manager.activateOutdoorPanorama(), true);
     assert.equal(manager.scene.background, outdoor);
-    assert.ok(Math.abs(manager.scene.backgroundRotation.x + Math.PI / 2) < 1e-12);
+    assert.ok(Math.abs(manager.scene.backgroundRotation.x - Math.PI / 2) < 1e-12);
     assert.equal(manager.scene.backgroundRotation.y, 0);
     assert.equal(manager.scene.backgroundRotation.z, 0);
 });

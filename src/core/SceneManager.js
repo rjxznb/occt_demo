@@ -753,7 +753,9 @@ export class SceneManager {
             };
         }
         this.scene.background = this.outdoorPanoramaTexture;
-        this.scene.backgroundRotation.set(-Math.PI / 2, 0, 0);
+        // The panorama image is authored with sky at the top and ground at the
+        // bottom. Map that vertical axis onto the scene's Z-up coordinate system.
+        this.scene.backgroundRotation.set(Math.PI / 2, 0, 0);
         return true;
     }
 

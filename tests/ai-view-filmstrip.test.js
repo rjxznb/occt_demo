@@ -104,6 +104,15 @@ test('centers an interior selected card in the filmstrip viewport', () => {
     assert.deepEqual(track.scrollToOptions, { left: 510, behavior: 'smooth' });
 });
 
+test('preserves the current scroll position when the filmstrip rerenders', () => {
+    const { container, filmstrip, track } = createScrollableFilmstrip();
+    track.scrollLeft = 360;
+
+    filmstrip.render({ views, activeViewId: 'bedroom-corner' });
+
+    assert.equal(container.children[0].scrollLeft, 360);
+});
+
 test('centers cards when nested children are browser-like collections', () => {
     const { container, filmstrip, track } = createScrollableFilmstrip();
     const card = findByDataset(container, 'viewId', 'bedroom-corner');
