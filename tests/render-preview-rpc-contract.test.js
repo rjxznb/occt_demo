@@ -19,6 +19,10 @@ class FakeElement {
     this.listeners.set(type, listener);
   }
 
+  dispatch(type, event = {}) {
+    this.listeners.get(type)?.({ preventDefault() {}, ...event });
+  }
+
   appendChild(child) {
     this.children.push(child);
   }
@@ -90,11 +94,47 @@ function createHarness(nativeMethods) {
     posts,
     calls,
     diagnostics,
+    tabTitles() {
+      return document.getElementById('preview-tabs').children.map(child => child.textContent);
+    },
     invoke(message) {
       listeners.get('message')({ source: iframe.contentWindow, data: {
         channel: 'renderer-preview', version: 1, tabId: 'page-1', type: 'invoke', ...message
       } });
-    }
+    },
+    requestCartoonData(requestId) {
+      listeners.get('message')({
+        source: iframe.contentWindow,
+        origin: 'https://renderer.local',
+        data: { type: 'cartoon.render-preview.get-data', requestId },
+      });
+    },
+    ready(tabId) {
+      if (tabId !== 'page-1') {
+        document.getElementById('preview-tabs').children[1].dispatch('click');
+      }
+      const readyFrame = document.getElementById('preview-stage').children[
+        tabId === 'page-1' ? 0 : 1
+      ].children[0];
+      listeners.get('message')({
+        source: readyFrame.contentWindow,
+        origin: 'https://renderer.local',
+        data: {
+          channel: 'renderer-preview',
+          version: 1,
+          tabId,
+          type: 'ready',
+        },
+      });
+    },
+    load(tabId) {
+      if (tabId !== 'page-1') {
+        document.getElementById('preview-tabs').children[1].dispatch('click');
+      }
+      const index = { 'page-1': 0, 'page-2': 1, 'page-3': 2, 'page-4': 3 }[tabId];
+      const frame = document.getElementById('preview-stage').children[index].children[0];
+      frame.dispatch('load');
+    },
   };
 }
 
@@ -111,6 +151,8 @@ test('render preview validates and forwards parametric native calls with parsed 
     getRenderPreviewContext: () => '{}',
     getParametricGoodsDetail: () => '{"id":"42"}',
     getContentGoodsDetails: () => '[{"id":"1961100"},{"id":"2406734"}]',
+    getContentMaterialDetails: () => '{"items":[{"code":"PT100"}]}',
+    prepareWebModelPackage: () => '{"code":2000,"data":{"resId":"1961113"}}',
     convertParametricModel: () => '{"obj":"mesh"}'
   });
 
@@ -127,6 +169,25 @@ test('render preview validates and forwards parametric native calls with parsed 
   assert.deepEqual(harness.calls.at(-1), {
     name: 'getContentGoodsDetails',
     args: ['{"resIds":["1961100","2406734"]}'],
+  });
+
+  harness.invoke({
+    requestId: 'materials', method: 'getContentMaterialDetails',
+    payload: { materialCodes: ['PT100'] },
+  });
+  await flush();
+  assert.deepEqual(harness.calls.at(-1), {
+    name: 'getContentMaterialDetails',
+    args: ['{"materialCodes":["PT100"]}'],
+  });
+
+  harness.invoke({
+    requestId: 'web-model', method: 'prepareWebModelPackage',
+    payload: { resId: '1961113' },
+  });
+  await flush();
+  assert.deepEqual(harness.calls.at(-1), {
+    name: 'prepareWebModelPackage', args: ['1961113'],
   });
 
   harness.invoke({ requestId: 'convert', method: 'convertParametricModel', payload: {
@@ -216,4 +277,79 @@ test('outer render preview reports fixed receive and result diagnostics', { skip
     { stage: 'outer-rpc-result', code: 'NATIVE_ERROR' }
   ]);
   assert.doesNotMatch(JSON.stringify(errorHarness.diagnostics), /private native error|1961100/);
+});
+
+test('render preview supplies CAD JSON to the cartoon page on demand', { skip: integrationSkip }, async () => {
+  const harness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getRenderPreviewData: () => '{"final_room_list":[{"RoomName":"厨房"}]}'
+  });
+
+  harness.requestCartoonData('drawing-request');
+  await flush();
+
+  assert.ok(harness.calls.some((call) => call.name === 'getRenderPreviewData'));
+  assert.deepEqual(plain(harness.posts.at(-1)), {
+    type: 'cartoon.render-preview.get-data.response',
+    requestId: 'drawing-request',
+    ok: true,
+    data: '{"final_room_list":[{"RoomName":"厨房"}]}'
+  });
+});
+
+test('render preview loads CAD JSON only when a data-backed preview page is ready', { skip: integrationSkip }, async () => {
+  const harness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getRenderPreviewData: () => '{"final_room_list":[{"RoomName":"厨房"}]}',
+  });
+
+  await flush();
+  assert.equal(
+    harness.calls.filter((call) => call.name === 'getRenderPreviewData').length,
+    0,
+  );
+
+  harness.ready('page-2');
+  await flush();
+
+  assert.equal(
+    harness.calls.filter((call) => call.name === 'getRenderPreviewData').length,
+    1,
+  );
+  const contextMessage = harness.posts.find(
+    (message) => message.tabId === 'page-2' && message.type === 'context',
+  );
+  assert.deepEqual(plain(contextMessage.payload.renderPreviewData), {
+    final_room_list: [{ RoomName: '厨房' }],
+  });
+});
+
+test('render preview loads CAD JSON when a data-backed iframe loads without a ready handshake', { skip: integrationSkip }, async () => {
+  const harness = createHarness({
+    getRenderPreviewContext: () => '{}',
+    getRenderPreviewData: () => '{"final_room_list":[{"RoomName":"鍘ㄦ埧"}]}',
+  });
+
+  harness.load('page-2');
+  await flush();
+
+  assert.equal(
+    harness.calls.filter((call) => call.name === 'getRenderPreviewData').length,
+    1,
+  );
+  const contextMessage = harness.posts.find(
+    (message) => message.tabId === 'page-2' && message.type === 'context',
+  );
+  assert.deepEqual(plain(contextMessage.payload.renderPreviewData), {
+    final_room_list: [{ RoomName: '鍘ㄦ埧' }],
+  });
+});
+
+test('render preview exposes the three migrated preview tabs without VR', { skip: integrationSkip }, () => {
+  const harness = createHarness({
+    getRenderPreviewContext: () => '{}',
+  });
+  const tabs = harness.tabTitles();
+
+  assert.deepEqual(tabs, ['户型编辑器', '3D 预览', '全景看房', '局部示意图']);
 });

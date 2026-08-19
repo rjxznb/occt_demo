@@ -1,7 +1,7 @@
 import { SceneManager } from './core/SceneManager.js';
 import { RoomRenderer } from './components/RoomRenderer.js';
 import { geometryService } from './core/GeometryService.js';
-import { BundledDataSource, withSceneFixture } from './core/DataSource.js';
+import { BundledDataSource, RendererPreviewDataSource, withSceneFixture } from './core/DataSource.js';
 import { collectContentObstacleBounds } from './shared/ContentObstacleBounds.js';
 import { validatePanoramaPoint } from './panorama/PanoramaPointValidator.js';
 import { PanoramaInputPolicy } from './panorama/PanoramaInputPolicy.js';
@@ -250,7 +250,11 @@ export class AiConceptApp {
                 roomInfo: clone(data.rooms?.roomInfo ?? []),
             };
             if (!this.rooms.roomPoints.length) throw new Error('户型中没有可分析的房间');
-            await this.roomRenderer.render(clone(data), PASSIVE_WALL_REGISTRY);
+            const renderResult = await this.roomRenderer.render(
+                clone(data),
+                PASSIVE_WALL_REGISTRY,
+            );
+            await renderResult?.contentLoad;
             this.roomRenderer.setRoomLabelsVisible(false);
             this.roomRenderer.setCeilingsVisible(true);
             this.sceneManager.setMaterialRestorationEnabled(false);
@@ -689,8 +693,12 @@ export class AiConceptApp {
 
 function bootAiConceptPage() {
     const bundledData = new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf');
-    geometryService.setDataSource(withSceneFixture(bundledData, globalThis.location?.search ?? ''));
-    const app = new AiConceptApp({ dataSourceId: bundledData.drawingUrl });
+    const dataSource = new RendererPreviewDataSource({
+        windowRef: globalThis.window,
+        fallback: bundledData,
+    });
+    geometryService.setDataSource(withSceneFixture(dataSource, globalThis.location?.search ?? ''));
+    const app = new AiConceptApp({ dataSourceId: 'cad-render-preview' });
     globalThis.occtAiConceptApp = app;
     void app.init();
 }

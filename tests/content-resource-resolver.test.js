@@ -85,7 +85,7 @@ test('resolver ignores signed URLs that are not HTTP(S) resources', () => {
     assert.deepEqual(resource, { errorCode: 'RESOURCE_URL_MISSING', resId: '3' });
 });
 
-test('type 1 prefers an encrypted Web package and retains WebV2 fallback', () => {
+test('CAD transport prefers WebV2 GLB over an encrypted Web package', () => {
     const resource = resolveModelResource('1961113', {
         modelType: 1,
         resourceList: [{ type: 1, data: {
@@ -94,19 +94,12 @@ test('type 1 prefers an encrypted Web package and retains WebV2 fallback', () =>
             webV2Url: 'https://file.test/model.kb?signature=secret',
             webV2Md5: 'web-v2-md5',
         } }],
-    });
+    }, { preferWebV2: true });
     assert.deepEqual(resource, {
         resId: '1961113',
-        kind: 'static-web-package',
-        contentHash: '0123456789abcdef0123456789abcdef',
-        fallbackResource: {
-            resId: '1961113',
-            kind: 'static-glb',
-            sourceUrl: 'https://file.test/model.kb?signature=secret',
-            contentHash: 'web-v2-md5',
-            modelType: 1,
-            resourceType: 1,
-        },
+        kind: 'static-glb',
+        sourceUrl: 'https://file.test/model.kb?signature=secret',
+        contentHash: 'web-v2-md5',
         modelType: 1,
         resourceType: 1,
         rawSummary: {

@@ -131,6 +131,13 @@ export function startSceneContentModelLoads(data, sceneGroup, fallbackMap, optio
         const failures = Array.isArray(terminalResult?.failures)
             ? terminalResult.failures : [];
         emitDiagnostic(diagnostic, 'content-load-summary', 'OK');
+        const placed = Number(summary.placed ?? summary.loaded ?? 0);
+        emitDiagnostic(
+            diagnostic,
+            'content-load-result',
+            failures.length > 0 ? 'CONTENT_FAILED'
+                : placed > 0 ? 'CONTENT_PLACED' : 'CONTENT_EMPTY',
+        );
         logger.log?.('[ContentLoader] scene summary', summary);
         if (failures.length) {
             const safeFailures = allowlistedFailures(failures);
@@ -603,7 +610,7 @@ export class RoomRenderer {
             }
 
             // 5.5 内容模型：真实门窗加入场景后才隐藏对应可见回退；CSG cutters 不参与此映射。
-            startSceneContentModelLoads(
+            const { contentLoad } = startSceneContentModelLoads(
                 data,
                 this.sceneGroup,
                 doorWindowBindings.fallbackMap,
@@ -615,6 +622,7 @@ export class RoomRenderer {
                     },
                 },
             );
+            result.contentLoad = contentLoad;
 
             // 5.6 房间名标注：每个房间中心悬一块文字牌（名称 + 面积）
             if (data.rooms?.roomInfo) {

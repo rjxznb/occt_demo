@@ -27,6 +27,24 @@ test('hides only room labels after the standalone panorama scene renders', async
     ]);
 });
 
+test('waits for content models before entering the initial panorama point', async () => {
+    let resolveContent;
+    const contentLoad = new Promise(resolve => { resolveContent = resolve; });
+    const { app, calls, roomRenderer } = createHarness();
+    roomRenderer.render = async data => {
+        calls.push(['render', data]);
+        return { contentLoad };
+    };
+
+    const initialization = app.init();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(calls.some(call => call[0] === 'camera'), false);
+
+    resolveContent({ summary: { placed: 1 }, failures: [] });
+    assert.equal(await initialization, true);
+    assert.ok(calls.some(call => call[0] === 'camera'));
+});
+
 test('supplies the complete passive wall registry expected by RoomRenderer', async () => {
     const { app, roomRenderer } = createHarness();
     roomRenderer.render = async (_data, wallRegistry) => {

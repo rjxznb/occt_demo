@@ -1,4 +1,4 @@
-export function resolveModelResource(resId, detail) {
+export function resolveModelResource(resId, detail, { preferWebV2 = false } = {}) {
     const normalizedResId = String(resId ?? '').trim();
     const model = detail?.modelDTO ?? detail?.data?.modelDTO ?? detail ?? {};
     const candidates = Array.isArray(model?.resourceList) ? model.resourceList : [];
@@ -18,6 +18,10 @@ export function resolveModelResource(resId, detail) {
     };
 
     for (const resource of resources) {
+        if (preferWebV2 && resource.type === 1 && isHttpUrl(resource.data.webV2Url)) {
+            return resolvedResource(normalizedResId, 'static-glb', resource.data.webV2Url,
+                resource.data.webV2Md5, model.modelType, 1, rawSummary);
+        }
         if (resource.type === 1 && hasWebPackage(resource.data)) {
             const fallbackResource = staticFallback(
                 normalizedResId,

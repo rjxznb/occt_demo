@@ -25,6 +25,26 @@ test('shows a recoverable error when scene loading fails', async () => {
     assert.equal(documentRef.getElementById('ai-concept-error-message').textContent, 'drawing missing');
 });
 
+test('waits for content models before generating views and thumbnails', async () => {
+    let resolveContent;
+    const contentLoad = new Promise(resolve => { resolveContent = resolve; });
+    const { app, calls, captureCalls, roomRenderer } = createAiConceptHarness();
+    roomRenderer.render = async (data, registry) => {
+        calls.push(['render', data, registry]);
+        return { contentLoad };
+    };
+
+    const initialization = app.init();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(calls.some(call => call[0] === 'camera'), false);
+    assert.equal(captureCalls.some(call => call[0] === 'capture'), false);
+
+    resolveContent({ summary: { placed: 1 }, failures: [] });
+    assert.equal(await initialization, true);
+    assert.ok(calls.some(call => call[0] === 'camera'));
+    assert.ok(captureCalls.some(call => call[0] === 'capture'));
+});
+
 test('starts thumbnail capture in the background and renders the linked mini-map', async () => {
     let resolveCapture;
     const captureDeferred = {

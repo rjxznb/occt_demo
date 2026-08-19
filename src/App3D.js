@@ -6,7 +6,7 @@ import { MaterialSidebar } from './components/MaterialSidebar.js';
 import { DragDropManager } from './components/DragDropManager.js';
 import { SelectionManager } from './components/SelectionManager.js';
 import { geometryService } from './core/GeometryService.js';
-import { BundledDataSource, withSceneFixture } from './core/DataSource.js';
+import { BundledDataSource, RendererPreviewDataSource, withSceneFixture } from './core/DataSource.js';
 import { TemplatePicker } from './components/TemplatePicker.js';
 import { RoomInfoView } from './components/RoomInfoView.js';
 import { PanoramaCapture } from './components/PanoramaCapture.js';
@@ -555,7 +555,8 @@ class OCCTApp3D {
 document.addEventListener('DOMContentLoaded', () => {
     globalThis.__renderPreviewDiagnostic?.('app-boot', 'OK');
     const bundledData = new BundledDataSource('data/Drawing2.json', 'data/parsed_dxf');
-    geometryService.setDataSource(withSceneFixture(bundledData, window.location.search));
+    const dataSource = new RendererPreviewDataSource({ windowRef: window, fallback: bundledData });
+    geometryService.setDataSource(withSceneFixture(dataSource, window.location.search));
     window.occtApp = new OCCTApp3D();
 });
 

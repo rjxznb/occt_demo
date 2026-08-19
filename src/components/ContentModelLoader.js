@@ -510,7 +510,9 @@ export class ContentModelLoader {
         for (const resId of uniqueResIds) {
             const detail = details.get(resId);
             if (!detail) continue;
-            resourceByResId.set(resId, this.resolveResource(resId, detail));
+            resourceByResId.set(resId, this.resolveResource(resId, detail, {
+                preferWebV2: this.apiClient?.transport === 'cad',
+            }));
         }
 
         const loadRecords = [];

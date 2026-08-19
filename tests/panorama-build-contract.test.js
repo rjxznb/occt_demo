@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfigFromFile } from 'vite';
 
-test('3D distribution builds preview, VR, panorama, and AI concept pages', async () => {
+test('3D distribution builds preview, panorama, and AI concept pages without VR', async () => {
     const configFile = fileURLToPath(new URL('../vite.config.3d.js', import.meta.url));
     const loaded = await loadConfigFromFile(
         { command: 'build', mode: 'production' },
@@ -16,7 +16,7 @@ test('3D distribution builds preview, VR, panorama, and AI concept pages', async
     assert.equal(config.base, './');
     assert.equal(config.build?.outDir, 'dist-3d');
     assert.equal(path.basename(inputs.preview ?? ''), 'index-3d.html');
-    assert.equal(path.basename(inputs.vr ?? ''), 'index-vr.html');
+    assert.equal(inputs.vr, undefined);
     assert.equal(path.basename(inputs.panorama ?? ''), 'index-panorama.html');
     assert.equal(path.basename(inputs.aiConcept ?? ''), 'index-ai-concept.html');
 });

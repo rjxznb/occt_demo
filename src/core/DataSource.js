@@ -44,6 +44,84 @@ export class BundledDataSource {
 }
 
 /** 用户从本地选中的文件 */
+/**
+ * Uses the JSON supplied by the CAD render-preview shell when embedded.
+ * Standalone development keeps using the bundled fixture data.
+ */
+export class RendererPreviewDataSource {
+    constructor({ windowRef = globalThis.window, fallback } = {}) {
+        this.window = windowRef;
+        this.fallback = fallback;
+        this.name = 'CAD render preview';
+        this.parent = this.window?.parent;
+        this.embedded = Boolean(this.parent && this.parent !== this.window);
+        this.drawingPromise = null;
+        this.contextDrawing = null;
+        this.contextError = null;
+        this._onMessage = this._onMessage.bind(this);
+
+        if (this.embedded) {
+            this.window.addEventListener('message', this._onMessage);
+        }
+    }
+
+    _onMessage(event) {
+        const message = event?.data;
+        if (event?.source !== this.parent
+            || !message
+            || message.channel !== 'renderer-preview'
+            || message.version !== 1
+            || message.type !== 'context') {
+            return;
+        }
+
+        const rawData = message.payload?.renderPreviewData;
+        if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+            this.contextDrawing = rawData;
+            this._resolveDrawing?.(rawData);
+            this._clearMessageListener();
+            return;
+        }
+
+        this.contextError = new Error('CAD render preview data is unavailable');
+        this._rejectDrawing?.(this.contextError);
+        this._clearMessageListener();
+    }
+
+    _clearMessageListener() {
+        this.window?.removeEventListener('message', this._onMessage);
+        this._resolveDrawing = null;
+        this._rejectDrawing = null;
+    }
+
+    async loadDrawing() {
+        if (!this.embedded) {
+            if (!this.fallback) throw new Error('Standalone renderer data source is unavailable');
+            return this.fallback.loadDrawing();
+        }
+
+        if (this.contextDrawing) return this.contextDrawing;
+        if (this.contextError) throw this.contextError;
+
+        if (!this.drawingPromise) {
+            this.drawingPromise = new Promise((resolve, reject) => {
+                this._resolveDrawing = resolve;
+                this._rejectDrawing = reject;
+            });
+        }
+        return this.drawingPromise;
+    }
+
+    async loadSoftlist(id) {
+        if (!this.fallback) throw new Error(`Softlist data source is unavailable: ${id}`);
+        return this.fallback.loadSoftlist(id);
+    }
+
+    dispose() {
+        this._clearMessageListener();
+    }
+}
+
 export class LocalFileDataSource {
     /**
      * @param {File} drawingFile - 户型 JSON

@@ -38,6 +38,7 @@ test('RoomRenderer reports only fixed unified content pipeline diagnostic stages
     assert.deepEqual(diagnostics, [
         ['content-load-start', 'OK'],
         ['content-load-summary', 'OK'],
+        ['content-load-result', 'CONTENT_EMPTY'],
         ['content-load-start', 'OK'],
         ['content-load-error', 'CONTENT_ERROR'],
     ]);

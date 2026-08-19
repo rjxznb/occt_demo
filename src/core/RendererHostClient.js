@@ -1,6 +1,29 @@
 const CHANNEL = 'renderer-preview';
 const VERSION = 1;
 
+function resolveParentOrigin(selfWindow, parentWindow) {
+    try {
+        const parentOrigin = String(parentWindow?.location?.origin ?? '');
+        if (parentOrigin && parentOrigin !== 'null') {
+            return parentOrigin;
+        }
+    } catch (error) {
+        // Cross-origin parent location is intentionally inaccessible.
+    }
+    return '*';
+}
+
+export function resolveRendererTabId(location = globalThis.location) {
+    const pathname = String(location?.pathname ?? '').toLowerCase();
+    if (pathname.includes('/preview-panorama/') || pathname.endsWith('/index-panorama.html')) {
+        return 'page-3';
+    }
+    if (pathname.includes('/preview-ai-concept/') || pathname.endsWith('/index-ai-concept.html')) {
+        return 'page-4';
+    }
+    return 'page-2';
+}
+
 export class RendererHostClient {
     constructor({
         selfWindow = globalThis.window,
@@ -15,9 +38,10 @@ export class RendererHostClient {
         this.pending = new Map();
         this.sequence = 0;
         this.disposed = false;
-        this.targetOrigin = selfWindow?.location?.origin || '*';
+        this.targetOrigin = resolveParentOrigin(selfWindow, parentWindow);
         this.handleMessage = this.handleMessage.bind(this);
         selfWindow?.addEventListener('message', this.handleMessage);
+        this.diagnose('rpc-client-ready', tabId.replace('page-', 'PAGE_'));
     }
 
     isAvailable() {
@@ -61,7 +85,8 @@ export class RendererHostClient {
 
     handleMessage(event) {
         const message = event.data;
-        if (event.source !== this.parentWindow || event.origin !== this.targetOrigin ||
+        if (event.source !== this.parentWindow ||
+            (this.targetOrigin !== '*' && event.origin !== this.targetOrigin) ||
             !message || message.channel !== CHANNEL || message.version !== VERSION ||
             message.tabId !== this.tabId || message.type !== 'result') return;
         const pending = this.pending.get(message.requestId);
@@ -96,4 +121,4 @@ export class RendererHostClient {
 
 export const rendererHostClient = typeof window === 'undefined'
     ? null
-    : new RendererHostClient({ tabId: 'page-2' });
+    : new RendererHostClient({ tabId: resolveRendererTabId(window.location) });

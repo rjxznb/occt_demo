@@ -78,7 +78,7 @@ function createShellHarness() {
   return { document, elements, window };
 }
 
-test('CAD render preview keeps 2D unchanged and exposes the three migrated pages', {
+test('CAD render preview keeps 2D unchanged and exposes the migrated pages from the renderer virtual host', {
   skip: !cadPluginRoot && !configuredRendererRoot,
 }, async () => {
   const rendererRoot = configuredRendererRoot ?? path.join(
@@ -107,15 +107,15 @@ test('CAD render preview keeps 2D unchanged and exposes the three migrated pages
   const tabs = harness.elements.get('preview-tabs').children;
   assert.deepEqual(
     tabs.map((tab) => tab.textContent),
-    ['户型编辑器', '3D 鸟瞰图', '全景看房', '局部示意图'],
+    ['户型编辑器', '3D 预览', '全景看房', '局部示意图'],
   );
 
   assert.equal(harness.elements.get('preview-stage').children.length, 4);
   const expectedSources = [
-    './cartoon/index.html',
-    './preview3d/index.html',
-    './preview-panorama/index.html',
-    './preview-ai-concept/index.html',
+    'https://renderer.local/cartoon/index.html',
+    'https://renderer.local/preview3d/index.html',
+    'https://renderer.local/preview-panorama/index.html',
+    'https://renderer.local/preview-ai-concept/index.html',
   ];
 
   for (let index = 0; index < tabs.length; index += 1) {

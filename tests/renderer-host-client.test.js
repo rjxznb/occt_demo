@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RendererHostClient } from '../src/core/RendererHostClient.js';
+import { RendererHostClient, resolveRendererTabId } from '../src/core/RendererHostClient.js';
 
 class FakeWindow {
     constructor() {
         this.listeners = new Map();
-        this.location = { origin: 'https://renderer.local' };
+        this.location = { origin: 'https://renderer.local', pathname: '/preview3d/index.html' };
     }
 
     addEventListener(type, listener) {
@@ -29,6 +29,14 @@ class FakeWindow {
     }
 }
 
+test('resolves the CAD outer tab from each embedded page path', () => {
+    assert.equal(resolveRendererTabId({ pathname: '/preview3d/index.html' }), 'page-2');
+    assert.equal(resolveRendererTabId({ pathname: '/preview-panorama/index.html' }), 'page-3');
+    assert.equal(resolveRendererTabId({ pathname: '/preview-ai-concept/index.html' }), 'page-4');
+    assert.equal(resolveRendererTabId({ pathname: '/index-panorama.html' }), 'page-3');
+    assert.equal(resolveRendererTabId({ pathname: '/index-ai-concept.html' }), 'page-4');
+});
+
 function createHarness(defaultTimeoutMs = 50) {
     const selfWindow = new FakeWindow();
     const sent = [];
@@ -37,6 +45,7 @@ function createHarness(defaultTimeoutMs = 50) {
         diagnostics.push({ stage, code });
     };
     const parentWindow = {
+        location: { origin: 'https://renderer.local' },
         postMessage(message, targetOrigin) {
             sent.push({ message, targetOrigin });
         },
@@ -54,6 +63,7 @@ test('invoke pairs a renderer-preview result with its request', async () => {
     const selfWindow = new FakeWindow();
     const sent = [];
     const parentWindow = {
+        location: { origin: 'https://renderer.local' },
         postMessage(message, targetOrigin) {
             sent.push({ message, targetOrigin });
         },
@@ -84,6 +94,40 @@ test('invoke pairs a renderer-preview result with its request', async () => {
     });
 
     assert.deepEqual(await pending, { data: { id: 42 } });
+    client.dispose();
+});
+
+test('supports a local CAD outer page with a virtual-host iframe', async () => {
+    const selfWindow = new FakeWindow();
+    const sent = [];
+    const parentWindow = {
+        location: { origin: 'null' },
+        postMessage(message, targetOrigin) {
+            sent.push({ message, targetOrigin });
+        },
+    };
+    const client = new RendererHostClient({
+        selfWindow,
+        parentWindow,
+        tabId: 'page-2',
+        defaultTimeoutMs: 50,
+    });
+
+    const pending = client.invoke('getContentGoodsDetails', { resIds: ['42'] });
+    const request = sent[0].message;
+    assert.equal(sent[0].targetOrigin, '*');
+
+    selfWindow.emitMessage(parentWindow, {
+        channel: 'renderer-preview',
+        version: 1,
+        tabId: 'page-2',
+        type: 'result',
+        requestId: request.requestId,
+        ok: true,
+        payload: { items: [{ id: '42' }] },
+    }, 'null');
+
+    assert.deepEqual(await pending, { items: [{ id: '42' }] });
     client.dispose();
 });
 
@@ -136,6 +180,7 @@ test('emits only fixed RPC diagnostic stages for success and timeout', async () 
     });
     await pending;
     assert.deepEqual(successHarness.diagnostics, [
+        { stage: 'rpc-client-ready', code: 'PAGE_2' },
         { stage: 'rpc-send', code: 'OK' },
         { stage: 'rpc-result', code: 'OK' },
     ]);
@@ -149,6 +194,7 @@ test('emits only fixed RPC diagnostic stages for success and timeout', async () 
         error => error.code === 'TIMEOUT',
     );
     assert.deepEqual(timeoutHarness.diagnostics, [
+        { stage: 'rpc-client-ready', code: 'PAGE_2' },
         { stage: 'rpc-send', code: 'OK' },
         { stage: 'rpc-timeout', code: 'TIMEOUT' },
     ]);

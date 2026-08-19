@@ -16,6 +16,8 @@ test('native parametric model bridge validates inputs and suppresses callbacks a
 
     assert.match(source, /BindAsync\(\s*"getParametricGoodsDetail"/);
     assert.match(source, /BindAsync\(\s*"getContentGoodsDetails"/);
+    assert.match(source, /BindAsync\(\s*"getContentMaterialDetails"/);
+    assert.match(source, /BindAsync\(\s*"prepareWebModelPackage"/);
     assert.match(source, /BindAsync\(\s*"convertParametricModel"/);
     assert.match(source, /args\.size\(\)\s*!=\s*1/);
     assert.match(source, /args\.front\(\)\.size\(\)\s*>\s*kMaxSerializedRequestBytes[\s\S]*?nlohmann::json::parse/);

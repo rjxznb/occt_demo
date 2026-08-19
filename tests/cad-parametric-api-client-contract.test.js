@@ -13,6 +13,8 @@ test('native parametric API client keeps fixed endpoints and bounded secure curl
     const header = await readFile(join(dirname(CLIENT_PATH), 'k_parametric_api_client.h'), 'utf8');
 
     assert.match(header, /GetGoodsDetails\(\s*const std::vector<std::string>& res_ids\s*\) const/);
+    assert.match(header, /GetMaterialDetails\(\s*const std::vector<std::string>& material_codes\s*\) const/);
+    assert.match(header, /GetPreparedWebModel\(\s*const std::string& res_id\s*\) const/);
     assert.match(source, /kMaxResponseBytes\s*=\s*64u\s*\*\s*1024u\s*\*\s*1024u/);
     assert.match(source, /CURLOPT_PROTOCOLS[\s\S]*?CURLPROTO_HTTP\s*\|\s*CURLPROTO_HTTPS/);
     assert.match(source, /CURLOPT_FOLLOWLOCATION\s*,\s*0L/);
@@ -27,6 +29,9 @@ test('native parametric API client keeps fixed endpoints and bounded secure curl
     assert.match(source, /http:\/\/i\.bim-zeus\.home\.ke\.com\/api\/resGoods\/getGoodsDetailById\?id=/);
     assert.match(source, /biz-gateway\.home\.ke\.com\/utopia-render-platform\/bim\/pc\/render\/getResGoodsDetail/);
     assert.match(source, /resGoodsIdList=/);
+    assert.match(source, /loadTexturesFile/);
+    assert.match(source, /webV2Url/);
+    assert.match(source, /webV2Md5/);
     assert.match(source, /std::unordered_set<std::string>\s+seen_res_ids/);
     assert.match(source, /!seen_res_ids\.insert\(res_id\)\.second/);
     assert.match(source, /CURLSSLOPT_NATIVE_CA/);

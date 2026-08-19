@@ -3,14 +3,13 @@
  *
  *   <app>/
  *     assets/            构建出的 JS/CSS（两个入口共享 three 等公共 chunk）
- *     index.html         入口（由 index-3d.html / index-vr.html 重命名而来）
+ *     index.html         入口（由各页面入口重命名而来）
  *     data/
  *       Drawing2.json    示例户型（渲染只需要它）
  *       templates/       配色模板（3D 预览点「应用模板」时才用）
  *
  * 部署两个 app：
  *   preview3d  ← index-3d.html （页面二·3D 预览）
- *   preview-vr ← index-vr.html （页面三·VR 看房）
  *
  * 刻意不拷 data/parsed_dxf（2D 软装几何，3D/VR 用 footprint 占位盒，不 fetch）
  * 和 mx_250804 等未引用资源，保持 app 目录精简。
@@ -28,7 +27,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = join(__dirname, '..', 'dist-3d');
 
-// 目标 renderer 根目录（其下再放 preview3d / preview-vr）
+// 目标 renderer 根目录（其下再放实际嵌入 CAD 的页面）
 const RENDERER_DIRS = [
     'F:\\cad_plugin\\build_resource\\pluginresource\\html\\renderer',
     'C:\\Users\\User\\AppData\\Local\\ke_arx_cache\\2021\\PluginResource\\html\\renderer',
@@ -37,7 +36,6 @@ const RENDERER_DIRS = [
 // 每个内嵌 app：产物入口 → 部署文件夹
 const APPS = [
     { entry: 'index-3d.html', folder: 'preview3d' },
-    { entry: 'index-vr.html', folder: 'preview-vr' },
 ];
 
 for (const app of APPS) {
